@@ -241,7 +241,7 @@ pub unsafe extern "C" fn FFIPropagation_run(
     err_msg: *mut c_char,
 ) -> bool {
     use self::PropagError::*;
-    match (|| {
+    match std::panic::catch_unwind(|| {
         let propag: Propagation = propag.try_into().map_err(PropagGdalError)?;
         let geo_ref = propag.settings.geo_ref;
         let mut time = rasterize_times(
@@ -252,12 +252,17 @@ pub unsafe extern "C" fn FFIPropagation_run(
         .map_err(PropagGdalError)?;
         propagate(&propag, &mut time)?;
         write_times(time, &geo_ref, propag.output_path).map_err(PropagGdalError)
-    })() {
-        Ok(()) => true,
-        Err(err) => {
+    }) {
+        Ok(Ok(())) => true,
+        Ok(Err(err)) => {
             let err = format!("{}", err);
-            let c_err = std::ffi::CString::new(err).unwrap();
-            libc::strncpy(err_msg, c_err.as_ptr(), err_len);
+            if let Ok(c_err) = std::ffi::CString::new(err) {
+                libc::strncpy(err_msg, c_err.as_ptr(), err_len);
+            }
+            false
+        }
+        Err(err) => {
+            println!("panicked! {:?}", err);
             false
         }
     }
@@ -626,8 +631,9 @@ pub unsafe extern "C" fn propag_rasterize_fuels(
         Ok(()) => true,
         Err(err) => {
             let err = format!("{}", err);
-            let c_err = std::ffi::CString::new(err).unwrap();
-            libc::strncpy(err_msg, c_err.as_ptr(), err_len);
+            if let Ok(c_err) = std::ffi::CString::new(err) {
+                libc::strncpy(err_msg, c_err.as_ptr(), err_len);
+            }
             false
         }
     }

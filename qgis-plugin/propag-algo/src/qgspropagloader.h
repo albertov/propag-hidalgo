@@ -4,6 +4,7 @@
 #include "propag_host.h"
 #include "qgis.h"
 #include "qgsprocessingalgorithm.h"
+#include <qgsexception.h>
 
 class QgsPropagLoader {
   QgsFeatureSource *_fuelCodes;
@@ -21,7 +22,19 @@ private:
 
 static bool load_terrain(void *self, const GeoReference *geo_ref,
                          FFITerrain *output) {
-  return static_cast<QgsPropagLoader *>(self)->load_terrain(geo_ref, output);
+  try {
+    return static_cast<QgsPropagLoader *>(self)->load_terrain(geo_ref, output);
+  } catch (const std::exception &ex) {
+    std::cerr << "load_terrain crashed: " << ex.what() << std::endl;
+    return false;
+  } catch (const QgsException &ex) {
+    std::cerr << "load_terrain crashed: " << ex.what().toUtf8().toStdString()
+              << std::endl;
+    return false;
+  } catch (...) {
+    std::cerr << "load_terrain crashed" << std::endl;
+    return false;
+  }
 };
 
 #endif

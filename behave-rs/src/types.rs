@@ -1,4 +1,5 @@
 use crate::units::areal_mass_density::pound_per_square_foot;
+use crate::units::linear_power_density::btu_foot_sec;
 use uom::si::absement::foot_second;
 use uom::si::angle::radian;
 use uom::si::area::square_meter;
@@ -461,7 +462,7 @@ impl Combustion<'_> {
         todo!()
     }
     fn speed_max(&self, terrain: &Terrain) -> Velocity {
-        todo!()
+        self.speed(terrain) * (Ratio::new::<ratio>(1.0) + self.phi_ew(terrain))
     }
     fn azimuth_max(&self, terrain: &Terrain) -> Angle {
         todo!()
@@ -470,10 +471,11 @@ impl Combustion<'_> {
         todo!()
     }
     fn byrams_max(&self, terrain: &Terrain) -> LinearPowerDensity {
-        todo!()
+        self.residence_time * self.speed_max(terrain) * self.rx_int(terrain)
+            / Ratio::new::<ratio>(60.0)
     }
     fn flame_max(&self, terrain: &Terrain) -> Length {
-        todo!()
+        flame_length(self.byrams_max(terrain))
     }
 
     fn life_moisture(&self, life: Life, terrain: &Terrain) -> Ratio {
@@ -488,7 +490,7 @@ impl Combustion<'_> {
             Life::Alive => {
                 if self.fuel.has_live_particles() {
                     let fdmois = self.wfmd(terrain) / self.fine_dead_factor;
-                    let live_mext = self.fuel.live_ext_factor()
+                    let live_mext = self.live_ext_factor
                         * (Ratio::new::<ratio>(1.0) - fdmois / self.fuel.mext)
                         - Ratio::new::<ratio>(0.226);
                     live_mext.max(self.fuel.mext)
@@ -531,5 +533,31 @@ impl Combustion<'_> {
                     * p.sigma_factor()
             })
             .sum()
+    }
+
+    fn phi_slope(&self, terrain: &Terrain) -> Ratio {
+        Ratio::new::<ratio>(self.slope_k * terrain.slope.get::<ratio>().powf(2.0))
+    }
+
+    fn phi_wind(&self, terrain: &Terrain) -> Ratio {
+        if terrain.wind_speed < Velocity::new::<meter_per_second>(SMIDGEN) {
+            Ratio::new::<ratio>(0.0)
+        } else {
+            let ws = terrain.wind_speed.get::<meter_per_second>();
+            Ratio::new::<ratio>(self.wind_k * ws.powf(self.wind_b))
+        }
+    }
+
+    fn phi_ew(&self, terrain: &Terrain) -> Ratio {
+        self.phi_slope(terrain) + self.phi_wind(terrain)
+    }
+}
+
+fn flame_length(byrams: LinearPowerDensity) -> Length {
+    let b = byrams.get::<btu_foot_sec>();
+    if b < SMIDGEN {
+        Length::new::<foot>(0.0)
+    } else {
+        Length::new::<foot>(0.45 * b.powf(0.46))
     }
 }

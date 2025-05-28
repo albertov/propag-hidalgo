@@ -180,6 +180,7 @@ private:
             // point with a different reference or fire
             DDA iter(idx_2d_, make_uint2(reference.pos.x, reference.pos.y));
 
+            int2 prev_pos = neighbor_pos;
             int2 possible_blockage_pos;
             iter.next(possible_blockage_pos); // skip self
             while (iter.next(possible_blockage_pos)) {
@@ -188,9 +189,15 @@ private:
                   possible_blockage_pos.x +
                   possible_blockage_pos.y * settings_.geo_ref.width;
               if (is_boundary(boundaries, blockage_idx)) {
-                reference = PointRef(neighbor.time, neighbor_pos);
+                Point ref_p = load_point(prev_pos);
+                if (ref_p.time < FLT_MAX) {
+                  reference = PointRef(ref_p.time, prev_pos);
+                } else {
+                  reference = PointRef(neighbor.time, neighbor_pos);
+                }
                 break;
               };
+              prev_pos = possible_blockage_pos;
             }
 
             float t = time_from(reference, neighbor.fire);
@@ -198,7 +205,7 @@ private:
               best.time = t;
               best.reference = reference;
             }
-          }
+          };
         };
       };
       return best;
@@ -245,6 +252,8 @@ private:
         __threadfence();
         p.reference.pos = make_ushort2(refs_x_[idx], refs_y_[idx]);
         ASSERT(p.reference.is_valid(settings_.geo_ref));
+        int reference_ix =
+            p.reference.pos.x + p.reference.pos.y * settings_.geo_ref.width;
         p.reference.time = refs_time_[idx];
         ASSERT(p.reference.time != FLT_MAX);
       };

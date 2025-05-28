@@ -167,7 +167,7 @@ impl ParticleDef {
         }
     }
 }
-fn safe_div(a: f64, b: f64) -> f64 {
+const fn safe_div(a: f64, b: f64) -> f64 {
     if b > SMIDGEN {
         a / b
     } else {
@@ -216,7 +216,7 @@ impl Particle {
         .get::<ratio>()
     }
 
-    fn surface_area(&self) -> f64 {
+    const fn surface_area(&self) -> f64 {
         safe_div(self.load * self.savr, self.density)
     }
 
@@ -224,7 +224,7 @@ impl Particle {
         safe_div(-138.0, self.savr).exp()
     }
 
-    fn size_class(&self) -> SizeClass {
+    const fn size_class(&self) -> SizeClass {
         let savr = self.savr;
         if savr > 1200.0 {
             SizeClass::SC0
@@ -437,7 +437,7 @@ impl Combustion {
                 phi_eff_wind: Ratio::new::<ratio>(phi_eff_wind),
                 speed_max: Velocity::new::<foot_per_minute>(speed_max),
                 azimuth_max: Angle::new::<radian>(azimuth_max),
-                eccentricity: Ratio::new::<ratio>(self.eccentricity(eff_wind)),
+                eccentricity: Ratio::new::<ratio>(Combustion::eccentricity(eff_wind)),
                 byrams_max: LinearPowerDensity::new::<btu_foot_sec>(
                     self.byrams_max(terrain, speed_max),
                 ),
@@ -547,7 +547,7 @@ impl Combustion {
     fn hpua(&self, terrain: &Terrain) -> f64 {
         self.rx_int(terrain) * self.residence_time
     }
-    fn eccentricity(&self, eff_wind: f64) -> f64 {
+    fn eccentricity(eff_wind: f64) -> f64 {
         let lw_ratio = 1.0 + 0.002840909 * eff_wind;
         if eff_wind > SMIDGEN && lw_ratio > 1.0 + SMIDGEN {
             (lw_ratio * lw_ratio - 1.0).sqrt() / lw_ratio

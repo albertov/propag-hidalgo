@@ -103,14 +103,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut refs_y: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
     let max_time: float::T = 60.0 * 60.0 * 50.0;
 
-    timeit!({
+    ({
         let mut speed_max: Vec<Option<float::T>> =
             std::iter::repeat(None).take(model.len()).collect();
         let mut azimuth_max: Vec<Option<float::T>> =
             std::iter::repeat(None).take(model.len()).collect();
         let mut eccentricity: Vec<Option<float::T>> =
             std::iter::repeat(None).take(model.len()).collect();
-        let mut progress: Vec<f32> = std::iter::repeat(0.0).take(linear_grid_size).collect();
+        let mut progress: Vec<u32> = std::iter::repeat(0).take(linear_grid_size).collect();
 
         time.fill(None);
         refs_x.fill(None);
@@ -163,8 +163,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             stream.synchronize()?;
             let mut no_progress_rounds = 0;
             loop {
-                progress.fill(0.0);
-                progress_buf.copy_from(&progress)?;
                 let num_times = time.iter().filter(|t| t.is_some()).count();
                 launch!(
                     // slices are passed as two parameters, the pointer and the length.
@@ -181,21 +179,23 @@ fn main() -> Result<(), Box<dyn Error>> {
                         time_buf.as_device_ptr(),
                         refs_x_buf.as_device_ptr(),
                         refs_y_buf.as_device_ptr(),
-                        //progress_buf.as_device_ptr(),
+                        progress_buf.as_device_ptr(),
                     )
                 )?;
                 stream.synchronize()?;
                 time_buf.copy_to(&mut time)?;
                 let num_times_after = time.iter().filter(|t| t.is_some()).count();
+                /*
                 if num_times_after == num_times {
                     break;
                 };
-                /*
+                */
                 progress_buf.copy_to(&mut progress)?;
-                if progress.iter().all(|x|*x==0.0) {
+                println!("progress={:?}, {}", progress.as_slice().iter().filter(|p|**p>0).count(),
+                    num_times_after);
+                if progress.iter().all(|x|*x==0) {
                     break
                 }
-                */
             }
         };
     });

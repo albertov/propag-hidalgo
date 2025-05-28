@@ -69,31 +69,23 @@ void QgsPropagAlgorithm::initAlgorithm(const QVariantMap &) {
   addParameter(new QgsProcessingParameterVectorDestination(
       QStringLiteral("BLOCK_BOUNDARIES"), QObject::tr("Block boundaries"),
       Qgis::ProcessingSourceType::VectorPolygon, QVariant(), true, false));
+  addParameter(new QgsProcessingParameterVectorDestination(
+      QStringLiteral("GRID_BOUNDARIES"), QObject::tr("Grid boundaries"),
+      Qgis::ProcessingSourceType::VectorPolygon, QVariant(), true, false));
 }
 
 QVariantMap
 QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
                                      QgsProcessingContext &context,
                                      QgsProcessingFeedback *feedback) {
-  const QString outputFile =
-      parameterAsOutputLayer(parameters, QStringLiteral("TIMES"), context);
-
   bool find_ref_change =
       parameters.value(QStringLiteral("REFERENCES")).isValid();
-  QString refsOutputFile;
-  if (find_ref_change) {
-    refsOutputFile = parameterAsOutputLayer(
-        parameters, QStringLiteral("REFERENCES"), context);
-  };
+
+  bool generate_grid_boundaries =
+      parameters.value(QStringLiteral("GRID_BOUNDARIES")).isValid();
 
   bool generate_block_boundaries =
       parameters.value(QStringLiteral("BLOCK_BOUNDARIES")).isValid();
-
-  QString blockBoundariesOutputFile;
-  if (generate_block_boundaries) {
-    blockBoundariesOutputFile = parameterAsOutputLayer(
-        parameters, QStringLiteral("BLOCK_BOUNDARIES"), context);
-  };
 
   QgsFeatureSource *ignitedElements =
       parameterAsSource(parameters, "IGNITED_ELEMENTS", context);
@@ -222,19 +214,40 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
   QString ie_proj = ignitedElements->sourceCrs().toProj();
   QByteArray ie_proj_ba = ie_proj.toUtf8();
 
+  const QString outputFile =
+      parameterAsOutputLayer(parameters, QStringLiteral("TIMES"), context);
   QByteArray outputFile_ba = outputFile.toUtf8();
   const char *output_path = outputFile_ba.data();
 
+  QString refsOutputFile;
+  if (find_ref_change) {
+    refsOutputFile = parameterAsOutputLayer(
+        parameters, QStringLiteral("REFERENCES"), context);
+  };
   QByteArray refsOutputFile_ba = refsOutputFile.toUtf8();
   const char *refs_output_path = refsOutputFile_ba.data();
 
+  QString blockBoundariesOutputFile;
+  if (generate_block_boundaries) {
+    blockBoundariesOutputFile = parameterAsOutputLayer(
+        parameters, QStringLiteral("BLOCK_BOUNDARIES"), context);
+  };
   QByteArray blockBoundariesOutputFile_ba = blockBoundariesOutputFile.toUtf8();
   const char *block_boundaries_output_path =
       blockBoundariesOutputFile_ba.data();
 
+  QString gridBoundariesOutputFile;
+  if (generate_grid_boundaries) {
+    gridBoundariesOutputFile = parameterAsOutputLayer(
+        parameters, QStringLiteral("GRID_BOUNDARIES"), context);
+  };
+  QByteArray gridBoundariesOutputFile_ba = gridBoundariesOutputFile.toUtf8();
+  const char *grid_boundaries_output_path = gridBoundariesOutputFile_ba.data();
+
   FFIPropagation propagation(
       settings, output_path, refs_output_path, block_boundaries_output_path,
-      features.data(), features.size(), ie_proj_ba.data(), terrain_loader);
+      grid_boundaries_output_path, features.data(), features.size(),
+      ie_proj_ba.data(), terrain_loader);
 
   char err_c[1024];
   memset(&err_c, 0, 1024);
@@ -244,6 +257,17 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
 
   QVariantMap outputs;
   outputs.insert(QStringLiteral("TIMES"), outputFile);
+  if (find_ref_change)
+    outputs.insert(QStringLiteral("REFERENCES"),
+                   refsOutputFile + "|layername=fire_references");
+  if (generate_block_boundaries) {
+    outputs.insert(QStringLiteral("BLOCK_BOUNDARIES"),
+                   blockBoundariesOutputFile + "|layername=blocks");
+  }
+  if (generate_grid_boundaries) {
+    outputs.insert(QStringLiteral("GRID_BOUNDARIES"),
+                   blockBoundariesOutputFile + "|layername=grids");
+  }
   return outputs;
 }
 

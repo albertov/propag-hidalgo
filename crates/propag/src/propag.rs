@@ -1,4 +1,6 @@
 use ::geometry::*;
+use gdal::Dataset;
+
 use core::ffi::c_char;
 use cust::device::DeviceAttribute;
 use cust::error::CudaError;
@@ -133,9 +135,17 @@ struct FFITimeFeature {
 impl TryFrom<&FFITimeFeature> for TimeFeature {
     type Error = gdal::errors::GdalError;
     fn try_from(f: &FFITimeFeature) -> Result<Self, Self::Error> {
-        let s = unsafe { std::slice::from_raw_parts(f.geom_wkb, f.geom_wkb_len) };
-        let geom = gdal::vector::Geometry::from_wkb(s)?;
-        Ok(TimeFeature { time: f.time, geom })
+        if !f.geom_wkb.is_null() && f.geom_wkb_len > 0 {
+            let s = unsafe { std::slice::from_raw_parts(f.geom_wkb, f.geom_wkb_len) };
+            let geom = gdal::vector::Geometry::from_wkb(s)?;
+            Ok(TimeFeature { time: f.time, geom })
+        } else {
+            Err(CplError {
+                class: 1,
+                number: -1,
+                msg: "invalid wkb geom".to_string(),
+            })
+        }
     }
 }
 
@@ -165,7 +175,8 @@ pub struct Propagation {
     pub settings: Settings,
     pub output_path: String,
     pub refs_output_path: Option<String>,
-    pub boundaries_out_path: Option<String>,
+    pub block_boundaries_out_path: Option<String>,
+    pub grid_boundaries_out_path: Option<String>,
     pub initial_ignited_elements: Vec<TimeFeature>,
     pub initial_ignited_elements_crs: SpatialRef,
     pub terrain_loader: Box<dyn TerrainLoader>,
@@ -176,55 +187,61 @@ pub struct FFIPropagation {
     settings: Settings,
     output_path: *const c_char,
     refs_output_path: *const c_char,
-    boundaries_out_path: *const c_char,
+    block_boundaries_out_path: *const c_char,
+    grid_boundaries_out_path: *const c_char,
     initial_ignited_elements: *const FFITimeFeature,
     initial_ignited_elements_len: usize,
     initial_ignited_elements_crs: *const c_char,
     terrain_loader: FFITerrainLoader,
 }
 
+fn some_path(p: *const c_char) -> Option<String> {
+    if !p.is_null() {
+        let out = unsafe { CStr::from_ptr(p) };
+        match String::from_utf8_lossy(out.to_bytes()).to_string() {
+            x if x.is_empty() => None,
+            x => Some(x),
+        }
+    } else {
+        None
+    }
+}
+
 impl TryFrom<FFIPropagation> for Propagation {
     type Error = gdal::errors::GdalError;
     fn try_from(p: FFIPropagation) -> Result<Self, Self::Error> {
-        let initial_ignited_elements = if p.initial_ignited_elements_len > 0 {
-            let is = unsafe {
-                std::slice::from_raw_parts(
-                    p.initial_ignited_elements,
-                    p.initial_ignited_elements_len,
-                )
+        let initial_ignited_elements =
+            if !p.initial_ignited_elements.is_null() && p.initial_ignited_elements_len > 0 {
+                let is = unsafe {
+                    std::slice::from_raw_parts(
+                        p.initial_ignited_elements,
+                        p.initial_ignited_elements_len,
+                    )
+                };
+                is.iter()
+                    .filter_map(|x| TimeFeature::try_from(x).ok())
+                    .collect()
+            } else {
+                Vec::new()
             };
-            is.iter()
-                .filter_map(|x| TimeFeature::try_from(x).ok())
-                .collect()
-        } else {
-            Vec::new()
-        };
         let initial_ignited_elements_crs =
             unsafe { spatial_ref_from_buf(p.initial_ignited_elements_crs) }?;
-        let output_path = unsafe { CStr::from_ptr(p.output_path) };
-        let output_path = String::from_utf8_lossy(output_path.to_bytes()).to_string();
-        let refs_output_path = if !p.refs_output_path.is_null() {
-            let refs_output_path = unsafe { CStr::from_ptr(p.refs_output_path) };
-            match String::from_utf8_lossy(refs_output_path.to_bytes()).to_string() {
-                x if x.is_empty() => None,
-                x => Some(x),
-            }
-        } else {
-            None
-        };
-        let boundaries_out_path = if !p.boundaries_out_path.is_null() {
-            let boundaries_out_path = unsafe { CStr::from_ptr(p.boundaries_out_path) };
-            match String::from_utf8_lossy(boundaries_out_path.to_bytes()).to_string() {
-                x if x.is_empty() => None,
-                x => Some(x),
-            }
-        } else {
-            None
-        };
+        let output_path = some_path(p.output_path).map_or(
+            Err(CplError {
+                class: 1,
+                number: -1,
+                msg: "invalid output_path".to_string(),
+            }),
+            Ok,
+        )?;
+        let refs_output_path = some_path(p.refs_output_path);
+        let block_boundaries_out_path = some_path(p.block_boundaries_out_path);
+        let grid_boundaries_out_path = some_path(p.grid_boundaries_out_path);
         Ok(Propagation {
             settings: p.settings,
             output_path,
-            boundaries_out_path,
+            block_boundaries_out_path,
+            grid_boundaries_out_path,
             refs_output_path,
             initial_ignited_elements,
             initial_ignited_elements_crs,
@@ -281,13 +298,11 @@ pub unsafe extern "C" fn FFIPropagation_run(
             "block_size={:?}, grid_size={:?}, super_grid_size={:?}",
             &propag_result.block_size, &propag_result.grid_size, &propag_result.super_grid_size
         );
-        write_times(&propag_result.time, &geo_ref, propag.output_path).map_err(PropagGdalError)?;
-        if let Some(out_path) = propag.refs_output_path {
+        write_times(&propag_result.time, &geo_ref, &propag.output_path).map_err(PropagGdalError)?;
+        if let Some(ref out_path) = propag.refs_output_path {
             write_refs(&propag_result, out_path).map_err(PropagGdalError)?;
         }
-        if let Some(out_path) = propag.boundaries_out_path {
-            write_boundaries(&propag_result, out_path).map_err(PropagGdalError)?;
-        }
+        write_boundaries(&propag_result, &propag).map_err(PropagGdalError)?;
         Ok::<(), PropagError>(())
     }) {
         Ok(Ok(())) => true,
@@ -402,8 +417,8 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<PropagResults,
         let azimuth_max: Vec<float::T> = std::iter::repeat_n(0.0, len).collect();
         let eccentricity: Vec<float::T> = std::iter::repeat_n(0.0, len).collect();
 
-        for i in 0..geo_ref.width {
-            for j in 0..geo_ref.height {
+        for j in 0..geo_ref.height {
+            for i in 0..geo_ref.width {
                 let ix = (i + j * geo_ref.width) as usize;
                 if time[ix] != Max::MAX {
                     refs_x[ix] = i as u16;
@@ -506,7 +521,7 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<PropagResults,
 fn write_times(
     times: &[f32],
     geo_ref: &GeoReference,
-    output_path: String,
+    output_path: &str,
 ) -> gdal::errors::Result<()> {
     let gtiff = DriverManager::get_driver_by_name("GTIFF")?;
     let options =
@@ -536,72 +551,89 @@ fn write_boundaries(
         geo_ref,
         ..
     }: &PropagResults,
-    output_path: String,
+    propag: &Propagation,
 ) -> gdal::errors::Result<()> {
     let gpkg = DriverManager::get_driver_by_name("GPKG")?;
-    let mut ds = gpkg.create_vector_only(output_path)?;
-    let srs = crate::loader::to_spatial_ref(&geo_ref.proj)?;
-    ds.create_layer(LayerOptions {
-        name: "blocks",
-        srs: Some(&srs),
-        ty: gdal_sys::OGRwkbGeometryType::wkbPolygon,
-        ..Default::default()
-    })?;
-    /*
-    ds.create_layer(LayerOptions {
-        name: "grids",
-        srs: Some(&srs),
-        ty: gdal_sys::OGRwkbGeometryType::wkbPolygon,
-        ..Default::default()
-    })?;
-    */
-    //let mut grids = ds.layer_by_name("grids")?;
-    let mut blocks = ds.layer_by_name("blocks")?;
+
+    let mut grids: Option<Dataset> = if let Some(ref output_path) = &propag.grid_boundaries_out_path
+    {
+        let mut ds = gpkg.create_vector_only(output_path)?;
+        let srs = crate::loader::to_spatial_ref(&geo_ref.proj)?;
+        ds.create_layer(LayerOptions {
+            name: "grids",
+            srs: Some(&srs),
+            ty: gdal_sys::OGRwkbGeometryType::wkbPolygon,
+            ..Default::default()
+        })?;
+        Some(ds)
+    } else {
+        None
+    };
+    let mut blocks: Option<Dataset> =
+        if let Some(ref output_path) = &propag.block_boundaries_out_path {
+            let mut ds = gpkg.create_vector_only(output_path)?;
+            let srs = crate::loader::to_spatial_ref(&geo_ref.proj)?;
+            ds.create_layer(LayerOptions {
+                name: "blocks",
+                srs: Some(&srs),
+                ty: gdal_sys::OGRwkbGeometryType::wkbPolygon,
+                ..Default::default()
+            })?;
+            Some(ds)
+        } else {
+            None
+        };
+
     let grid_cell_size: UVec2 = (block_size.x * grid_size.x, block_size.y * grid_size.y).into();
     for grid_y in 0..super_grid_size.y {
         for grid_x in 0..super_grid_size.x {
-            let a: UVec2 = (grid_x * grid_cell_size.x, grid_y * grid_cell_size.y).into();
-            let a = geo_ref.backward(a.as_usizevec2());
-            let b: UVec2 = ((grid_x + 1) * grid_cell_size.x, grid_y * grid_cell_size.y).into();
-            let b = geo_ref.backward(b.as_usizevec2());
-            let c: UVec2 = (
-                (grid_x + 1) * grid_cell_size.x,
-                (grid_y + 1) * grid_cell_size.y,
-            )
-                .into();
-            let c = geo_ref.backward(c.as_usizevec2());
-            let d: UVec2 = (grid_x * grid_cell_size.x, (grid_y + 1) * grid_cell_size.y).into();
-            let d = geo_ref.backward(d.as_usizevec2());
-            let _geom = Geometry::from_wkt(
-                (format!(
-                    "POLYGON(({} {}, {} {}, {} {}, {} {}, {} {}))",
-                    a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y, a.x, a.y
-                ))
-                .as_str(),
-            )?;
-            //grids.create_feature(geom)?;
-
-            let corner: UVec2 = (grid_x * grid_cell_size.x, grid_y * grid_cell_size.y).into();
-            for block_y in 0..grid_size.y {
-                for block_x in 0..grid_size.x {
-                    let block: UVec2 = (block_x, block_y).into();
-                    let a: UVec2 = (block.x * block_size.x, block.y * block_size.y).into();
-                    let a = geo_ref.backward((corner + a).as_usizevec2());
-                    let b: UVec2 = ((block.x + 1) * block_size.x, block.y * block_size.y).into();
-                    let b = geo_ref.backward((corner + b).as_usizevec2());
-                    let c: UVec2 =
-                        ((block.x + 1) * block_size.x, (block.y + 1) * block_size.y).into();
-                    let c = geo_ref.backward((corner + c).as_usizevec2());
-                    let d: UVec2 = (block.x * block_size.x, (block.y + 1) * block_size.y).into();
-                    let d = geo_ref.backward((corner + d).as_usizevec2());
-                    let geom = Geometry::from_wkt(
-                        (format!(
-                            "POLYGON(({} {}, {} {}, {} {}, {} {}, {} {}))",
-                            a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y, a.x, a.y
-                        ))
-                        .as_str(),
-                    )?;
-                    blocks.create_feature(geom)?;
+            if let Some(ref mut grids) = grids {
+                let a: UVec2 = (grid_x * grid_cell_size.x, grid_y * grid_cell_size.y).into();
+                let a = geo_ref.backward(a.as_usizevec2());
+                let b: UVec2 = ((grid_x + 1) * grid_cell_size.x, grid_y * grid_cell_size.y).into();
+                let b = geo_ref.backward(b.as_usizevec2());
+                let c: UVec2 = (
+                    (grid_x + 1) * grid_cell_size.x,
+                    (grid_y + 1) * grid_cell_size.y,
+                )
+                    .into();
+                let c = geo_ref.backward(c.as_usizevec2());
+                let d: UVec2 = (grid_x * grid_cell_size.x, (grid_y + 1) * grid_cell_size.y).into();
+                let d = geo_ref.backward(d.as_usizevec2());
+                let geom = Geometry::from_wkt(
+                    (format!(
+                        "POLYGON(({} {}, {} {}, {} {}, {} {}, {} {}))",
+                        a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y, a.x, a.y
+                    ))
+                    .as_str(),
+                )?;
+                grids.layer(0)?.create_feature(geom)?;
+            }
+            if let Some(ref mut blocks) = blocks {
+                let corner: UVec2 = (grid_x * grid_cell_size.x, grid_y * grid_cell_size.y).into();
+                for block_y in 0..grid_size.y {
+                    for block_x in 0..grid_size.x {
+                        let block: UVec2 = (block_x, block_y).into();
+                        let a: UVec2 = (block.x * block_size.x, block.y * block_size.y).into();
+                        let a = geo_ref.backward((corner + a).as_usizevec2());
+                        let b: UVec2 =
+                            ((block.x + 1) * block_size.x, block.y * block_size.y).into();
+                        let b = geo_ref.backward((corner + b).as_usizevec2());
+                        let c: UVec2 =
+                            ((block.x + 1) * block_size.x, (block.y + 1) * block_size.y).into();
+                        let c = geo_ref.backward((corner + c).as_usizevec2());
+                        let d: UVec2 =
+                            (block.x * block_size.x, (block.y + 1) * block_size.y).into();
+                        let d = geo_ref.backward((corner + d).as_usizevec2());
+                        let geom = Geometry::from_wkt(
+                            (format!(
+                                "POLYGON(({} {}, {} {}, {} {}, {} {}, {} {}))",
+                                a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y, a.x, a.y
+                            ))
+                            .as_str(),
+                        )?;
+                        blocks.layer(0)?.create_feature(geom)?;
+                    }
                 }
             }
         }
@@ -617,7 +649,7 @@ fn write_refs(
         geo_ref,
         ..
     }: &PropagResults,
-    output_path: String,
+    output_path: &str,
 ) -> gdal::errors::Result<()> {
     let gpkg = DriverManager::get_driver_by_name("GPKG")?;
     let mut ds = gpkg.create_vector_only(output_path)?;
@@ -804,7 +836,7 @@ pub unsafe extern "C" fn propag_rasterize_fuels(
     err_msg: *mut c_char,
     err_len: usize,
 ) -> bool {
-    let fuels = if fuels_len > 0 {
+    let fuels = if !fuels.is_null() && fuels_len > 0 {
         let is = std::slice::from_raw_parts(fuels, fuels_len);
         is.iter()
             .filter_map(|x| FuelFeature::try_from(x).ok())

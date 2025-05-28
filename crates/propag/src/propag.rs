@@ -92,6 +92,40 @@ impl From<FireSimpleCudaRef<'_>> for FireSimple {
     }
 }
 
+pub struct TimeFeature {
+    time: float::T,
+    geom: gdal::vector::Geometry,
+}
+
+#[repr(C)]
+struct FFITimeFeature {
+    time: float::T,
+    geom_wkb: *const u8,
+    geom_wkb_len: usize,
+}
+#[cfg(not(target_os = "cuda"))]
+impl TryFrom<FFITimeFeature> for TimeFeature {
+    type Error = gdal::errors::GdalError;
+    fn try_from(f: FFITimeFeature) -> Result<Self, Self::Error> {
+        let s = unsafe { std::slice::from_raw_parts(f.geom_wkb, f.geom_wkb_len) };
+        let geom = gdal::vector::Geometry::from_wkb(s)?;
+        Ok(TimeFeature { time: f.time, geom })
+    }
+}
+
+#[repr(C)]
+pub struct FFIPropagation {
+    settings: Settings,
+    ignited_elements: *const FFITimeFeature,
+    ignited_elements_len: usize,
+    loader: *mut FFITerrainLoader,
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ffi_run_propagation(propag: &FFIPropagation) {
+    todo!()
+}
+
 pub trait TerrainLoader {
     fn load_extent(&self, geo_ref: &geometry::GeoReference) -> Option<TerrainCudaVec>;
 }
@@ -116,13 +150,6 @@ struct FFITerrainLoader {
 }
 
 type LoadFn = unsafe extern "C" fn(*mut core::ffi::c_void, &GeoReference, &mut FFITerrain) -> bool;
-
-impl FFITerrainLoader {
-    #[unsafe(no_mangle)]
-    pub extern "C" fn create_loader(load: LoadFn, context: *mut core::ffi::c_void) -> Self {
-        Self { load, context }
-    }
-}
 
 impl TerrainLoader for FFITerrainLoader {
     fn load_extent(&self, geo_ref: &geometry::GeoReference) -> Option<TerrainCudaVec> {

@@ -56,9 +56,8 @@ bool QgsPropagLoader::load_fuel(const GeoReference *geo_ref, uint8_t *output) {
 
   char err_c[1024];
   memset(&err_c, 0, 1024);
-  PluginContainer plugin("libpropag.so");
   bool result =
-      plugin.rasterize_fuels(features.data(), features.size(), proj_ba.data(),
-                             geo_ref, output, err_c, 1024);
+      _plugin->rasterize_fuels(features.data(), features.size(), proj_ba.data(),
+                               geo_ref, output, err_c, 1024);
   return result;
 }

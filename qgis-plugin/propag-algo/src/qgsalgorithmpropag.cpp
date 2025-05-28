@@ -178,7 +178,9 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
         QObject::tr("FUEL source does not have a FUEL_CODE_FIELD"));
   }
 
-  QgsPropagLoader loader(fuelCodes, fuelIdx);
+  PluginContainer plugin("libpropag.so");
+
+  QgsPropagLoader loader(&plugin, fuelCodes, fuelIdx);
   FFITerrainLoader terrain_loader(&load_terrain, &loader);
 
   std::vector<QByteArray> wkbs;
@@ -224,7 +226,6 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
 
   char err_c[1024];
   memset(&err_c, 0, 1024);
-  PluginContainer plugin("libpropag.so");
   if (!plugin.run(propagation, 1024, err_c)) {
     throw QgsProcessingException(err_c);
   }

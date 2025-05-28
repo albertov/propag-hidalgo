@@ -15,7 +15,7 @@ const QgisPlugin::PluginType s_type = QgisPlugin::UI;
 } // namespace
 
 QGISEXTERN QgisPlugin *classFactory(QgisInterface *qgis_if) {
-  std::cout << "::classFactory" << std::endl;
+  std::cout << "PropagAlgoPlugin::classFactory" << std::endl;
   return new PropagAlgoPlugin(qgis_if);
 }
 
@@ -50,30 +50,23 @@ QGISEXTERN int type() { return s_type; }
 
 QGISEXTERN void unload(QgisPlugin *plugin) {
   std::cout << "::unload" << std::endl;
-  // delete plugin;
 }
 
 PropagAlgoPlugin::PropagAlgoPlugin(QgisInterface *iface)
     : QgisPlugin(s_name, s_description, s_category, s_version, s_type),
-      m_qgis_if(iface), plugin(NULL) {}
+      m_qgis_if(iface) {}
 
 void PropagAlgoPlugin::unload() {
   QgsApplication::processingRegistry()->removeProvider(
       QStringLiteral("propagprovider"));
-  delete plugin;
-  plugin = NULL;
 }
 
-void PropagAlgoPlugin::initGui() {
-  std::cout << "PropagAlgoPlugin::initGui" << std::endl;
-  initProcessing();
-}
+void PropagAlgoPlugin::initGui() { initProcessing(); }
 
 void PropagAlgoPlugin::initProcessing() {
   QgsProcessingProvider *provider =
       new PropagProvider(QgsApplication::processingRegistry());
   bool ok = QgsApplication::processingRegistry()->addProvider(provider);
-  std::cout << "PropagAlgoPlugin::initProcessing" << std::endl;
   if (!ok) {
     m_qgis_if->messageBar()->pushMessage(
         "Could not load propag processing plugin", Qgis::Critical);

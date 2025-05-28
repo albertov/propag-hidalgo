@@ -41,7 +41,6 @@ public:
 
 private:
   QgisInterface *m_qgis_if;
-  PluginContainer *plugin;
 };
 
 #endif

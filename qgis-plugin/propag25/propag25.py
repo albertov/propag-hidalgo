@@ -22,13 +22,13 @@
  ***************************************************************************/
 """
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
+from qgis.core import QgsApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
-# Initialize Qt resources from file resources.py
 from .resources import *
 
-# Import the code for the DockWidget
 from .propag25_dockwidget import Propag25DockWidget
+from .processing_provider.provider import Provider
 import os.path
 
 
@@ -64,14 +64,12 @@ class Propag25:
         # Declare instance attributes
         self.actions = []
         self.menu = self.tr(u'&propag25')
-        # TODO: We are going to let the user set this up in a future iteration
         self.toolbar = self.iface.addToolBar(u'Propag25')
         self.toolbar.setObjectName(u'Propag25')
 
-        #print "** INITIALIZING Propag25"
-
         self.pluginIsActive = False
         self.dockwidget = None
+        self.provider = None
 
 
     # noinspection PyMethodMayBeStatic
@@ -173,6 +171,11 @@ class Propag25:
             text=self.tr(u'Propagator'),
             callback=self.run,
             parent=self.iface.mainWindow())
+        self.initProcessing()
+
+    def initProcessing(self):
+        self.provider = Provider()
+        QgsApplication.processingRegistry().addProvider(self.provider)
 
     #--------------------------------------------------------------------------
 
@@ -205,7 +208,8 @@ class Propag25:
             self.iface.removeToolBarIcon(action)
         # remove the toolbar
         del self.toolbar
-
+        QgsApplication.processingRegistry().removeProvider(self.provider)
+        self.provider = None
     #--------------------------------------------------------------------------
 
     def run(self):
@@ -227,5 +231,5 @@ class Propag25:
             self.dockwidget.closingPlugin.connect(self.onClosePlugin)
 
             # show the dockwidget
-            self.iface.addDockWidget(Qt.LeftDockWidgetArea, self.dockwidget)
+            self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dockwidget)
             self.dockwidget.show()

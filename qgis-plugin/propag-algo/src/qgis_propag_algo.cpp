@@ -66,14 +66,12 @@ void PropagAlgoPlugin::unload() {
 
 void PropagAlgoPlugin::initGui() {
   std::cout << "PropagAlgoPlugin::initGui" << std::endl;
-  plugin = new PluginContainer("libpropagalgoplugin.so");
   initProcessing();
 }
 
 void PropagAlgoPlugin::initProcessing() {
-  QgsProcessingAlgorithm *algo = plugin->instance()->makeAlgorithm();
   QgsProcessingProvider *provider =
-      new PropagProvider(QgsApplication::processingRegistry(), algo);
+      new PropagProvider(QgsApplication::processingRegistry());
   bool ok = QgsApplication::processingRegistry()->addProvider(provider);
   std::cout << "PropagAlgoPlugin::initProcessing" << std::endl;
   if (!ok) {

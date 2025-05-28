@@ -1,5 +1,6 @@
 #include "qgsalgorithmpropag.h"
 #include "plugin_base.h"
+#include "plugincontainer.h"
 #include "qgis.h"
 #include "qgspropagloader.h"
 
@@ -223,7 +224,8 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
 
   char err_c[1024];
   memset(&err_c, 0, 1024);
-  if (!FFIPropagation_run(propagation, 1024, err_c)) {
+  PluginContainer plugin("libpropag.so");
+  if (!plugin.run(propagation, 1024, err_c)) {
     throw QgsProcessingException(err_c);
   }
 
@@ -231,14 +233,5 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
   outputs.insert(QStringLiteral("TIMES"), outputFile);
   return outputs;
 }
-
-class QgsPropagAlgorithmPlugin : public Base {
-public:
-  QgsProcessingAlgorithm *makeAlgorithm() { return new QgsPropagAlgorithm(); };
-};
-
-extern "C" Base *plugin_create() { return new QgsPropagAlgorithmPlugin; }
-
-extern "C" void plugin_destroy(Base *a) { delete a; }
 
 ///@endcond

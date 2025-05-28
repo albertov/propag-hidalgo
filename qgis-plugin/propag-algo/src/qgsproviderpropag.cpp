@@ -1,8 +1,8 @@
 #include "qgsproviderpropag.h"
 #include "qgsalgorithmpropag.h"
 
-PropagProvider::PropagProvider(QObject *parent, QgsProcessingAlgorithm *algo)
-    : QgsProcessingProvider(parent), algo(algo) {}
+PropagProvider::PropagProvider(QObject *parent)
+    : QgsProcessingProvider(parent) {}
 
 QIcon PropagProvider::icon() const {
 
@@ -27,7 +27,5 @@ QString PropagProvider::helpId() const {
 bool PropagProvider::supportsNonFileBasedOutput() const { return true; }
 
 void PropagProvider::loadAlgorithms() {
-  // const QgsScopedRuntimeProfile profile(QObject::tr("PropagProvider"));
-  std::cout << "loadAlgorithms" << std::endl;
-  addAlgorithm(algo);
+  addAlgorithm(new QgsPropagAlgorithm());
 }

@@ -1,17 +1,12 @@
 #ifndef INTERFACE_H
 #define INTERFACE_H
 
-#include "qgsprocessingalgorithm.h"
+#include "propag_host.h"
 #include <string>
 
-class Base {
-public:
-  Base();
-  virtual ~Base();
-  virtual QgsProcessingAlgorithm *makeAlgorithm() = 0;
-};
-
-typedef Base *(*plugin_create_t)();
-typedef void (*plugin_destroy_t)(Base *);
+typedef bool (*propagation_run_t)(FFIPropagation, uintptr_t, char *);
+typedef bool (*rasterize_fuels_t)(const FFIFuelFeature *, uintptr_t,
+                                  const char *, const GeoReference *, uint8_t *,
+                                  char *, uintptr_t);
 
 #endif // INTERFACE_H

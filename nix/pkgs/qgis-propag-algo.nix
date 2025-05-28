@@ -15,8 +15,6 @@ let
     nativeBuildInputs = [ cmake ];
     cmakeFlags = [
       "-DQGIS_PREFIX_PATH=${qgis}"
-      "-DPROPAG_PREFIX_PATH=${propag}"
-      "-DGEOMETRY_PREFIX_PATH=${geometry}"
     ];
     buildInputs = [
       qgis
@@ -25,7 +23,7 @@ let
       qt5.full
     ];
     postFixup = ''
-      patchelf --add-rpath $out/lib $out/lib/qgis/plugins/libpropagplugin.so
+      patchelf --add-rpath ${propag}/lib $out/lib/qgis/plugins/libpropagplugin.so
     '';
   };
 in

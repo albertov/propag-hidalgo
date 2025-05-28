@@ -91,8 +91,8 @@
           pkgs.dockerTools.buildImage {
             name = drv.pname or "image";
             tag = drv.version;
-            fromImageName = "nvidia/cuda";
-            fromImageTag = "12.6.3-runtime-ubuntu24.04";
+            fromImageName = "ubuntu";
+            fromImageTag = "noble";
             copyToRoot = pkgs.buildEnv {
               name = "image-root";
               paths = [ drv ];

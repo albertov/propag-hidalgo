@@ -23,11 +23,14 @@ let
     PROJ_DATA = "${proj}/share/proj";
     buildInputs = [
       cudaPackages.cuda_cudart.static
-      openssl
       gdal
+      openssl
     ];
     passthru = {
-      ubuntuDeps = [ "libgdal34t64" ];
+      ubuntuDeps = [
+        "libcudart12"
+        "libgdal34t64"
+      ];
     };
     nativeBuildInputs = [
       cudaCombined

@@ -21,32 +21,31 @@ typedef struct Settings {
 
 class FireSimpleCuda {
 public:
-  T inv_speed_max;
+  T speed_max;
   T azimuth_max;
   T eccentricity;
 
   __device__ FireSimpleCuda()
-      : inv_speed_max(0.0), azimuth_max(0.0), eccentricity(0.0) {}
+      : speed_max(0.0), azimuth_max(0.0), eccentricity(0.0) {}
 
-  __device__ FireSimpleCuda(T inv_speed_max, T azimuth_max, T eccentricity)
-      : inv_speed_max(inv_speed_max), azimuth_max(azimuth_max),
+  __device__ FireSimpleCuda(T speed_max, T azimuth_max, T eccentricity)
+      : speed_max(speed_max), azimuth_max(azimuth_max),
         eccentricity(eccentricity) {};
 
   __device__ volatile FireSimpleCuda &
   operator=(const FireSimpleCuda &other) volatile {
-    inv_speed_max = other.inv_speed_max;
+    speed_max = other.speed_max;
     azimuth_max = other.azimuth_max;
     eccentricity = other.eccentricity;
     return *this;
   }
 
-  __device__ inline FireSimpleCuda(size_t idx, const float *inv_speed_max,
+  __device__ inline FireSimpleCuda(size_t idx, const float *speed_max,
                                    const float *azimuth_max,
                                    const float *eccentricity)
-      : FireSimpleCuda(inv_speed_max[idx], azimuth_max[idx],
-                       eccentricity[idx]){};
+      : FireSimpleCuda(speed_max[idx], azimuth_max[idx], eccentricity[idx]){};
 
-  __device__ inline bool is_null() const { return inv_speed_max == 0.0; }
+  __device__ inline bool is_null() const { return speed_max == 0.0; }
 };
 #define FireSimpleCuda_NULL FireSimpleCuda()
 

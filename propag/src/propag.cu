@@ -15,7 +15,7 @@ class ALIGN Propagator {
   const int shared_width_;
   const int local_ix_;
 
-  const float *__restrict__ const inv_speed_max_;
+  const float *__restrict__ const speed_max_;
   const float *__restrict__ const azimuth_max_;
   const float *__restrict__ const eccentricity_;
 
@@ -29,7 +29,7 @@ class ALIGN Propagator {
 public:
   __device__ Propagator(const Settings settings, const unsigned grid_x,
                         const unsigned grid_y,
-                        const float *__restrict__ inv_speed_max,
+                        const float *__restrict__ speed_max,
                         const float *__restrict__ azimuth_max,
                         const float *__restrict__ eccentricity,
                         float volatile *__restrict__ time,
@@ -46,10 +46,10 @@ public:
         local_x_(threadIdx.x + HALO_RADIUS),
         local_y_(threadIdx.y + HALO_RADIUS),
         shared_width_(blockDim.x + HALO_RADIUS * 2),
-        local_ix_(local_x_ + local_y_ * shared_width_),
-        inv_speed_max_(inv_speed_max), azimuth_max_(azimuth_max),
-        eccentricity_(eccentricity), time_(time), refs_x_(refs_x),
-        refs_y_(refs_y), refs_change_(ref_change), shared_(shared) {
+        local_ix_(local_x_ + local_y_ * shared_width_), speed_max_(speed_max),
+        azimuth_max_(azimuth_max), eccentricity_(eccentricity), time_(time),
+        refs_x_(refs_x), refs_y_(refs_y), refs_change_(ref_change),
+        shared_(shared) {
     ASSERT(block_ix_ < gridDim.x * gridDim.y);
   };
 
@@ -90,9 +90,7 @@ public:
       cooperative_groups::grid_group grid = cooperative_groups::this_grid();
       grid.sync();
       if (threadIdx.x == 0 && threadIdx.y == 0) {
-        if (block_improved || *progress > 0) {
-          grid_improved = true;
-        }
+        grid_improved = *progress > 0;
         if (grid_improved && blockIdx.x == 0 && blockIdx.y == 0) {
           *worked = 1;
         }
@@ -124,9 +122,7 @@ private:
           int2 neighbor_pos = make_int2((int)idx_2d_.x + i, (int)idx_2d_.y + j);
 
           // skip out-of-bounds neighbors
-          if (!(neighbor_pos.x >= 0 && neighbor_pos.y >= 0 &&
-                neighbor_pos.x < settings_.geo_ref.width &&
-                neighbor_pos.y < settings_.geo_ref.height))
+          if (!pos_in_bounds(neighbor_pos))
             continue;
 
           Point neighbor =
@@ -179,8 +175,8 @@ private:
                           neighbor.reference.pos.x &&
                       possible_blockage.reference.pos.y ==
                           neighbor.reference.pos.y &&
-                      similar_fires_(possible_blockage.fire,
-                                     neighbor.reference.fire))) {
+                      similar_fires(possible_blockage.fire,
+                                    neighbor.reference.fire))) {
                   // print_info("cambio ref");
                   reference =
                       PointRef(neighbor.time, neighbor_pos, neighbor.fire);
@@ -191,7 +187,7 @@ private:
               break;
             }
           }
-          if (!similar_fires_(reference.fire, neighbor.fire)) {
+          if (!similar_fires(reference.fire, neighbor.fire)) {
             reference = PointRef(neighbor.time, neighbor_pos, neighbor.fire);
           }
 
@@ -237,6 +233,13 @@ private:
       // Load the halo regions
       bool x_near_x0 = threadIdx.x < HALO_RADIUS;
       bool y_near_y0 = threadIdx.y < HALO_RADIUS;
+      if (x_near_x0 && y_near_y0) {
+        // corners
+        load_point_at_offset(make_int2(-HALO_RADIUS, -HALO_RADIUS));
+        load_point_at_offset(make_int2(blockDim.x, -HALO_RADIUS));
+        load_point_at_offset(make_int2(-HALO_RADIUS, blockDim.y));
+        load_point_at_offset(make_int2(blockDim.x, blockDim.y));
+      }
       if (x_near_x0) {
         // Left halo
         load_point_at_offset(make_int2(-HALO_RADIUS, 0));
@@ -249,13 +252,6 @@ private:
         // Bottom halo
         load_point_at_offset(make_int2(0, blockDim.y));
       }
-      if (x_near_x0 && y_near_y0) {
-        // corners
-        load_point_at_offset(make_int2(-HALO_RADIUS, -HALO_RADIUS));
-        load_point_at_offset(make_int2(blockDim.x, -HALO_RADIUS));
-        load_point_at_offset(make_int2(blockDim.x, blockDim.y));
-        load_point_at_offset(make_int2(-HALO_RADIUS, blockDim.y));
-      }
     }
   }
 
@@ -266,10 +262,10 @@ private:
         global.y < settings_.geo_ref.height) {
       uint2 pos = make_uint2(global.x, global.y);
       size_t idx = global.x + global.y * settings_.geo_ref.width;
-      Point p = Point(
-          time_[idx],
-          FireSimpleCuda(idx, inv_speed_max_, azimuth_max_, eccentricity_),
-          PointRef());
+      Point p =
+          Point(time_[idx],
+                FireSimpleCuda(idx, speed_max_, azimuth_max_, eccentricity_),
+                PointRef());
 
       if (p.time < MAX_TIME) {
         // This grid-level memory fence is to ensure that reading
@@ -286,8 +282,8 @@ private:
           p.reference.time = p.time;
         } else {
           p.reference.time = time_[ref_ix];
-          p.reference.fire = FireSimpleCuda(ref_ix, inv_speed_max_,
-                                            azimuth_max_, eccentricity_);
+          p.reference.fire =
+              FireSimpleCuda(ref_ix, speed_max_, azimuth_max_, eccentricity_);
         };
         ASSERT(p.reference.time != MAX_TIME);
       };
@@ -310,25 +306,24 @@ private:
     };
     float angle = abs(azimuth - from.fire.azimuth_max);
     float denom = (1.0 - from.fire.eccentricity * cos(angle));
-    float speed;
-    if (denom > 1e-6) {
-      float factor = (1.0 - from.fire.eccentricity) / denom;
-      speed = from.fire.inv_speed_max * factor;
-    } else {
-      speed = from.fire.inv_speed_max; // FIXME should be speed0
-    }
+    float factor = (1.0 - from.fire.eccentricity) / denom;
+    float speed = from.fire.speed_max * factor;
     float dx = (from_pos.x - to_pos.x) * settings_.geo_ref.transform.gt.dx;
     float dy = (from_pos.y - to_pos.y) * settings_.geo_ref.transform.gt.dy;
     float distance = sqrt(dx * dx + dy * dy);
     return from.time + (distance / speed);
   }
 
-  __device__ inline bool
-  similar_fires_(const volatile FireSimpleCuda &a,
-                 const volatile FireSimpleCuda &b) const {
-    return (abs(a.inv_speed_max - b.inv_speed_max) < 0.1 &&
+  __device__ inline bool similar_fires(const volatile FireSimpleCuda &a,
+                                       const volatile FireSimpleCuda &b) const {
+    return (abs(a.speed_max - b.speed_max) < 0.1 &&
             abs(a.azimuth_max - b.azimuth_max) < (5.0 * (2 * PI) / 360.0) &&
             abs(a.eccentricity - b.eccentricity) < 0.05);
+  }
+
+  __device__ inline bool pos_in_bounds(int2 pos) const {
+    return pos.x >= 0 && pos.y >= 0 && pos.x < settings_.geo_ref.width &&
+           pos.y < settings_.geo_ref.height;
   }
 
   __device__ void print_info(const char msg[]) const {
@@ -358,7 +353,7 @@ private:
            idx_2d_.x % blockDim.x, idx_2d_.y % blockDim.y, local_x_, local_y_,
            global_ix_, (in_bounds_ ? true_ : false_), block_ix_, shared_width_,
            local_ix_, (in_bounds_ ? time_[global_ix_] : MAX_TIME),
-           (in_bounds_ ? (inv_speed_max_[global_ix_] != 0.0 ? true_ : false_)
+           (in_bounds_ ? (speed_max_[global_ix_] != 0.0 ? true_ : false_)
                        : false_),
            (in_bounds_ ? refs_x_[global_ix_] : USHRT_MAX),
            (in_bounds_ ? refs_y_[global_ix_] : USHRT_MAX));
@@ -407,7 +402,7 @@ extern "C" {
 
 __global__ void propag(const Settings settings, const unsigned grid_x,
                        const unsigned grid_y, unsigned *__restrict__ worked,
-                       const float *__restrict__ const inv_speed_max,
+                       const float *__restrict__ const speed_max,
                        const float *__restrict__ const azimuth_max,
                        const float *__restrict__ const eccentricity,
                        float volatile *__restrict__ time,
@@ -417,8 +412,8 @@ __global__ void propag(const Settings settings, const unsigned grid_x,
                        unsigned *progress) {
   extern __shared__ Point shared[];
 
-  Propagator sim(settings, grid_x, grid_y, inv_speed_max, azimuth_max,
-                 eccentricity, time, refs_x, refs_y, ref_change, shared);
+  Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
+                 time, refs_x, refs_y, ref_change, shared);
   sim.run(worked, progress);
 }
 

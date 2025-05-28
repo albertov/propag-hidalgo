@@ -19,6 +19,6 @@ jobs:
         cache: propag25
         token: ${{ secrets.ATTIC_TOKEN }}
     - name: Build everything
-      run: nix run .#buildAll
+      run: nix run .#buildAll --accept-flake-config
     - name: Run checks
       run: nix flake check

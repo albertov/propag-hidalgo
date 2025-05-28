@@ -3,7 +3,6 @@ use ::geometry::*;
 use cust::device::DeviceAttribute;
 use cust::function::{BlockSize, GridSize};
 use cust::prelude::*;
-use firelib_cuda::{Settings, HALO_RADIUS};
 use firelib_rs::float;
 use gdal::raster::*;
 use gdal::spatial_ref::SpatialRef;
@@ -11,12 +10,12 @@ use gdal::vector::*;
 use gdal::*;
 use min_max_traits::Max;
 use num_traits::Float;
+use propag::propag::{Settings, HALO_RADIUS};
 use std::error::Error;
 
 #[macro_use]
 extern crate timeit;
 
-mod loader;
 //TODO: Calculate max size that we can use on device. Must be multiple of 8 for best performance
 const THREAD_BLOCK_AXIS_LENGTH: u32 = 24;
 

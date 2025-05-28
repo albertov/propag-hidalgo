@@ -1,7 +1,7 @@
 #ifndef PROPAG_H
 #define PROPAG_H
 
-#include "firelib_cuda.h"
+#include "propag_host.h"
 #include <cooperative_groups.h>
 #include <float.h>
 #include <stdarg.h>
@@ -13,41 +13,24 @@
 #define ALIGN __align__(16)
 #define ASSERT(X) assert(X)
 
-typedef struct Settings {
-  const GeoReference geo_ref;
-  const float max_time;
-  const bool find_ref_change;
-} Settings;
+__device__ inline void set_fire(FireSimpleCuda volatile *me,
+                                const FireSimpleCuda &other) {
+  me->speed_max = other.speed_max;
+  me->azimuth_max = other.azimuth_max;
+  me->eccentricity = other.eccentricity;
+}
 
-class FireSimpleCuda {
-public:
-  T speed_max;
-  T azimuth_max;
-  T eccentricity;
+__device__ inline FireSimpleCuda load_fire(size_t idx, const float *speed_max,
+                                           const float *azimuth_max,
+                                           const float *eccentricity) {
+  return {.speed_max = speed_max[idx],
+          .azimuth_max = azimuth_max[idx],
+          .eccentricity = eccentricity[idx]};
+}
 
-  __device__ FireSimpleCuda()
-      : speed_max(0.0), azimuth_max(0.0), eccentricity(0.0) {}
-
-  __device__ FireSimpleCuda(T speed_max, T azimuth_max, T eccentricity)
-      : speed_max(speed_max), azimuth_max(azimuth_max),
-        eccentricity(eccentricity) {};
-
-  __device__ volatile FireSimpleCuda &
-  operator=(const FireSimpleCuda &other) volatile {
-    speed_max = other.speed_max;
-    azimuth_max = other.azimuth_max;
-    eccentricity = other.eccentricity;
-    return *this;
-  }
-
-  __device__ inline FireSimpleCuda(size_t idx, const float *speed_max,
-                                   const float *azimuth_max,
-                                   const float *eccentricity)
-      : FireSimpleCuda(speed_max[idx], azimuth_max[idx], eccentricity[idx]){};
-
-  __device__ inline bool is_null() const { return speed_max == 0.0; }
-};
-#define FireSimpleCuda_NULL FireSimpleCuda()
+__device__ inline bool fire_is_null(const FireSimpleCuda &me) {
+  return me.speed_max == 0.0;
+}
 
 class PointRef {
 public:
@@ -56,7 +39,7 @@ public:
   FireSimpleCuda fire;
 
   __device__ PointRef()
-      : time(MAX_TIME), pos(make_ushort2(USHRT_MAX, USHRT_MAX)), fire() {};
+      : time(FLT_MAX), pos(make_ushort2(USHRT_MAX, USHRT_MAX)), fire() {};
   __device__ PointRef(float time, ushort2 pos, FireSimpleCuda fire)
       : time(time), pos(pos), fire(fire) {};
   __device__ PointRef(float time, int2 pos, FireSimpleCuda fire)
@@ -65,7 +48,7 @@ public:
   __device__ volatile PointRef &operator=(const PointRef &other) volatile {
     pos.x = other.pos.x;
     pos.y = other.pos.y;
-    fire = other.fire;
+    set_fire(&fire, other.fire);
     time = other.time;
     return *this;
   }
@@ -83,17 +66,17 @@ public:
   FireSimpleCuda fire;
   PointRef reference;
 
-  __device__ Point() : time(MAX_TIME), fire(), reference() {};
+  __device__ Point() : time(FLT_MAX), fire(), reference() {};
   __device__ Point(float time, FireSimpleCuda fire, PointRef reference)
       : time(time), fire(fire), reference(reference) {};
 
   __device__ volatile Point &operator=(const Point &other) volatile {
-    fire = other.fire;
+    set_fire(&fire, other.fire);
     reference = other.reference;
     time = other.time;
     return *this;
   }
-  __device__ inline bool is_null() const { return !(time < MAX_TIME); }
+  __device__ inline bool is_null() const { return !(time < FLT_MAX); }
 };
 
 #define Point_NULL Point()

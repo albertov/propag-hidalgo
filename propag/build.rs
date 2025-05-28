@@ -15,19 +15,18 @@ fn main() {
         .build()
         .unwrap();
 
-    let dest = format!("{}/firelib_cuda.h", include_dir);
+    let dest = format!("{}/propag_host.h", include_dir);
     println!("cargo::rerun-if-changed={}", dest);
     cbindgen::Builder::new()
-        .with_crate("../firelib-cuda")
-        .with_language(cbindgen::Language::C)
+        .with_crate(".")
+        //.with_language(cbindgen::Language::C)
         .with_after_include(
             "
 #include \"geometry.h\"
 typedef float T;
-#define Max_MAX SIZE_MAX
 ",
         )
-        .with_include_guard("FIRELIB_H")
+        .with_include_guard("PROPAG_HOST_H")
         //.with_parse_deps(true)
         .generate()
         .expect("Unable to generate bindings")
@@ -50,6 +49,7 @@ typedef float T;
         .args([
             "-arch",
             "compute_62",
+            //"-use_fast_math",
             "-O3",
             //"--restrict",
             //"--expt-relaxed-constexpr",

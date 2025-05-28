@@ -120,7 +120,7 @@ private:
   __device__ inline void find_neighbor_with_least_access_time(Point *result) {
     const Point me = shared_[local_ix_];
     const FireSimpleCuda fire = me.fire;
-    bool is_new = !(me.time < MAX_TIME);
+    bool is_new = !(me.time < FLT_MAX);
 
     Point best = Point_NULL;
 
@@ -143,7 +143,7 @@ private:
               shared_[(local_x_ + i) + (local_y_ + j) * shared_width_];
 
           // not burning, skip it
-          if (!(neighbor.time < MAX_TIME && !neighbor.fire.is_null())) {
+          if (!(neighbor.time < FLT_MAX && !fire_is_null(neighbor.fire))) {
             continue;
           };
 
@@ -177,7 +177,7 @@ private:
 
               Point possible_blockage = shared_[blockage_ix];
 
-              if (!(possible_blockage.time < MAX_TIME)) {
+              if (!(possible_blockage.time < FLT_MAX)) {
                 // If we haven't analyzed the blockage point yet then we can't
                 // use the reference in this iteration. If the reference is
                 // combustible then retry
@@ -274,12 +274,11 @@ private:
         global.y < settings_.geo_ref.height) {
       uint2 pos = make_uint2(global.x, global.y);
       size_t idx = global.x + global.y * settings_.geo_ref.width;
-      Point p =
-          Point(time_[idx],
-                FireSimpleCuda(idx, speed_max_, azimuth_max_, eccentricity_),
-                PointRef());
+      Point p = Point(time_[idx],
+                      load_fire(idx, speed_max_, azimuth_max_, eccentricity_),
+                      PointRef());
 
-      if (p.time < MAX_TIME) {
+      if (p.time < FLT_MAX) {
         // This grid-level memory fence is to ensure that reading
         // the time happens before reading the reference to ensure
         // that the Pont has been fully comitted to global memory
@@ -295,9 +294,9 @@ private:
         } else {
           p.reference.time = time_[ref_ix];
           p.reference.fire =
-              FireSimpleCuda(ref_ix, speed_max_, azimuth_max_, eccentricity_);
+              load_fire(ref_ix, speed_max_, azimuth_max_, eccentricity_);
         };
-        ASSERT(p.reference.time != MAX_TIME);
+        ASSERT(p.reference.time != FLT_MAX);
       };
       shared_[local.x + local.y * shared_width_] = p;
     } else {
@@ -336,7 +335,7 @@ private:
                                        const volatile FireSimpleCuda &b) const {
     // TODO: Make configurable
     return (abs(a.speed_max - b.speed_max) < 0.1 &&
-            abs(a.azimuth_max - b.azimuth_max) < (5.0 * (2 * PI) / 360.0) &&
+            abs(a.azimuth_max - b.azimuth_max) < (5.0 * (2 * M_PI) / 360.0) &&
             abs(a.eccentricity - b.eccentricity) < 0.05);
   }
 
@@ -371,7 +370,7 @@ private:
            gridIx_.y, blockDim.x, blockDim.y, idx_2d_.x, idx_2d_.y,
            idx_2d_.x % blockDim.x, idx_2d_.y % blockDim.y, local_x_, local_y_,
            global_ix_, (in_bounds_ ? true_ : false_), block_ix_, shared_width_,
-           local_ix_, (in_bounds_ ? time_[global_ix_] : MAX_TIME),
+           local_ix_, (in_bounds_ ? time_[global_ix_] : FLT_MAX),
            (in_bounds_ ? (speed_max_[global_ix_] != 0.0 ? true_ : false_)
                        : false_),
            (in_bounds_ ? refs_x_[global_ix_] : USHRT_MAX),

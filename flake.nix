@@ -160,6 +160,20 @@
               '';
             };
           };
+          apps.push_docker = flake-utils.lib.mkApp {
+            drv = pkgs.writeShellApplication {
+              name = "make_docker";
+              runtimeInputs = [
+                pkgs.nix
+                pkgs.skopeo
+              ];
+              text = ''
+                trap "rm -f /tmp/propag.docker" EXIT
+                nix bundle --bundler .#toDockerImage .# -o /tmp/propag.docker
+                skopeo --insecure-policy copy docker-archive:/tmp/propag.docker docker://docker.io/albertometeo/propag:0.1.0
+              '';
+            };
+          };
           apps.pushAll = flake-utils.lib.mkApp {
             drv = pkgs.writeShellApplication {
               name = "nix-push-all";

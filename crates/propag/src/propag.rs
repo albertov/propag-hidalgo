@@ -320,24 +320,30 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
     let settings = propag.settings;
     let geo_ref = settings.geo_ref;
     let len = geo_ref.len() as usize;
+    println!("settings.max_time={}, len={}", settings.max_time, len);
     let mut time = rasterize_times(
         &propag.initial_ignited_elements,
         propag.initial_ignited_elements_crs.clone(),
         &geo_ref,
     )
     .map_err(PropagGdalError)?;
+    println!("rasterized times");
     use PropagError::*;
     let terrain = propag
         .terrain_loader
         .load_extent(&geo_ref)
         .map(Ok)
         .unwrap_or(Err(PropagLoadExtentError))?;
+    println!("initializing CUDA");
     cust::init(CudaFlags::empty()).map_err(PropagCudaError)?;
+    println!("getting first device");
     let device = Device::get_device(0).map_err(PropagCudaError)?;
+    println!("creating context first device");
     let ctx = Context::new(device).map_err(PropagCudaError)?;
     ctx.set_flags(ContextFlags::SCHED_AUTO)
         .map_err(PropagCudaError)?;
 
+    println!("loading modules");
     let module_c = if let Ok(path) = std::env::var("PROPAG_PTX") {
         let contents =
             std::fs::read_to_string(path).map_err(|x| PropagReadPTXError(format!("{}", x)))?;
@@ -351,10 +357,12 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
         // they can be made from PTX code, cubins, or fatbins.
         let module = Module::from_ptx(PTX, &[])?;
 
+        println!("creating stream");
         // make a CUDA stream to issue calls to. You can think of this as an OS thread but for dispatching
         // GPU calls.
         let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
 
+        println!("getting kernel functions");
         // retrieve the add kernel from the module so we can calculate the right launch config.
         let propagate = module_c.get_function("propag")?;
         let pre_propagate = module_c.get_function("pre_propagate")?;
@@ -372,6 +380,7 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
         let shmem_bytes = shmem_size * 24; //FIXME: std::mem::size_of::<Point>() as u32;
                                            //assert_eq!(std::mem::size_of::<Point>(), 64);
 
+        println!("calculating allocation");
         let max_active_blocks: u32 =
             propagate.max_active_blocks_per_multiprocessor(block_size, shmem_bytes as _)?;
         let mp_count: i32 = device.get_attribute(DeviceAttribute::MultiprocessorCount)?;
@@ -428,6 +437,7 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
         let boundary_change_buf = boundary_change.as_slice().as_dbuf()?;
         let (_, burn_block_size) = burn.suggested_launch_configuration(0, 0.into())?;
         let burn_grid_size = geo_ref.len().div_ceil(burn_block_size);
+        println!("launching burn");
         unsafe {
             launch!(
                 burn<<<burn_grid_size, burn_block_size, 0, stream>>>(
@@ -448,6 +458,7 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
                 )
             )?;
             stream.synchronize()?;
+            println!("launching pre-propagate");
             for grid_y in 0..super_grid_size.y {
                 for grid_x in 0..super_grid_size.x {
                     cust::launch!(
@@ -467,6 +478,7 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
                 }
             }
             stream.synchronize()?;
+            println!("launching propagate");
             loop {
                 let mut worked: Vec<DeviceVariable<u32>> =
                     Vec::with_capacity((super_grid_size.x * super_grid_size.y) as usize);
@@ -502,6 +514,7 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
                     break;
                 }
             }
+            println!("launching post-propagate");
             stream.synchronize()?;
             for grid_y in 0..super_grid_size.y {
                 for grid_x in 0..super_grid_size.x {

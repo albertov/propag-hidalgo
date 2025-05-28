@@ -1064,31 +1064,29 @@ impl Fuel {
                 }
             }
         }
-        let eta_m = |life, life_moist| {
-            let life_mext = match life {
-                Life::Alive => {
-                    if self.has_live_particles() {
-                        let fdmois = wfmd / self.fine_dead_factor;
-                        let live_mext = self.live_ext_factor * (1.0 - fdmois / self.mext) - 0.226;
-                        live_mext.max(self.mext)
-                    } else {
-                        0.0
-                    }
-                }
-                Life::Dead => self.mext,
-            };
-            if life_moist >= life_mext {
-                0.0
-            } else {
-                let rt = life_moist / life_mext;
-                1.0 - 2.59 * rt + 5.11 * rt * rt - 3.52 * rt * rt * rt
-            }
-        };
         (
-            self.life_rx_factor_alive * eta_m(Life::Alive, alive_moist)
-                + self.life_rx_factor_dead * eta_m(Life::Dead, dead_moist),
+            self.life_rx_factor_alive * self.eta_m(Life::Alive, alive_moist, wfmd)
+                + self.life_rx_factor_dead * self.eta_m(Life::Dead, dead_moist, wfmd),
             self.fuel_bed_bulk_dens * rbqig,
         )
+    }
+    #[inline]
+    const fn eta_m(&self, life: Life, life_moist: f64, wfmd: f64) -> f64 {
+        let life_mext = match (self.has_live_particles(), life) {
+            (_, Life::Dead) => self.mext,
+            (true, Life::Alive) => {
+                let fdmois = wfmd / self.fine_dead_factor;
+                let live_mext = self.live_ext_factor * (1.0 - fdmois / self.mext) - 0.226;
+                live_mext.max(self.mext)
+            }
+            (false, Life::Alive) => 0.0,
+        };
+        if life_moist >= life_mext {
+            0.0
+        } else {
+            let rt = life_moist / life_mext;
+            1.0 - 2.59 * rt + 5.11 * rt * rt - 3.52 * rt * rt * rt
+        }
     }
     #[inline]
     fn calculate_wind_dependent_vars(
@@ -1235,10 +1233,4 @@ const fn init_arr<T: Copy, const N: usize, const M: usize>(def: T, src: [T; M]) 
         i += 1;
     }
     dst
-}
-pub(crate) fn sync_threads() {
-    #[cfg(target_os = "cuda")]
-    {
-        cuda_std::thread::sync_threads()
-    }
 }

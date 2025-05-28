@@ -164,10 +164,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             .map(|f| f.unwrap_or(Fire::NULL))
             .collect()
     });
+    println!("Verifying results");
     assert!(fire
         .iter()
         .zip(fire_rs.iter())
         .all(|(f_gpu, f_cpu)| { Into::<Fire>::into(f_gpu).almost_eq(f_cpu) }));
+    println!("All equal");
 
     println!("Calculating with GPU Simple");
     // output vectors
@@ -232,10 +234,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             .map(|f| f.unwrap_or(FireSimple::NULL))
             .collect()
     });
+    println!("Verifying results");
     assert!(fire_simple
         .iter()
         .zip(fire_simple_rs.iter())
         .all(|(f_gpu, f_cpu)| { Into::<FireSimple>::into(f_gpu).almost_eq(f_cpu) }));
+    println!("All equal");
 
     Ok(())
 }

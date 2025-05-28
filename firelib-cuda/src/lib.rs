@@ -1,4 +1,5 @@
 use cuda_std::prelude::*;
+use cuda_std::thread::sync_threads;
 use firelib_rs::*;
 
 #[kernel]
@@ -82,9 +83,9 @@ pub unsafe fn standard_simple_burn(
         };
         if let Some(fire) = Catalog::STANDARD.burn_simple(model[i], &terrain.into()) {
             let fire = Into::<FireSimpleCuda>::into(fire);
-            *speed_max.add(i) = fire.speed_max;
-            *azimuth_max.add(i) = fire.azimuth_max;
-            *eccentricity.add(i) = fire.eccentricity;
+            *speed_max.wrapping_add(i) = fire.speed_max;
+            *azimuth_max.wrapping_add(i) = fire.azimuth_max;
+            *eccentricity.wrapping_add(i) = fire.eccentricity;
         }
     }
 }

@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 const_soft_float = { git = "https://github.com/albertov/const_soft_float.git"}
 rand = "0.9.0"
-uom = { version = "0.36.0", default-features = false, features=["f64", "si"] }
+uom = { version = "0.36.0", default-features = false, features=["f64", "si", "serde"] }
 
 [dev-dependencies]
 firelib-sys = { path = "../firelib-sys" }
@@ -15,3 +15,6 @@ quickcheck = "1.0.3"
 [features]
 default = ["std"]
 std = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(test)'] }

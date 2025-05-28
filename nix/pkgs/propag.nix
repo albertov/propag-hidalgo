@@ -3,6 +3,7 @@
   myRustToolchain,
   cudaPackages,
   openssl,
+  openmpi,
   gdal,
   removeReferencesTo,
   cudaCombined,
@@ -25,6 +26,7 @@ let
       cudaPackages.cuda_cudart.static
       gdal
       openssl
+      openmpi
     ];
     passthru = {
       ubuntuDeps = [

@@ -62,6 +62,16 @@ in
       ];
   };
 
+  openmpi =
+    with final;
+    prev.openmpi.overrideAttrs (_: rec {
+      version = "5.0.3"; # Same version as meluxina
+      src = fetchurl {
+        url = "https://www.open-mpi.org/software/ompi/v${lib.versions.majorMinor version}/downloads/openmpi-${version}.tar.bz2";
+        sha256 = "sha256-mQWC8gazqzLpOKoxu/B8Y5No5EBdyhlvq+fw927tqQs=";
+      };
+    });
+
   qgis = final.callPackage ./pkgs/qgis.nix {
     qgis = final.qgis-orig.unwrapped;
     extraPlugins = [ (final.qgis-propag-algo.override { qgis = final.qgis-orig; }) ];

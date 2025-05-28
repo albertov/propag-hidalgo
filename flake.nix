@@ -95,14 +95,14 @@
           pkgs.dockerTools.buildImage {
             name = "albertometeo/${drv.pname or "image"}";
             tag = drv.version;
-            fromImageName = "nvidia/cuda";
-            fromImageTag = "cuda:12.6.3-runtime-ubuntu24.04";
+            #fromImageName = "nvidia/cuda";
+            #fromImageTag = "cuda:12.6.3-runtime-ubuntu24.04";
             copyToRoot = pkgs.buildEnv {
               name = "image-root";
               paths = [ drv ];
             };
             config.EntryPoint = [ (pkgs.lib.getExe drv) ];
-            #config.Env = [ "LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64" ];
+            config.Env = [ "LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64" ];
           };
       };
     }
@@ -171,6 +171,20 @@
                 trap "rm -f /tmp/propag.docker" EXIT
                 nix bundle --bundler .#toDockerImage .# -o /tmp/propag.docker
                 skopeo --insecure-policy copy docker-archive:/tmp/propag.docker docker://docker.io/albertometeo/propag:0.1.0
+              '';
+            };
+          };
+          apps.load_docker = flake-utils.lib.mkApp {
+            drv = pkgs.writeShellApplication {
+              name = "load_docker";
+              runtimeInputs = [
+                pkgs.nix
+                pkgs.docker-client
+              ];
+              text = ''
+                trap "rm -f /tmp/propag.docker" EXIT
+                nix bundle --bundler .#toDockerImage .# -o /tmp/propag.docker
+                docker load < /tmp/propag.docker
               '';
             };
           };

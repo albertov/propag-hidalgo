@@ -126,9 +126,10 @@ Generating times geotiff
 ### Running it on Meluxina
 
 ```console
-(login)$ salloc -A p200648 -t 01:00:00 -q dev --res gpudev -p gpu -N 1
+(login)$ salloc -A p200648 -t 01:00:00 -q dev --res gpudev -p gpu -N 1 --ntasks-per-node=4
 (compute)$ module load Apptainer/1.3.6-GCCcore-13.3.0
+(compute)$ module load OpenMPI/5.0.3-NVHPC-24.9-CUDA-12.6.0
 (compute)$ export IMAGE=albertometeo/propag:0.1.0
 (compute)$ apptainer pull docker://$IMAGE
-(compute)$ apptainer run --nv propag_0.1.0.sif
+(compute)$ mpirun -n 4 -bind-to none -map-by :OVERSUBSCRIBE -- apptainer run --nv propag_0.1.0.sif
 ```

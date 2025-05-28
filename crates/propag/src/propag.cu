@@ -87,8 +87,7 @@ public:
       bool block_improved = __syncthreads_or(improved);
       if (block_improved && threadIdx.x + threadIdx.y == 0) {
         // Signal that at least one block in this grid has progressed.
-        // No need for atomic here because it's enough to flip it != 0
-        *progress = 1;
+        atomicOr(progress, 1);
       }
 
       // Block has finished. Check if others have too after syncing grid to

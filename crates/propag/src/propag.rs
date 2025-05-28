@@ -21,6 +21,8 @@ use gdal_sys::CPLErr::CE_None;
 use gdal_sys::OGRGeometryH;
 use geometry::GeoReference;
 use min_max_traits::Max;
+use mpi::traits::*;
+use mpi::Threading;
 use soa_derive::StructOfArray;
 use std::ffi::CStr;
 use std::fmt;
@@ -249,6 +251,7 @@ pub enum PropagError {
     PropagCudaError(CudaError),
     PropagReadPTXError(String),
     PropagLoadExtentError,
+    PropagMPIInitError,
 }
 
 impl fmt::Display for PropagError {
@@ -259,6 +262,7 @@ impl fmt::Display for PropagError {
             PropagCudaError(err) => write!(f, "{}", err),
             PropagReadPTXError(err) => write!(f, "{}", err),
             PropagLoadExtentError => write!(f, "load_extent_error"),
+            PropagMPIInitError => write!(f, "MPI init error"),
         }
     }
 }
@@ -334,10 +338,26 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
         .load_extent(&geo_ref)
         .map(Ok)
         .unwrap_or(Err(PropagLoadExtentError))?;
+
+    println!("initializing MPI");
+    let universe =
+        mpi::initialize_with_threading(Threading::Serialized).ok_or(PropagMPIInitError)?;
+    let world = universe.world();
+    let size = world.size();
+    let rank = world.rank();
+    println!("Node {}/{}", rank, size);
+
     println!("initializing CUDA");
     cust::init(CudaFlags::empty()).map_err(PropagCudaError)?;
-    println!("getting first device");
-    let device = Device::get_device(0).map_err(PropagCudaError)?;
+
+    let num_devices = Device::devices().map_err(PropagCudaError)?.count();
+    println!("found {} CUDA devices", num_devices);
+
+    let device = (rank as usize % num_devices) as u32;
+
+    println!("getting device {}", device);
+
+    let device = Device::get_device(device).map_err(PropagCudaError)?;
     println!("creating context first device");
     let ctx = Context::new(device).map_err(PropagCudaError)?;
     ctx.set_flags(ContextFlags::SCHED_AUTO)

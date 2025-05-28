@@ -331,12 +331,10 @@ impl Fuel {
         self.life_area_weight(Life::Alive) * self.life_savr(Life::Alive)
             + self.life_area_weight(Life::Dead) * self.life_savr(Life::Dead)
     }
-    fn ratio(&self) -> f64 {
-        self.beta() / (3.348 / self.sigma().powf(0.8189))
+    fn ratio(&self, sigma: f64, beta: f64) -> f64 {
+        beta / (3.348 / sigma.powf(0.8189))
     }
-    fn flux_ratio(&self) -> f64 {
-        let sigma = self.sigma();
-        let beta = self.beta();
+    fn flux_ratio(&self, sigma: f64, beta: f64) -> f64 {
         ((0.792 + 0.681 * sigma.sqrt()) * (beta + 0.1)).exp() / (192.0 + 0.2595 * sigma)
     }
     fn beta(&self) -> f64 {
@@ -345,16 +343,19 @@ impl Fuel {
             self.depth,
         )
     }
-    fn gamma(&self) -> f64 {
-        let sigma = self.sigma();
+    fn gamma(&self, sigma: f64, beta: f64) -> f64 {
         let sigma15 = sigma.powf(1.5);
         let gamma_max = sigma15 / (495.0 + 0.0594 * sigma15);
         let aa = 133.0 / sigma.powf(0.7913);
-        gamma_max * self.ratio().powf(aa) * (aa * (1.0 - self.ratio())).exp()
+        let rt = self.ratio(sigma, beta);
+        gamma_max * rt.powf(aa) * (aa * (1.0 - rt)).exp()
     }
 
-    fn life_rx_factor(&self, life: Life) -> f64 {
-        self.life_load(life) * self.life_heat(life) * self.life_eta_s(life) * self.gamma()
+    fn life_rx_factor(&self, life: Life, sigma: f64, beta: f64) -> f64 {
+        self.life_load(life)
+            * self.life_heat(life)
+            * self.life_eta_s(life)
+            * self.gamma(sigma, beta)
     }
     fn part_area_weight(&self, particle: &Particle) -> f64 {
         safe_div(
@@ -383,18 +384,17 @@ impl Fuel {
         self.particles().map(|p| safe_div(p.load, self.depth)).sum()
     }
 
-    fn residence_time(&self) -> f64 {
-        384.0 / self.sigma()
+    fn residence_time(&self, sigma: f64) -> f64 {
+        384.0 / sigma
     }
 
-    fn slope_k(&self) -> f64 {
-        5.275 * self.beta().powf(-0.3)
+    fn slope_k(&self, beta: f64) -> f64 {
+        5.275 * beta.powf(-0.3)
     }
 
-    fn wind_bke(&self) -> (f64, f64, f64) {
-        let sigma = self.sigma();
+    fn wind_bke(&self, sigma: f64, beta: f64) -> (f64, f64, f64) {
         let wind_b = 0.02526 * sigma.powf(0.54);
-        let r = self.ratio();
+        let r = self.ratio(sigma, beta);
         let c = 7.47 * ((-0.133) * (sigma.powf(0.55))).exp();
         let e = 0.715 * ((-0.000359) * sigma).exp();
         let wind_k = c * r.powf(-e);
@@ -406,58 +406,71 @@ impl Fuel {
 impl Combustion {
     pub fn make(def: FuelDef) -> Self {
         let fuel = Fuel::make(def);
-        let (wind_b, wind_k, wind_e) = fuel.wind_bke();
+        let sigma = fuel.sigma();
+        let beta = fuel.beta();
+        let (wind_b, wind_k, wind_e) = fuel.wind_bke(sigma, beta);
+        let life_rx_factor_alive = fuel.life_rx_factor(Life::Alive, sigma, beta);
+        let life_rx_factor_dead = fuel.life_rx_factor(Life::Dead, sigma, beta);
         Combustion {
             live_area_weight: fuel.life_area_weight(Life::Alive),
-            live_rx_factor: fuel.life_rx_factor(Life::Alive),
+            live_rx_factor: fuel.life_rx_factor(Life::Alive, sigma, beta),
             dead_area_weight: fuel.life_area_weight(Life::Dead),
-            dead_rx_factor: fuel.life_rx_factor(Life::Dead),
+            dead_rx_factor: fuel.life_rx_factor(Life::Dead, sigma, beta),
             fine_dead_factor: fuel.life_fine_load(Life::Dead),
             live_ext_factor: fuel.live_ext_factor(),
             fuel_bed_bulk_dens: fuel.bulk_density(),
-            residence_time: fuel.residence_time(),
-            flux_ratio: fuel.flux_ratio(),
-            slope_k: fuel.slope_k(),
+            residence_time: fuel.residence_time(sigma),
+            flux_ratio: fuel.flux_ratio(sigma, beta),
+            slope_k: fuel.slope_k(beta),
             wind_b,
             wind_e,
             wind_k,
             fuel,
+            sigma,
+            beta,
+            life_rx_factor_alive,
+            life_rx_factor_dead,
         }
     }
     pub fn spread(&self, terrain: &Terrain) -> Spread {
         if self.fuel.alive_particles.is_empty() && self.fuel.dead_particles.is_empty() {
             Spread::no_spread()
         } else {
+            let rx_int = self.rx_int(terrain);
+            let speed0 = self.speed0(terrain, rx_int);
             let (phi_eff_wind, eff_wind, speed_max, azimuth_max) =
-                self.calculate_wind_dependent_vars(terrain);
+                self.calculate_wind_dependent_vars(terrain, speed0, rx_int);
+            let byrams_max = self.byrams_max(speed_max, rx_int);
             Spread {
-                rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(self.rx_int(terrain)),
-                speed0: Velocity::new::<foot_per_minute>(self.speed0(terrain)),
-                hpua: RadiantExposure::new::<btu_sq_foot>(self.hpua(terrain)),
+                rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(rx_int),
+                speed0: Velocity::new::<foot_per_minute>(speed0),
+                hpua: RadiantExposure::new::<btu_sq_foot>(self.hpua(rx_int)),
                 phi_eff_wind: Ratio::new::<ratio>(phi_eff_wind),
                 speed_max: Velocity::new::<foot_per_minute>(speed_max),
                 azimuth_max: Angle::new::<radian>(azimuth_max),
                 eccentricity: Ratio::new::<ratio>(Combustion::eccentricity(eff_wind)),
-                byrams_max: LinearPowerDensity::new::<btu_foot_sec>(
-                    self.byrams_max(terrain, speed_max),
-                ),
-                flame_max: Length::new::<foot>(self.flame_max(terrain, speed_max)),
+                byrams_max: LinearPowerDensity::new::<btu_foot_sec>(byrams_max),
+                flame_max: Length::new::<foot>(flame_length(byrams_max)),
             }
         }
     }
     fn rx_int(&self, terrain: &Terrain) -> f64 {
-        self.fuel.life_rx_factor(Life::Alive) * self.life_eta_m(Life::Alive, terrain)
-            + self.fuel.life_rx_factor(Life::Dead) * self.life_eta_m(Life::Dead, terrain)
+        self.life_rx_factor_alive * self.life_eta_m(Life::Alive, terrain)
+            + self.life_rx_factor_dead * self.life_eta_m(Life::Dead, terrain)
     }
-    fn calculate_wind_dependent_vars(&self, terrain: &Terrain) -> (f64, f64, f64, f64) {
-        let speed_max1 = self.speed0(terrain) * (1.0 + self.phi_ew(terrain));
+    fn calculate_wind_dependent_vars(
+        &self,
+        terrain: &Terrain,
+        speed0: f64,
+        rx_int: f64,
+    ) -> (f64, f64, f64, f64) {
         let phi_ew = self.phi_ew(terrain);
-        let speed0 = self.speed0(terrain);
+        let speed_max1 = speed0 * (1.0 + phi_ew);
         let upslope = terrain.upslope();
         let wind_speed = terrain.wind_speed.get::<foot_per_minute>();
         let wind_az = terrain.wind_azimuth.get::<radian>();
         let ew_from_phi_ew = |p: f64| (p * self.wind_e).powf(1.0 / self.wind_b);
-        let max_wind = 0.9 * self.rx_int(terrain);
+        let max_wind = 0.9 * rx_int;
         let check_wind_limit = |pew: f64, ew: f64, s: f64, a: f64| {
             if ew > max_wind {
                 let phi_ew_max_wind = if max_wind < SMIDGEN {
@@ -472,7 +485,7 @@ impl Combustion {
             }
         };
         use WindSlopeSituation::*;
-        match self.wind_slope_situation(terrain) {
+        match self.wind_slope_situation(terrain, speed0, phi_ew) {
             NoSpread => (phi_ew, 0.0, 0.0, 0.0),
             NoSlopeNoWind => (phi_ew, 0.0, speed0, 0.0),
             WindNoSlope => check_wind_limit(phi_ew, wind_speed, speed_max1, wind_az),
@@ -523,13 +536,18 @@ impl Combustion {
             }
         }
     }
-    fn wind_slope_situation(&self, terrain: &Terrain) -> WindSlopeSituation {
+    fn wind_slope_situation(
+        &self,
+        terrain: &Terrain,
+        speed0: f64,
+        phi_ew: f64,
+    ) -> WindSlopeSituation {
         let wind_az = terrain.wind_azimuth.get::<radian>();
 
         use WindSlopeSituation::*;
-        if self.speed0(terrain) < SMIDGEN {
+        if speed0 < SMIDGEN {
             NoSpread
-        } else if self.phi_ew(terrain) < SMIDGEN {
+        } else if phi_ew < SMIDGEN {
             NoSlopeNoWind
         } else if terrain.slope.get::<ratio>() < SMIDGEN {
             WindNoSlope
@@ -541,11 +559,11 @@ impl Combustion {
             CrossSlope
         }
     }
-    fn speed0(&self, terrain: &Terrain) -> f64 {
-        safe_div(self.rx_int(terrain) * self.flux_ratio, self.rbqig(terrain))
+    fn speed0(&self, terrain: &Terrain, rx_int: f64) -> f64 {
+        safe_div(rx_int * self.flux_ratio, self.rbqig(terrain))
     }
-    fn hpua(&self, terrain: &Terrain) -> f64 {
-        self.rx_int(terrain) * self.residence_time
+    fn hpua(&self, rx_int: f64) -> f64 {
+        rx_int * self.residence_time
     }
     fn eccentricity(eff_wind: f64) -> f64 {
         let lw_ratio = 1.0 + 0.002840909 * eff_wind;
@@ -555,13 +573,9 @@ impl Combustion {
             0.0
         }
     }
-    fn byrams_max(&self, terrain: &Terrain, speed_max: f64) -> f64 {
-        self.residence_time * speed_max * self.rx_int(terrain) / 60.0
+    fn byrams_max(&self, speed_max: f64, rx_int: f64) -> f64 {
+        self.residence_time * speed_max * rx_int / 60.0
     }
-    fn flame_max(&self, terrain: &Terrain, speed_max: f64) -> f64 {
-        flame_length(self.byrams_max(terrain, speed_max))
-    }
-
     fn life_moisture(&self, life: Life, terrain: &Terrain) -> f64 {
         self.fuel
             .life_particles(life)
@@ -585,10 +599,12 @@ impl Combustion {
     }
 
     fn life_eta_m(&self, life: Life, terrain: &Terrain) -> f64 {
-        if self.life_moisture(life, terrain) >= self.life_mext(life, terrain) {
+        let life_mext = self.life_mext(life, terrain);
+        let life_moist = self.life_moisture(life, terrain);
+        if life_moist >= life_mext {
             0.0
-        } else if self.life_mext(life, terrain) > SMIDGEN {
-            let rt = self.life_moisture(life, terrain) / self.life_mext(life, terrain);
+        } else if life_mext > SMIDGEN {
+            let rt = life_moist / life_mext;
             1.0 - 2.59 * rt + 5.11 * rt * rt - 3.52 * rt * rt * rt
         } else {
             0.0

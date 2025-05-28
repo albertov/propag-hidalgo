@@ -52,6 +52,7 @@ pub struct Terrain {
     pub aspect: Angle,
 }
 
+#[derive(Debug)]
 pub struct Spread {
     pub rx_int: HeatFluxDensity,
     pub speed0: Velocity,
@@ -64,6 +65,7 @@ pub struct Spread {
     pub flame_max: Length,
 }
 
+#[derive(Debug)]
 pub struct SpreadAtAzimuth {
     pub speed: Velocity,
     pub byrams: LinearPowerDensity,
@@ -86,6 +88,10 @@ pub struct Combustion {
     pub wind_b: f64,
     pub wind_e: f64,
     pub wind_k: f64,
+    pub sigma: f64,
+    pub beta: f64,
+    pub life_rx_factor_alive: f64,
+    pub life_rx_factor_dead: f64,
 }
 
 #[derive(PartialEq)]

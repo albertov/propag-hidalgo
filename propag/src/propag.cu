@@ -24,20 +24,16 @@ class ALIGN Propagator {
   float volatile *time_;
   unsigned short volatile *refs_x_;
   unsigned short volatile *refs_y_;
-  unsigned volatile *progress_;
-  unsigned *worked_;
 
   __shared__ Point *shared_;
-  bool volatile *grid_improved_;
 
 public:
-  __device__
-  Propagator(const Settings &settings, const unsigned grid_x,
-             const unsigned grid_y, unsigned *worked, const float *speed_max,
-             const float *azimuth_max, const float *eccentricity,
-             float volatile *time, unsigned short volatile *refs_x,
-             unsigned short volatile *refs_y, unsigned volatile *progress,
-             __shared__ Point *shared, bool volatile *grid_improved)
+  __device__ Propagator(const Settings &settings, const unsigned grid_x,
+                        const unsigned grid_y, const float *speed_max,
+                        const float *azimuth_max, const float *eccentricity,
+                        float volatile *time, unsigned short volatile *refs_x,
+                        unsigned short volatile *refs_y,
+                        __shared__ Point *shared)
       : settings_(settings), gridIx_(make_uint2(grid_x, grid_y)),
         idx_2d_(index_2d(gridIx_)),
         global_ix_(idx_2d_.x + idx_2d_.y * settings_.geo_ref.width),
@@ -49,14 +45,71 @@ public:
         shared_width_(blockDim.x + HALO_RADIUS * 2),
         local_ix_(local_x_ + local_y_ * shared_width_), speed_max_(speed_max),
         azimuth_max_(azimuth_max), eccentricity_(eccentricity), time_(time),
-        refs_x_(refs_x), refs_y_(refs_y), progress_(progress), shared_(shared),
-        grid_improved_(grid_improved) {
+        refs_x_(refs_x), refs_y_(refs_y), shared_(shared) {
     ASSERT(block_ix_ < gridDim.x * gridDim.y);
   };
 
-  __device__ inline void mark_progress(unsigned p) { progress_[block_ix_] = p; }
+  __device__ void run(unsigned *worked, volatile unsigned *progress) const {
+    __shared__ bool grid_improved;
+    bool first_iteration = true;
+    do { // Grid loop
+      bool any_improved = false;
+      // Initialize progress to no-progress
+      if (threadIdx.x == 0 && threadIdx.y == 0) {
+        mark_progress(progress, 0);
+        grid_improved = false;
+      };
+      do { // Block loop
+        // First phase, load data from global to shared memory
+        load_points_into_shared_memory(first_iteration);
+        first_iteration = false;
 
-  __device__ inline bool update_point(Point p) {
+        __syncthreads();
+
+        // Begin neighbor analysys
+        Point best;
+        find_neighbor_with_least_access_time(&best);
+
+        // End of neighbor analysys, save point if improves
+        bool improved = update_point(best);
+
+        // Wait for other threads to end their analysis and
+        // check if any has improved. Then if we're the first
+        // thread of the block mark progress
+        any_improved = __syncthreads_or(improved);
+        if (improved) {
+          update_shared_point(best);
+        }
+        if (any_improved && threadIdx.x == 0 && threadIdx.y == 0) {
+          mark_progress(progress, 1);
+        };
+        __syncthreads();
+      } while (any_improved); // end block loop
+
+      // Block has finished. Check if others have too and set grid_improved.
+      // Analysys ends when grid has not improved
+      cooperative_groups::grid_group grid = cooperative_groups::this_grid();
+      grid.sync();
+      if (threadIdx.x == 0 && threadIdx.y == 0) {
+        grid_improved = false;
+        for (int i = 0; i < gridDim.x * gridDim.y; i++) {
+          grid_improved |= progress[i];
+        }
+        if (grid_improved && blockIdx.x == 0 && blockIdx.y == 0) {
+          *worked = 1;
+        }
+      }
+      grid.sync();
+    } while (grid_improved); // end grid loop
+  }
+
+private:
+  __device__ inline void mark_progress(volatile unsigned *progress,
+                                       unsigned v) const {
+    progress[block_ix_] = v;
+  }
+
+  __device__ inline bool update_point(Point p) const {
     if (in_bounds_ && p.time < MAX_TIME) {
       // printf("best time %f\n", best.time);
       time_[global_ix_] = p.time;
@@ -67,11 +120,12 @@ public:
     return false;
   }
 
-  __device__ inline void update_shared_point(Point p) {
+  __device__ inline void update_shared_point(Point p) const {
     shared_[local_ix_] = p;
   }
 
-  __device__ inline void load_points_into_shared_memory(bool first_iteration) {
+  __device__ inline void
+  load_points_into_shared_memory(bool first_iteration) const {
     if (in_bounds_) {
       // Load the central block data
       if (first_iteration) {
@@ -103,7 +157,7 @@ public:
     }
   }
 
-  __device__ inline void load_point_at_offset(const int2 offset) {
+  __device__ inline void load_point_at_offset(const int2 offset) const {
     int2 local = make_int2(local_x_ + offset.x, local_y_ + offset.y);
     int2 global = make_int2(global_x_ + offset.x, global_y_ + offset.y);
     if (global.x >= 0 && global.x < settings_.geo_ref.width && global.y >= 0 &&
@@ -139,7 +193,8 @@ public:
     }
   }
 
-  __device__ inline void find_neighbor_with_least_access_time(Point *result) {
+  __device__ inline void
+  find_neighbor_with_least_access_time(Point *result) const {
     ////////////////////////////////////////////////////////////////////////
     // Begin neighbor analysys
     ////////////////////////////////////////////////////////////////////////
@@ -264,70 +319,11 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
                        unsigned short volatile *refs_y,
                        unsigned volatile *progress) {
   extern __shared__ Point shared[];
-  __shared__ bool grid_improved;
 
-  Propagator sim = Propagator(settings, grid_x, grid_y, worked, speed_max,
-                              azimuth_max, eccentricity, time, refs_x, refs_y,
-                              progress, shared, &grid_improved);
+  Propagator sim = Propagator(settings, grid_x, grid_y, speed_max, azimuth_max,
+                              eccentricity, time, refs_x, refs_y, shared);
 
-  bool first_iteration = true;
-  do { // Grid loop
-    bool any_improved = false;
-    // Initialize progress to no-progress
-    if (threadIdx.x == 0 && threadIdx.y == 0) {
-      sim.mark_progress(0);
-      grid_improved = false;
-    };
-    do { // Block loop
-      //////////////////////////////////////////////////////
-      // First phase, load data from global to shared memory
-      //////////////////////////////////////////////////////
-      sim.load_points_into_shared_memory(first_iteration);
-      first_iteration = false;
-
-      __syncthreads();
-
-      ////////////////////////////////////////////////////////////////////////
-      // Begin neighbor analysys
-      ////////////////////////////////////////////////////////////////////////
-      Point best;
-      sim.find_neighbor_with_least_access_time(&best);
-
-      ///////////////////////////////////////////////////
-      // End of neighbor analysys, save point if improves
-      ///////////////////////////////////////////////////
-      bool improved = sim.update_point(best);
-
-      ///////////////////////////////////////////////////
-      // Wait for other threads to end their analysis and
-      // check if any has improved. Then if we're the first
-      // thread of the block mark progress
-      ///////////////////////////////////////////////////
-      any_improved = __syncthreads_or(improved);
-      if (improved) {
-        sim.update_shared_point(best);
-      }
-      if (any_improved && threadIdx.x == 0 && threadIdx.y == 0) {
-        sim.mark_progress(1);
-      };
-      __syncthreads();
-    } while (any_improved); // end block loop
-
-    // Block has finished. Check if others have too and set grid_improved.
-    // Analysys ends when grid has not improved
-    cooperative_groups::grid_group grid = cooperative_groups::this_grid();
-    grid.sync();
-    if (threadIdx.x == 0 && threadIdx.y == 0) {
-      grid_improved = false;
-      for (int i = 0; i < gridDim.x * gridDim.y; i++) {
-        grid_improved |= progress[i];
-      }
-      if (grid_improved && blockIdx.x == 0 && blockIdx.y == 0) {
-        *worked = 1;
-      }
-    }
-    grid.sync();
-  } while (grid_improved); // end grid loop
+  sim.run(worked, progress);
 }
 
 #ifdef __cplusplus

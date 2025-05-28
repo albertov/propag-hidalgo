@@ -3,6 +3,9 @@ pkgs.mkShell {
   inputsFrom = [
     pkgs.propag
   ];
+  shellHook = ''
+    ${pkgs.pre-commit.shellHook}
+  '';
   env = {
     # So we can link against CUDA runtime API while developing
     LD_LIBRARY_PATH = "${pkgs.linuxPackages.nvidia_x11}/lib";

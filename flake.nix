@@ -31,6 +31,7 @@
       url = "github:srid/devour-flake";
       flake = false;
     };
+    pre-commit-nix.url = "github:cachix/pre-commit-hooks.nix";
   };
 
   outputs =
@@ -92,7 +93,7 @@
             inherit system;
             overlays = [
               rust-overlay.overlays.default
-              (import ./nix/overlay.nix inputs)
+              (import ./nix/overlay.nix self inputs system)
             ];
             config.allowUnfree = true;
           };

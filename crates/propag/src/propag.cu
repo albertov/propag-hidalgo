@@ -139,7 +139,8 @@ private:
               shared_[(local_x_ + i) + (local_y_ + j) * shared_width_];
 
           // not burning, skip it
-          if (!(neighbor.time < settings_.max_time && !fire_is_null(neighbor.fire))) {
+          if (!(neighbor.time < settings_.max_time &&
+                !fire_is_null(neighbor.fire))) {
             continue;
           };
 
@@ -171,8 +172,8 @@ private:
 
               Point possible_blockage = shared_[blockage_ix];
               if (!(possible_blockage.time < FLT_MAX)) {
-               // If we haven't analyzed the blockage point yet then we
-               // can't use the reference in this iteration.
+                // If we haven't analyzed the blockage point yet then we
+                // can't use the reference in this iteration.
                 return Point_NULL;
               }
 

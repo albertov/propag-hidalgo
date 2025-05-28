@@ -1,4 +1,4 @@
-inputs: final: prev:
+self: inputs: system: final: prev:
 let
 
   rust_cuda_sha256 = "sha256-3cpFOdAdoKLnd5HB9ryNWIUOXlF/g1cm8RA+0nAQDK0=";
@@ -133,6 +133,14 @@ in
     stdenv = final.cudaPackages.backendStdenv;
     cargo = final.myRustToolchain;
     rustc = final.myRustToolchain;
+  };
+
+  pre-commit = inputs.pre-commit-nix.lib.${system}.run rec {
+    src = self;
+    hooks = {
+      treefmt-nix.enable = true;
+      treefmt-nix.entry = "${final.nix}/bin/nix fmt";
+    };
   };
 
 }

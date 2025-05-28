@@ -2,15 +2,16 @@
 use ::geometry::*;
 use cust::function::{BlockSize, GridSize};
 use cust::prelude::*;
+use firelib_cuda::Point;
 use firelib_rs::float;
 use firelib_rs::float::*;
 use firelib_rs::*;
+use min_max_traits::Max;
 use num_traits::Float;
 use std::error::Error;
 use uom::si::angle::degree;
 use uom::si::ratio::ratio;
 use uom::si::velocity::meter_per_second;
-use firelib_cuda::Point;
 
 #[macro_use]
 extern crate timeit;
@@ -38,16 +39,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Generating input data");
     type OptionalVec<T> = Vec<Option<T>>;
-    let model: OptionalVec<usize> = (0..len).map(|_n| Some(1)).collect();
-    let d1hr: OptionalVec<float::T> = (0..len).map(|_n| Some(0.1)).collect();
-    let d10hr: OptionalVec<float::T> = (0..len).map(|_n| Some(0.1)).collect();
-    let d100hr: OptionalVec<float::T> = (0..len).map(|_n| Some(0.1)).collect();
-    let herb: OptionalVec<float::T> = (0..len).map(|_n| Some(0.1)).collect();
-    let wood: OptionalVec<float::T> = (0..len).map(|_n| Some(0.1)).collect();
-    let wind_speed: OptionalVec<float::T> = (0..len).map(|_n| Some(1.0)).collect();
-    let wind_azimuth: OptionalVec<float::T> = (0..len).map(|_n| Some(0.0)).collect();
-    let aspect: OptionalVec<float::T> = (0..len).map(|_n| Some(0.0)).collect();
-    let slope: OptionalVec<float::T> = (0..len).map(|_n| Some(PI)).collect();
+    let model: Vec<usize> = (0..len).map(|_n| 1).collect();
+    let d1hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
+    let d10hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
+    let d100hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
+    let herb: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
+    let wood: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
+    let wind_speed: Vec<float::T> = (0..len).map(|_n| 5.0).collect();
+    let wind_azimuth: Vec<float::T> = (0..len).map(|_n| 1.0).collect();
+    let aspect: Vec<float::T> = (0..len).map(|_n| 0.0).collect();
+    let slope: Vec<float::T> = (0..len).map(|_n| PI).collect();
 
     // initialize CUDA, this will pick the first available device and will
     // make a CUDA context from it.
@@ -66,7 +67,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Getting function");
     // retrieve the add kernel from the module so we can calculate the right launch config.
     let propag = module.get_function("propag")?;
-    let pre_burn = module.get_function("pre_burn")?;
+    let pre_burn = module.get_function("standard_simple_burn")?;
 
     let grid_size = GridSize {
         x: geo_ref.size[0].div_ceil(THREAD_BLOCK_AXIS_LENGTH),
@@ -102,27 +103,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     let grid_size2 = (model.len() as u32).div_ceil(block_size2) + 1;
 
     // input/output vectors
-    let mut time: Vec<Option<u32>> = std::iter::repeat(None).take(model.len()).collect();
-    let mut refs_x: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
-    let mut refs_y: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
-    let max_time: u32 = 60 * 60 * 50;
+    let mut time: Vec<f32> = std::iter::repeat(Max::MAX).take(model.len()).collect();
+    let mut refs_x: Vec<usize> = std::iter::repeat(Max::MAX).take(model.len()).collect();
+    let mut refs_y: Vec<usize> = std::iter::repeat(Max::MAX).take(model.len()).collect();
+    let max_time: f32 = 60.0 * 60.0 * 50.0;
     let fire_pos = USizeVec2 { x: 500, y: 100 };
 
     ({
-        let mut speed_max: Vec<Option<float::T>> =
-            std::iter::repeat(None).take(model.len()).collect();
-        let mut azimuth_max: Vec<Option<float::T>> =
-            std::iter::repeat(None).take(model.len()).collect();
-        let mut eccentricity: Vec<Option<float::T>> =
-            std::iter::repeat(None).take(model.len()).collect();
+        let mut speed_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
+        let mut azimuth_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
+        let mut eccentricity: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
         let mut progress: Vec<u32> = std::iter::repeat(0).take(linear_grid_size).collect();
 
-        time.fill(None);
-        refs_x.fill(None);
-        refs_y.fill(None);
-        time[(fire_pos.x + fire_pos.y * geo_ref.size[0] as usize)] = Some(0);
-        refs_x[(fire_pos.x + fire_pos.y * geo_ref.size[0] as usize)] = Some(fire_pos.x);
-        refs_y[(fire_pos.x + fire_pos.y * geo_ref.size[0] as usize)] = Some(fire_pos.y);
+        time.fill(Max::MAX);
+        refs_x.fill(Max::MAX);
+        refs_y.fill(Max::MAX);
+        time[(fire_pos.x + fire_pos.y * geo_ref.size[0] as usize)] = 0.0;
+        refs_x[(fire_pos.x + fire_pos.y * geo_ref.size[0] as usize)] = fire_pos.x;
+        refs_y[(fire_pos.x + fire_pos.y * geo_ref.size[0] as usize)] = fire_pos.y;
 
         let mut speed_max_buf = speed_max.as_slice().as_dbuf()?;
         let mut azimuth_max_buf = azimuth_max.as_slice().as_dbuf()?;
@@ -174,13 +172,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 speed_max_buf.copy_to(&mut speed_max)?;
                 assert!(speed_max.iter().all(|t| t.is_some()));
                 */
-                println!("propag {}", std::mem::size_of::<Option<Point>>());
-                println!("propag {}", std::mem::size_of::<Point>());
-                let radius = 2;
-                let shmem_size =
-                    (((block_size.x+radius*2)*(block_size.y+radius*2)) );
-                let shmem_bytes = shmem_size
-                    * std::mem::size_of::<Option<Point>>() as u32;
+                println!("propag");
+                let radius = 5;
+                let shmem_size = ((block_size.x + radius * 2) * (block_size.y + radius * 2));
+                let shmem_bytes = shmem_size * std::mem::size_of::<Point>() as u32;
                 launch!(
                     // slices are passed as two parameters, the pointer and the length.
                     propag<<<grid_size, block_size, shmem_bytes, stream>>>(
@@ -200,21 +195,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                     )
                 )?;
                 stream.synchronize()?;
-                println!("propag end");
-                /*
-                time_buf.copy_to(&mut time)?;
+                //time_buf.copy_to(&mut time)?;
                 refs_x_buf.copy_to(&mut refs_x)?;
                 refs_y_buf.copy_to(&mut refs_y)?;
-                assert!(
-                    refs_x.iter().all(|x|x.map(|r|r==fire_pos.x).unwrap_or(true)),
-                );
-                assert!(
-                    refs_y.iter().all(|x|x.map(|r|r==fire_pos.y).unwrap_or(true)),
-                );
+                assert!(refs_x.iter().all(|x| *x == Max::MAX || *x == fire_pos.x),);
+                assert!(refs_y.iter().all(|x| *x == Max::MAX || *x == fire_pos.y),);
                 assert_eq!(
-                    refs_x.iter().filter(|x|x.is_some()).count(),
-                    refs_y.iter().filter(|x|x.is_some()).count(),
+                    refs_x.iter().filter(|x| *x < &Max::MAX).count(),
+                    refs_y.iter().filter(|x| *x < &Max::MAX).count(),
                 );
+                /*
                 let num_times_after = time.iter().filter(|t| t.is_some()).count();
                 assert_eq!(
                     num_times_after,
@@ -239,15 +229,25 @@ fn main() -> Result<(), Box<dyn Error>> {
                 if progress.iter().all(|x| *x == 0) {
                     break;
                 }
-                break;
+                //break;
             }
-            time_buf.copy_to(&mut time)?;
         };
+        time_buf.copy_to(&mut time)?;
     });
+    let good_times: Vec<f32> = time
+        .iter()
+        .filter_map(|x| if *x < Max::MAX { Some(*x) } else { None })
+        .collect();
     println!("config_max_time={}", max_time);
-    println!("max_time={:?}", time.iter().filter_map(|x| *x).max());
-    println!("min_time={:?}", time.iter().filter_map(|x| *x).min());
-    let num_times_after = time.iter().filter(|t| t.is_some()).count();
+    println!(
+        "max_time={:?}",
+        good_times.iter().max_by(|a, b| a.total_cmp(b))
+    );
+    println!(
+        "max_time={:?}",
+        good_times.iter().min_by(|a, b| a.total_cmp(b))
+    );
+    let num_times_after = good_times.iter().count();
     println!("num_times_after={}", num_times_after);
     //time_buf.copy_to(&mut time)?;
     //assert!(time.len() > 1);

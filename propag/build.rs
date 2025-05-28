@@ -1,6 +1,6 @@
 #![feature(exit_status_error)]
-use std::process::Command;
 use cuda_builder::CudaBuilder;
+use std::process::Command;
 
 fn main() {
     let target_dir = "../target/cuda/";
@@ -12,6 +12,7 @@ fn main() {
         .build()
         .unwrap();
 
+    /*
     let dest = format!("{}/firelib_cuda.h", target_dir);
     cbindgen::Builder::new()
       .with_crate("../firelib-cuda")
@@ -20,7 +21,7 @@ fn main() {
       .generate()
       .expect("Unable to generate bindings")
       .write_to_file(&dest);
-
+    */
 
     let dest = format!("{}/propag_c.ptx", target_dir);
     println!("cargo::rerun-if-changed={}", dest);

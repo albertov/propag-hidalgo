@@ -27,6 +27,7 @@ gdal = {version="0.17.1"}
 gdal-sys = "0.10.0"
 num-traits = "0.2.19"
 approx = "0.5.1"
+min_max_traits = "0.1.0"
 
 [build-dependencies]
 cuda_builder = { git = "https://github.com/albertov/Rust-CUDA", branch = "cuda_12" }

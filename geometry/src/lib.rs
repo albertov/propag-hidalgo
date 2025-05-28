@@ -338,8 +338,7 @@ impl Iterator for DDA {
 pub fn line_to(from: IVec2, to: IVec2) -> impl Iterator<Item = IVec2> {
     DDA::new(from, to)
 }
-pub fn neighbor_in_direction(from: IVec2, to: IVec2) -> IVec2
-{
+pub fn neighbor_in_direction(from: IVec2, to: IVec2) -> IVec2 {
     if from == to {
         from
     } else {
@@ -347,9 +346,15 @@ pub fn neighbor_in_direction(from: IVec2, to: IVec2) -> IVec2
         let step = (to - from).signum();
         let t_max = (to - from).abs();
         if t_max.x == t_max.y {
-            IVec2 { x: x + step.x, y: y + step.y }
+            IVec2 {
+                x: x + step.x,
+                y: y + step.y,
+            }
         } else if t_max.x > t_max.y {
-            IVec2 { x: step.x + x, y: y, }
+            IVec2 {
+                x: step.x + x,
+                y: y,
+            }
         } else {
             IVec2 { x, y: step.y + y }
         }
@@ -366,16 +371,12 @@ mod test {
 
     #[test]
     fn neighbor_in_direction_same_as_line_to() {
-        let p = IVec2{x:0,y:0};
-        let cross = (-1000..1000)
-            .flat_map(|y| (-1000..1000).map(move |x| (x, y)));
-        cross.for_each(|(x,y)| {
+        let p = IVec2 { x: 0, y: 0 };
+        let cross = (-1000..1000).flat_map(|y| (-1000..1000).map(move |x| (x, y)));
+        cross.for_each(|(x, y)| {
             if x != 0 && y != 0 {
-                let p2 = IVec2{x,y};
-                assert_eq!(
-                    line_to(p, p2).nth(1),
-                    Some(neighbor_in_direction(p, p2))
-                );
+                let p2 = IVec2 { x, y };
+                assert_eq!(line_to(p, p2).nth(1), Some(neighbor_in_direction(p, p2)));
             }
         });
     }

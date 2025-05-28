@@ -249,6 +249,14 @@ pub struct FireSimpleCuda {
     pub eccentricity: float::T,
 }
 
+impl FireSimpleCuda {
+    pub const NULL: Self = Self {
+        speed_max: 0.0,
+        azimuth_max: 0.0,
+        eccentricity: 0.0,
+    };
+}
+
 impl From<FireSimpleCuda> for FireSimple {
     fn from(f: FireSimpleCuda) -> Self {
         Self {

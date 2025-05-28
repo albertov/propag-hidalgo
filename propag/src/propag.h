@@ -195,7 +195,11 @@ __device__ inline float time_to(const GeoReference &geo_ref,
   float distance = sqrt(dx * dx + dy * dy);
 
   float speed = from.fire.speed_max * factor;
-  return from.time + (distance / speed);
+  if (speed > 1e-6) {
+    return from.time + (distance / speed);
+  } else {
+    return MAX_TIME;
+  }
 }
 
 #endif

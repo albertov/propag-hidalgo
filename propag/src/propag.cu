@@ -23,13 +23,6 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
 
   uint2 gridIx = make_uint2(grid_x, grid_y);
 
-  // grid dimension in threads
-  uint2 gridThreadsDim =
-      make_uint2(gridDim.x * blockDim.x, gridDim.y * blockDim.y);
-
-  uint2 superGridDim = make_uint2(ceil((float)width / gridThreadsDim.x),
-                                  ceil((float)height / gridThreadsDim.y));
-
   uint2 idx_2d = index_2d(gridIx);
 
   size_t global_ix = idx_2d.x + idx_2d.y * width;
@@ -96,8 +89,8 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
           LOAD(local_x - HALO_RADIUS, local_y + blockDim.y,
                global_x - HALO_RADIUS, global_y + (int)blockDim.y);
         }
+      }
 
-      }; // end in_bounds
 
       __syncthreads();
 
@@ -112,9 +105,9 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
 
       if (in_bounds && is_new) {
 #pragma unroll
-        for (int i = -1; i < 2; i++) {
+        for (int j = -1; j < 2; j++) {
 #pragma unroll
-          for (int j = -1; j < 2; j++) {
+          for (int i = -1; i < 2; i++) {
             // Skip self and out-of-bounds neighbors
             if (i == 0 && j == 0)
               continue;
@@ -142,6 +135,7 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
             ASSERT(!is_fire_null(reference.fire));
 
             // Check if neighbor's reference is usable
+            /*
             int2 dir = neighbor_direction(
                 idx_2d, make_uint2(reference.pos.x, reference.pos.y));
             if ((int)idx_2d.x + dir.x >= 0 && (int)idx_2d.x + dir.x < width &&
@@ -160,19 +154,19 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
                 };
               };
             };
+            */
 
             // Look for a new candidate for best time
             Point candidate = Point_NULL;
             if (!is_fire_null(fire) && reference.time < MAX_TIME) {
               // We are combustible
               if (!similar_fires_(fire, reference.fire)) {
+                assert(false); //FIXME
                 // we can't reuse reference because fire is different to ours.
                 // Try to use neighbor as reference
                 PointRef r = PointRef(neighbor_point.time, neighbor_pos,
                                       neighbor_point.fire);
-                if (!is_fire_null(r.fire) &&
-                    !(r.pos.x == idx_2d.x && r.pos.y == idx_2d.y) &&
-                    similar_fires_(fire, r.fire)) {
+                if (!is_fire_null(r.fire) && similar_fires_(fire, r.fire)) {
                   reference = r;
                 } else {
                   reference = PointRef_NULL;
@@ -181,12 +175,14 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
               if (reference.time < MAX_TIME && !is_fire_null(reference.fire)) {
                 float t = time_to(settings.geo_ref, reference, idx_2d);
                 if (t < settings.max_time) {
+                  ASSERT(!(reference.pos.x == USHRT_MAX || reference.pos.y == USHRT_MAX));
                   candidate.time = t;
                   candidate.fire = fire;
                   candidate.reference = reference;
                 }
               };
             } else if (reference.time < MAX_TIME) {
+              assert(false); //FIXME
               // We are not combustible but reference can be used.
               // We assign an access time but a None fire
               float t = time_to(settings.geo_ref, reference, idx_2d);
@@ -230,6 +226,7 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
       if (any_improved && threadIdx.x == 0 && threadIdx.y == 0) {
         progress[block_ix] = 1;
       };
+      __syncthreads();
     } while (any_improved); // end block loop
 
     // Block has finished. Check if others have too and set grid_improved.

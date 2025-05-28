@@ -45,6 +45,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         25830,
     )
     .unwrap();
+    let fire_pos = USizeVec2 {
+        x: geo_ref.width as usize / 2 - THREAD_BLOCK_AXIS_LENGTH as usize / 2,
+        y: geo_ref.height as usize / 2 - THREAD_BLOCK_AXIS_LENGTH as usize / 2
+    };
     let len = geo_ref.len();
 
     println!("Generating input data");
@@ -118,10 +122,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         geo_ref.height.div_ceil(grid_size.y * block_size.y),
     );
 
-    let fire_pos = USizeVec2 {
-        x: geo_ref.width as usize / 2 - 40,
-        y: geo_ref.height as usize / 2 - 40,
-    };
     println!(
         "using geo_ref={:?}\ngrid_size={:?}\nblocks_size={:?}\nlinear_grid_size={}\nsuper_grid_size={:?}\nfor {} elems",
         geo_ref, grid_size, block_size, linear_grid_size, super_grid_size, len

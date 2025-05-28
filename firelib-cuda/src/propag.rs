@@ -17,13 +17,13 @@ use uom::si::velocity::meter_per_second;
 
 const BLOCK_WIDTH: usize = 16;
 const BLOCK_HEIGHT: usize = 16;
-const SHARED_SIZE: usize = BLOCK_WIDTH * BLOCK_HEIGHT;
+const SHARED_SIZE: usize = (BLOCK_WIDTH+2) * (BLOCK_HEIGHT+2);
 
 unsafe fn read_volatile<T: Copy>(p: *const T) -> T {
     core::intrinsics::volatile_load(p)
 }
 unsafe fn write_volatile<T: Copy>(p: *mut T, v: T) {
-    core::intrinsics::volatile_store(p, v)
+    core::intrinsics::volatile_store(p,v)
 }
 
 #[kernel]
@@ -57,12 +57,16 @@ pub unsafe fn propag(
         x: idx_2d.x as usize,
         y: idx_2d.y as usize,
     };
+    let ipos = IVec2 {
+        x: idx_2d.x as i32,
+        y: idx_2d.y as i32,
+    };
 
     // Our global index
     let global_ix = (idx_2d.x + idx_2d.y * width) as usize;
 
     // Our index into the shared area
-    let shared_ix = thread::thread_idx_x() as usize + thread::thread_idx_y() as usize * BLOCK_WIDTH;
+    let shared_ix = compute_shared_ix(&ipos).expect("pos must have shared ix");
 
     ////////////////////////////////////////////////////////////////////////
     // First phase, load data from global to shared memory
@@ -113,25 +117,12 @@ pub unsafe fn propag(
                     x: neigh_ref.pos().x as float::T,
                     y: neigh_ref.pos().y as float::T,
                 };
-                //println!("checkeo blockeo");
                 let possible_blockage_pos = geometry::line_to(pos, other).nth(1)?;
-                let shared_x = (possible_blockage_pos.x as usize) % BLOCK_WIDTH;
-                let shared_y = (possible_blockage_pos.y as usize) % BLOCK_HEIGHT;
-                let shared_bx = (possible_blockage_pos.x as usize) / BLOCK_WIDTH;
-                let shared_by = (possible_blockage_pos.y as usize) / BLOCK_HEIGHT;
-                let shared_blockage_ix = {
-                    if shared_x >= 0
-                        && shared_y >= 0
-                        && shared_x < BLOCK_WIDTH
-                        && shared_y < BLOCK_HEIGHT
-                        && shared_bx == thread::block_idx_x() as usize
-                        && shared_by == thread::block_idx_y() as usize
-                    {
-                        Some(shared_x + shared_y * BLOCK_WIDTH)
-                    } else {
-                        None
-                    }
-                }?;
+                let possible_blockage_pos = IVec2 {
+                    x: possible_blockage_pos.x as _,
+                    y: possible_blockage_pos.y as _,
+                };
+                let shared_blockage_ix = compute_shared_ix(&possible_blockage_pos)?;
                 let possible_blockage = (*shared.add(shared_blockage_ix))?;
                 let blockage_fire = possible_blockage.fire?;
                 if similar_fires(blockage_fire, neighbor.point.fire?) {
@@ -212,6 +203,25 @@ fn similar_fires(a: FireSimpleCuda, b: FireSimpleCuda) -> bool {
     (a.speed_max - b.speed_max).abs() < 1.0
         && (a.azimuth_max - b.azimuth_max).abs() < 5.0 / (2.0 * core::f32::consts::PI)
         && (a.eccentricity - b.eccentricity).abs() < 0.1
+}
+
+fn compute_shared_ix(pos: &IVec2) -> Option<usize> {
+    let pos = pos;
+    let shared_x = pos.x%(BLOCK_WIDTH as i32);
+    let shared_y = pos.y%(BLOCK_HEIGHT as i32);
+    let shared_bx = pos.x/(BLOCK_WIDTH as i32);
+    let shared_by = pos.y/(BLOCK_HEIGHT as i32);
+    if shared_x >= 0
+       && shared_y >= 0
+       && shared_x < BLOCK_WIDTH as i32
+       && shared_y < BLOCK_HEIGHT as i32
+        && shared_bx == thread::block_idx_x() as i32
+        && shared_by == thread::block_idx_y() as i32
+    {
+        Some((shared_x+1 + (shared_y+1) * (BLOCK_WIDTH+2) as i32) as usize)
+    } else {
+        None
+    }
 }
 
 impl PointRef {
@@ -345,7 +355,7 @@ impl Point {
         ref_x: *mut Option<usize>,
         ref_y: *mut Option<usize>,
     ) {
-        let pos = (idx % 1000, idx / 1000);
+        let pos = (idx%1000, idx/1000);
         write_volatile(time.add(idx), Some(self.time));
         write_volatile(ref_x.add(idx), Some(self.reference.pos_x));
         write_volatile(ref_y.add(idx), Some(self.reference.pos_y));
@@ -406,10 +416,6 @@ unsafe fn iter_neighbors(
         .flatten()
         .filter(|(di, dj)| !(*di == 0 && *dj == 0))
         .filter_map(move |(di, dj)| {
-            let local_pos = IVec2 {
-                x: thread::thread_idx_x() as i32 + di,
-                y: thread::thread_idx_y() as i32 + dj,
-            };
             // Neighbor position in global pixel coords
             let pos = IVec2 {
                 x: idx_2d.x as i32 + di,
@@ -417,26 +423,22 @@ unsafe fn iter_neighbors(
             };
             // If this neighbor is outside this block or global area
             // continue
-            if local_pos.x < 0
-                || local_pos.x >= BLOCK_WIDTH as _
-                || local_pos.y < 0
-                || local_pos.y >= BLOCK_HEIGHT as _
-                || pos.x < 0
+            if pos.x < 0
                 || pos.x >= width as _
                 || pos.y < 0
                 || pos.y >= height as _
             {
                 None
             } else {
-                let local_pos = USizeVec2 {
-                    x: local_pos.x as usize,
-                    y: local_pos.y as usize,
+                let ipos = IVec2 {
+                    x: pos.x as _,
+                    y: pos.y as _,
                 };
                 let pos = USizeVec2 {
                     x: pos.x as usize,
                     y: pos.y as usize,
                 };
-                let shared_mem_ix = local_pos.x + local_pos.y * BLOCK_WIDTH;
+                let shared_mem_ix = compute_shared_ix(&ipos)?;
                 let point = (*shared.add(shared_mem_ix))?;
                 Some(Neighbor { pos, point })
             }

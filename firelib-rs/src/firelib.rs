@@ -1,12 +1,12 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-use crate::units::*;
 use crate::units::areal_mass_density::pound_per_square_foot;
 use crate::units::heat_flux_density::btu_sq_foot_min;
 use crate::units::linear_power_density::btu_foot_sec;
 use crate::units::radiant_exposure::btu_sq_foot;
 use crate::units::reciprocal_length::reciprocal_foot;
+use crate::units::*;
 use uom::si::angle::degree;
 use uom::si::angle::radian;
 use uom::si::available_energy::btu_per_pound;
@@ -22,7 +22,6 @@ use crate::types::*;
 
 const SMIDGEN: f64 = 1e-6;
 const PI: f64 = 3.141592653589793;
-
 
 impl Terrain {
     fn upslope(&self) -> f64 {
@@ -153,7 +152,7 @@ impl<'a> Spreader<'a> {
 }
 
 impl ParticleDef {
-    const SENTINEL : Self = ParticleDef::standard(ParticleType::NoParticle, 0.0, 0.0);
+    const SENTINEL: Self = ParticleDef::standard(ParticleType::NoParticle, 0.0, 0.0);
 
     pub const fn standard(type_: ParticleType, p_load: f64, p_savr: f64) -> ParticleDef {
         let load = load_from_imperial(p_load);
@@ -172,10 +171,10 @@ impl ParticleDef {
             si_effective,
         }
     }
-    pub const fn is_sentinel(&self) -> bool {
+    const fn is_sentinel(&self) -> bool {
         match self.type_ {
             ParticleType::NoParticle => true,
-            _ => false
+            _ => false,
         }
     }
     const fn size_class(&self) -> SizeClass {
@@ -209,14 +208,14 @@ impl ParticleDef {
                 match (p.life(), self.life()) {
                     (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead) => {
                         total += p.surface_area()
-                    },
-                    _ => ()
+                    }
+                    _ => (),
                 }
                 i += 1;
             } else {
-                break
+                break;
             }
-        };
+        }
         safe_div(self.surface_area(), total)
     }
     const fn size_class_weight(&self, particles: &ParticleDefs) -> f64 {
@@ -226,25 +225,24 @@ impl ParticleDef {
             let p = &particles[i];
             if !p.is_sentinel() {
                 match (p.life(), self.life()) {
-                    (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead) =>
+                    (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead) => {
                         match (p.size_class(), self.size_class()) {
-                            (SizeClass::SC0, SizeClass::SC0) |
-                            (SizeClass::SC1, SizeClass::SC1) |
-                            (SizeClass::SC2, SizeClass::SC2) |
-                            (SizeClass::SC3, SizeClass::SC3) |
-                            (SizeClass::SC3, SizeClass::SC4) |
-                            (SizeClass::SC5, SizeClass::SC5) => {
-                        total += p.area_weight(particles)
-                    },
-                    _ => ()
-                },
-                _ => ()
+                            (SizeClass::SC0, SizeClass::SC0)
+                            | (SizeClass::SC1, SizeClass::SC1)
+                            | (SizeClass::SC2, SizeClass::SC2)
+                            | (SizeClass::SC3, SizeClass::SC3)
+                            | (SizeClass::SC4, SizeClass::SC4)
+                            | (SizeClass::SC5, SizeClass::SC5) => total += p.area_weight(particles),
+                            _ => (),
+                        }
+                    }
+                    _ => (),
                 }
                 i += 1;
             } else {
-                break
+                break;
             }
-        };
+        }
         total
     }
     const fn surface_area(&self) -> f64 {
@@ -267,7 +265,8 @@ const fn safe_div(a: f64, b: f64) -> f64 {
 }
 
 impl Particle {
-    const SENTINEL: Self = Particle::make(&ParticleDef::SENTINEL, &init_arr(ParticleDef::SENTINEL, []));
+    const SENTINEL: Self =
+        Particle::make(&ParticleDef::SENTINEL, &init_arr(ParticleDef::SENTINEL, []));
     pub const fn make(def: &ParticleDef, particles: &ParticleDefs) -> Particle {
         let ParticleDef {
             type_,
@@ -300,10 +299,10 @@ impl Particle {
             sigma_factor: def.sigma_factor(),
         }
     }
-    pub const fn is_sentinel(&self) -> bool {
+    const fn is_sentinel(&self) -> bool {
         match self.type_ {
             ParticleType::NoParticle => true,
-            _ => false
+            _ => false,
         }
     }
     const fn moisture(&self, terrain: &Terrain) -> f64 {
@@ -325,22 +324,22 @@ impl FuelDef {
         desc: [u8; M],
         depth: f64,
         mext: f64,
-        particles: [ParticleDef; F]
-        ) -> Self {
+        particles: [ParticleDef; F],
+    ) -> Self {
         use std::marker::PhantomData;
         Self {
-            name: init_arr(0,name),
+            name: init_arr(0, name),
             desc: init_arr(0, desc),
             depth: length_from_imperial(depth),
             mext: mk_ratio(mext),
             adjust: mk_ratio(1.0),
-            particles: init_arr(ParticleDef::SENTINEL, particles)
+            particles: init_arr(ParticleDef::SENTINEL, particles),
         }
     }
 }
 
 impl Fuel {
-    pub const SENTINEL : Self = Self::make(FuelDef::standard(*b"",*b"",0.0,0.0,[]));
+    pub const SENTINEL: Self = Self::make(FuelDef::standard(*b"", *b"", 0.0, 0.0, []));
 
     pub const fn make(def: FuelDef) -> Fuel {
         let mut alive_particles = [Particle::SENTINEL; MAX_PARTICLES];
@@ -351,22 +350,22 @@ impl Fuel {
         while i < MAX_PARTICLES {
             let p = &def.particles[i];
             if !p.is_sentinel() {
-                    let p2 = Particle::make(p, &def.particles);
-                    match p.life() {
-                        Life::Alive =>  {
-                            alive_particles[i_a] = p2;
-                            i_a += 1;
-                        },
-                        Life::Dead =>{
-                            dead_particles[i_d] = p2;
-                            i_d += 1;
-                        }
-                    };
-                    i += 1
-                } else {
-                    break
+                let p2 = Particle::make(p, &def.particles);
+                match p.life() {
+                    Life::Alive => {
+                        alive_particles[i_a] = p2;
+                        i_a += 1;
+                    }
+                    Life::Dead => {
+                        dead_particles[i_d] = p2;
+                        i_d += 1;
+                    }
+                };
+                i += 1
+            } else {
+                break;
             };
-        };
+        }
         let depth = length_to_imperial(&def.depth);
         let mext = extract_ratio(&def.mext);
         let adjust = extract_ratio(&def.adjust);
@@ -380,32 +379,20 @@ impl Fuel {
             dead_particles,
         }
     }
-    pub const fn has_particles(&self) -> bool {
-        self.has_live_particles() || self.has_dead_particles()
+    #[inline]
+    const fn has_particles(&self) -> bool {
+        !self.alive_particles[0].is_sentinel() || !self.dead_particles[0].is_sentinel()
     }
+    #[inline]
     const fn has_live_particles(&self) -> bool {
-        let mut i = 0;
-        while i<1 || i < self.alive_particles.len() {
-           if self.alive_particles[i].is_sentinel() {
-               break;
-           }
-           i += 1
-        }
-        i > 0
+        !self.alive_particles[0].is_sentinel()
     }
+    #[inline]
     const fn has_dead_particles(&self) -> bool {
-        let mut i = 0;
-        while i<1 || i < self.dead_particles.len() {
-           if self.dead_particles[i].is_sentinel() {
-               break;
-           }
-           i += 1
-        }
-        i > 0
+        !self.dead_particles[0].is_sentinel()
     }
     fn particles(&self) -> impl Iterator<Item = &Particle> {
-        iter_particles(&self.dead_particles)
-            .chain(iter_particles(&self.alive_particles))
+        iter_particles(&self.dead_particles).chain(iter_particles(&self.alive_particles))
     }
     const fn life_particles(&self, life: Life) -> &Particles {
         match life {
@@ -579,8 +566,7 @@ impl Combustion {
         }
     }
     fn particles(&self) -> impl Iterator<Item = &Particle> {
-        iter_particles(&self.dead_particles)
-            .chain(iter_particles(&self.alive_particles))
+        iter_particles(&self.dead_particles).chain(iter_particles(&self.alive_particles))
     }
     const fn life_particles(&self, life: Life) -> &Particles {
         match life {
@@ -725,26 +711,26 @@ impl Combustion {
             .sum()
     }
 
-    pub const fn has_particles(&self) -> bool {
+    const fn has_particles(&self) -> bool {
         self.has_live_particles() || self.has_dead_particles()
     }
     const fn has_live_particles(&self) -> bool {
         let mut i = 0;
-        while i<1 || i < self.alive_particles.len() {
-           if self.alive_particles[i].is_sentinel() {
-               break;
-           }
-           i += 1
+        while i < 1 || i < self.alive_particles.len() {
+            if self.alive_particles[i].is_sentinel() {
+                break;
+            }
+            i += 1
         }
         i > 0
     }
     const fn has_dead_particles(&self) -> bool {
         let mut i = 0;
-        while i<1 || i < self.dead_particles.len() {
-           if self.dead_particles[i].is_sentinel() {
-               break;
-           }
-           i += 1
+        while i < 1 || i < self.dead_particles.len() {
+            if self.dead_particles[i].is_sentinel() {
+                break;
+            }
+            i += 1
         }
         i > 0
     }
@@ -1002,5 +988,23 @@ mod tests {
                 other.byrams.get::<btu_foot_sec>(),
             ) && cmp("flame", self.flame.get::<foot>(), other.flame.get::<foot>())
         }
+    }
+}
+#[inline]
+fn iter_particles<const N: usize>(particles: &[Particle; N]) -> impl Iterator<Item = &Particle> {
+    particles.iter().take_while(|p| !p.is_sentinel())
+}
+#[inline]
+fn iter_particle_defs<const N: usize>(
+    particles: &[ParticleDef; N],
+) -> impl Iterator<Item = &ParticleDef> {
+    particles.iter().take_while(|p| !p.is_sentinel())
+}
+
+#[inline]
+pub fn get_fuel(catalog: &Catalog, idx: usize) -> Option<&Combustion> {
+    match catalog.get(idx).as_ref() {
+        Some(x) if x.has_particles() => Some(x),
+        _ => None,
     }
 }

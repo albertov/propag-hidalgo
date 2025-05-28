@@ -12,10 +12,10 @@ pub enum Life {
 
 #[derive(Clone, Copy)]
 pub enum ParticleType {
-    Dead, // Dead fuel particle
-    Herb, // Herbaceous live particle
-    Wood, // Woody live particle
-    NoParticle // Sentinel for no particle
+    Dead,       // Dead fuel particle
+    Herb,       // Herbaceous live particle
+    Wood,       // Woody live particle
+    NoParticle, // Sentinel for no particle
 }
 
 #[derive(Clone, Copy)]
@@ -116,25 +116,17 @@ pub struct FuelDef {
     pub particles: ParticleDefs,
 }
 
-pub const MAX_PARTICLES : usize = 20;
-pub const MAX_FUELS : usize = 20;
+pub const MAX_PARTICLES: usize = 20;
+pub const MAX_FUELS: usize = 20;
 
 pub type ParticleDefs = [ParticleDef; MAX_PARTICLES];
 
 #[inline]
-pub fn iter_arr<const N: usize, T>(particles: &[Option<T>; N]) -> impl Iterator<Item=&T> {
-    particles.iter()
+pub fn iter_arr<const N: usize, T>(particles: &[Option<T>; N]) -> impl Iterator<Item = &T> {
+    particles
+        .iter()
         .take_while(|p| p.is_some())
         .map(|p| p.as_ref().unwrap())
-}
-
-#[inline]
-pub fn iter_particles<const N: usize>(particles: &[Particle; N]) -> impl Iterator<Item=&Particle> {
-    particles.iter() .take_while(|p| !p.is_sentinel())
-}
-#[inline]
-pub fn iter_particle_defs<const N: usize>(particles: &[ParticleDef; N]) -> impl Iterator<Item=&ParticleDef> {
-    particles.iter() .take_while(|p| !p.is_sentinel())
 }
 
 #[derive(Clone, Copy)]
@@ -151,15 +143,6 @@ pub struct Fuel {
 pub type Particles = [Particle; MAX_PARTICLES];
 
 pub type Catalog = [Combustion; MAX_FUELS];
-
-
-#[inline]
-pub fn get_fuel(catalog: &Catalog, idx: usize) -> Option<&Combustion> {
-    match catalog.get(idx).as_ref() {
-        Some(x) if x.has_particles() => Some(x),
-        _ => None
-    }
-}
 
 pub const fn init_arr<T: Copy, const N: usize, const M: usize>(def: T, src: [T; M]) -> [T; N] {
     let mut dst = [def; N];
@@ -183,153 +166,156 @@ lazy_static::lazy_static! {
     };
 }
 
-pub const STANDARD_FUELS : [Fuel; MAX_FUELS] = {
-    init_arr(Fuel::SENTINEL, [
-        Fuel::make(FuelDef::standard(
-            *b"NoFuel",
-            *b"No Combustible Fuel",
-            0.1,
-            0.01,
-            [],
-        )),
-        Fuel::make(FuelDef::standard(
-            *b"NFFL01",
-            *b"Short Grass (1 ft)",
-            1.0,
-            0.12,
-            [ParticleDef::standard(ParticleType::Dead, 0.0340, 3500.0)],
-        )),
-        Fuel::make(FuelDef::standard(
-            *b"NFFL02",
-            *b"Timber (grass & understory)",
-            1.0,
-            0.15,
-            [
-                ParticleDef::standard(ParticleType::Dead, 0.0920, 3000.0),
-                ParticleDef::standard(ParticleType::Dead, 0.0460, 109.0),
-                ParticleDef::standard(ParticleType::Dead, 0.0230, 30.0),
-                ParticleDef::standard(ParticleType::Herb, 0.0230, 1500.0),
-            ],
-        )),
-        Fuel::make(FuelDef::standard(
-            *b"NFFL03",
-            *b"Tall Grass (2.5 ft)",
-            2.5,
-            0.25,
-            [ParticleDef::standard(ParticleType::Dead, 0.1380, 1500.0)],
-        )),
-        Fuel::make(FuelDef::standard(
-            *b"NFFL04",
-            *b"Chaparral (6 ft)",
-            6.0,
-            0.2,
-            [
-                ParticleDef::standard(ParticleType::Dead, 0.2300, 2000.0),
-                ParticleDef::standard(ParticleType::Dead, 0.1840, 109.0),
-                ParticleDef::standard(ParticleType::Dead, 0.0920, 30.0),
-                ParticleDef::standard(ParticleType::Wood, 0.2300, 1500.0),
-            ],
-        )),
-        Fuel::make(FuelDef::standard(
-            *b"NFFL05",
-            *b"Brush (2 ft)",
-            2.0,
-            0.2,
-            [
-                ParticleDef::standard(ParticleType::Dead, 0.0460, 2000.0),
-                ParticleDef::standard(ParticleType::Dead, 0.0230, 109.0),
-                ParticleDef::standard(ParticleType::Wood, 0.0920, 1500.0),
-            ],
-        )),
-        Fuel::make(FuelDef::standard(
-            *b"NFFL06",
-            *b"Dormant Brush & Hardwood Slash",
-            2.5,
-            0.25,
-            [
-                ParticleDef::standard(ParticleType::Dead, 0.0690, 1750.0),
-                ParticleDef::standard(ParticleType::Dead, 0.1150, 109.0),
-                ParticleDef::standard(ParticleType::Dead, 0.0920, 30.0),
-            ],
-        )),
-        Fuel::make(FuelDef::standard(
-            *b"NFFL07",
-            *b"Southern Rough",
-            2.5,
-            0.40,
-            [
-                ParticleDef::standard(ParticleType::Dead, 0.0520, 1750.0),
-                ParticleDef::standard(ParticleType::Dead, 0.0860, 109.0),
-                ParticleDef::standard(ParticleType::Dead, 0.0690, 30.0),
-                ParticleDef::standard(ParticleType::Wood, 0.0170, 1550.0),
-            ],
-        )),
-        Fuel::make(FuelDef::standard(
-            *b"NFFL08",
-            *b"Closed Timber Litter",
-            0.2,
-            0.30,
-            [
-                ParticleDef::standard(ParticleType::Dead, 0.0690, 2000.0),
-                ParticleDef::standard(ParticleType::Dead, 0.0460, 109.0),
-                ParticleDef::standard(ParticleType::Dead, 0.1150, 30.0),
-            ],
-        )),
-        Fuel::make(FuelDef::standard(
-            *b"NFFL09",
-            *b"Hardwood Litter",
-            0.2,
-            0.25,
-            [
-                ParticleDef::standard(ParticleType::Dead, 0.1340, 2500.0),
-                ParticleDef::standard(ParticleType::Dead, 0.0190, 109.0),
-                ParticleDef::standard(ParticleType::Dead, 0.0070, 30.0),
-            ],
-        )),
-        Fuel::make(FuelDef::standard(
-            *b"NFFL10",
-            *b"Timber (litter & understory)",
-            1.0,
-            0.25,
-            [
-                ParticleDef::standard(ParticleType::Dead, 0.1380, 2000.0),
-                ParticleDef::standard(ParticleType::Dead, 0.0920, 109.0),
-                ParticleDef::standard(ParticleType::Dead, 0.2300, 30.0),
-                ParticleDef::standard(ParticleType::Wood, 0.0920, 1500.0),
-            ],
-        )),
-        Fuel::make(FuelDef::standard(
-            *b"NFFL11",
-            *b"Light Logging Slash",
-            1.0,
-            0.15,
-            [
-                ParticleDef::standard(ParticleType::Dead, 0.0690, 1500.0),
-                ParticleDef::standard(ParticleType::Dead, 0.2070, 109.0),
-                ParticleDef::standard(ParticleType::Dead, 0.2530, 30.0),
-            ],
-        )),
-        Fuel::make(FuelDef::standard(
-            *b"NFFL12",
-            *b"Medium Logging Slash",
-            2.3,
-            0.20,
-            [
-                ParticleDef::standard(ParticleType::Dead, 0.1840, 1500.0),
-                ParticleDef::standard(ParticleType::Dead, 0.6440, 109.0),
-                ParticleDef::standard(ParticleType::Dead, 0.7590, 30.0),
-            ],
-        )),
-        Fuel::make(FuelDef::standard(
-            *b"NFFL13",
-            *b"Heavy Logging Slash",
-            3.0,
-            0.25,
-            [
-                ParticleDef::standard(ParticleType::Dead, 0.3220, 1500.0),
-                ParticleDef::standard(ParticleType::Dead, 0.0580, 109.0),
-                ParticleDef::standard(ParticleType::Dead, 1.2880, 30.0),
-            ]
-        )),
-    ])
+pub const STANDARD_FUELS: [Fuel; MAX_FUELS] = {
+    init_arr(
+        Fuel::SENTINEL,
+        [
+            Fuel::make(FuelDef::standard(
+                *b"NoFuel",
+                *b"No Combustible Fuel",
+                0.1,
+                0.01,
+                [],
+            )),
+            Fuel::make(FuelDef::standard(
+                *b"NFFL01",
+                *b"Short Grass (1 ft)",
+                1.0,
+                0.12,
+                [ParticleDef::standard(ParticleType::Dead, 0.0340, 3500.0)],
+            )),
+            Fuel::make(FuelDef::standard(
+                *b"NFFL02",
+                *b"Timber (grass & understory)",
+                1.0,
+                0.15,
+                [
+                    ParticleDef::standard(ParticleType::Dead, 0.0920, 3000.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.0460, 109.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.0230, 30.0),
+                    ParticleDef::standard(ParticleType::Herb, 0.0230, 1500.0),
+                ],
+            )),
+            Fuel::make(FuelDef::standard(
+                *b"NFFL03",
+                *b"Tall Grass (2.5 ft)",
+                2.5,
+                0.25,
+                [ParticleDef::standard(ParticleType::Dead, 0.1380, 1500.0)],
+            )),
+            Fuel::make(FuelDef::standard(
+                *b"NFFL04",
+                *b"Chaparral (6 ft)",
+                6.0,
+                0.2,
+                [
+                    ParticleDef::standard(ParticleType::Dead, 0.2300, 2000.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.1840, 109.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.0920, 30.0),
+                    ParticleDef::standard(ParticleType::Wood, 0.2300, 1500.0),
+                ],
+            )),
+            Fuel::make(FuelDef::standard(
+                *b"NFFL05",
+                *b"Brush (2 ft)",
+                2.0,
+                0.2,
+                [
+                    ParticleDef::standard(ParticleType::Dead, 0.0460, 2000.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.0230, 109.0),
+                    ParticleDef::standard(ParticleType::Wood, 0.0920, 1500.0),
+                ],
+            )),
+            Fuel::make(FuelDef::standard(
+                *b"NFFL06",
+                *b"Dormant Brush & Hardwood Slash",
+                2.5,
+                0.25,
+                [
+                    ParticleDef::standard(ParticleType::Dead, 0.0690, 1750.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.1150, 109.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.0920, 30.0),
+                ],
+            )),
+            Fuel::make(FuelDef::standard(
+                *b"NFFL07",
+                *b"Southern Rough",
+                2.5,
+                0.40,
+                [
+                    ParticleDef::standard(ParticleType::Dead, 0.0520, 1750.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.0860, 109.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.0690, 30.0),
+                    ParticleDef::standard(ParticleType::Wood, 0.0170, 1550.0),
+                ],
+            )),
+            Fuel::make(FuelDef::standard(
+                *b"NFFL08",
+                *b"Closed Timber Litter",
+                0.2,
+                0.30,
+                [
+                    ParticleDef::standard(ParticleType::Dead, 0.0690, 2000.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.0460, 109.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.1150, 30.0),
+                ],
+            )),
+            Fuel::make(FuelDef::standard(
+                *b"NFFL09",
+                *b"Hardwood Litter",
+                0.2,
+                0.25,
+                [
+                    ParticleDef::standard(ParticleType::Dead, 0.1340, 2500.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.0190, 109.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.0070, 30.0),
+                ],
+            )),
+            Fuel::make(FuelDef::standard(
+                *b"NFFL10",
+                *b"Timber (litter & understory)",
+                1.0,
+                0.25,
+                [
+                    ParticleDef::standard(ParticleType::Dead, 0.1380, 2000.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.0920, 109.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.2300, 30.0),
+                    ParticleDef::standard(ParticleType::Wood, 0.0920, 1500.0),
+                ],
+            )),
+            Fuel::make(FuelDef::standard(
+                *b"NFFL11",
+                *b"Light Logging Slash",
+                1.0,
+                0.15,
+                [
+                    ParticleDef::standard(ParticleType::Dead, 0.0690, 1500.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.2070, 109.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.2530, 30.0),
+                ],
+            )),
+            Fuel::make(FuelDef::standard(
+                *b"NFFL12",
+                *b"Medium Logging Slash",
+                2.3,
+                0.20,
+                [
+                    ParticleDef::standard(ParticleType::Dead, 0.1840, 1500.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.6440, 109.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.7590, 30.0),
+                ],
+            )),
+            Fuel::make(FuelDef::standard(
+                *b"NFFL13",
+                *b"Heavy Logging Slash",
+                3.0,
+                0.25,
+                [
+                    ParticleDef::standard(ParticleType::Dead, 0.3220, 1500.0),
+                    ParticleDef::standard(ParticleType::Dead, 0.0580, 109.0),
+                    ParticleDef::standard(ParticleType::Dead, 1.2880, 30.0),
+                ],
+            )),
+        ],
+    )
 };

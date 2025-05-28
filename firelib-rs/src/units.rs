@@ -1,6 +1,6 @@
 // fuel load
 pub mod areal_mass_density {
-    
+
     unit! {
         system: uom::si;
         quantity: uom::si::areal_mass_density;
@@ -14,7 +14,7 @@ pub mod areal_mass_density {
 
 // ByramsIntensity es uom::si::linear_power_density
 pub mod linear_power_density {
-    
+
     unit! {
         system: uom::si;
         quantity: uom::si::linear_power_density;
@@ -23,15 +23,15 @@ pub mod linear_power_density {
     }
 }
 
-pub const FOOT_TO_M : f64 = 3.048_E-1;
-pub const POUND_TO_KG : f64 = 4.535_924_E-1;
-pub const BTU : f64 = 1.054_350_E3;
+pub const FOOT_TO_M: f64 = 3.048_E-1;
+pub const POUND_TO_KG: f64 = 4.535_924_E-1;
+pub const BTU: f64 = 1.054_350_E3;
 use const_soft_float::soft_f64::SoftF64;
 use std::marker::PhantomData;
 use uom::si::f64::*;
 
 pub const fn load_to_imperial(x: &ArealMassDensity) -> f64 {
-    let ArealMassDensity { value, ..} = x;
+    let ArealMassDensity { value, .. } = x;
     SoftF64(*value)
         .div(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(2)))
         .to_f64()
@@ -41,12 +41,14 @@ pub const fn load_from_imperial(x: f64) -> ArealMassDensity {
         .mul(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(2)))
         .to_f64();
     ArealMassDensity {
-        value, units: PhantomData, dimension: PhantomData
+        value,
+        units: PhantomData,
+        dimension: PhantomData,
     }
 }
 
 pub const fn density_to_imperial(x: &MassDensity) -> f64 {
-    let MassDensity { value, ..} = x;
+    let MassDensity { value, .. } = x;
     SoftF64(*value)
         .div(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(3)))
         .to_f64()
@@ -57,29 +59,32 @@ pub const fn density_from_imperial(x: f64) -> MassDensity {
         .mul(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(3)))
         .to_f64();
     MassDensity {
-        value, units: PhantomData, dimension: PhantomData
+        value,
+        units: PhantomData,
+        dimension: PhantomData,
     }
 }
 
 pub const fn savr_to_imperial(x: &ReciprocalLength) -> f64 {
-    let ReciprocalLength { value, ..} = x;
+    let ReciprocalLength { value, .. } = x;
     SoftF64(*value)
         .div(SoftF64(1.0).div(SoftF64(FOOT_TO_M)))
         .to_f64()
 }
 
 pub const fn savr_from_imperial(x: f64) -> ReciprocalLength {
-    let value = 
-        SoftF64(x)
-            .mul(SoftF64(1.0).div(SoftF64(FOOT_TO_M)))
-            .to_f64();
+    let value = SoftF64(x)
+        .mul(SoftF64(1.0).div(SoftF64(FOOT_TO_M)))
+        .to_f64();
     ReciprocalLength {
-        value, units: PhantomData, dimension: PhantomData
+        value,
+        units: PhantomData,
+        dimension: PhantomData,
     }
 }
 
 pub const fn heat_to_imperial(x: &AvailableEnergy) -> f64 {
-    let AvailableEnergy { value, ..} = x;
+    let AvailableEnergy { value, .. } = x;
     SoftF64(*value)
         .div(SoftF64(BTU).div(SoftF64(POUND_TO_KG)))
         .to_f64()
@@ -90,12 +95,14 @@ pub const fn heat_from_imperial(x: f64) -> AvailableEnergy {
         .mul(SoftF64(BTU).div(SoftF64(POUND_TO_KG)))
         .to_f64();
     AvailableEnergy {
-        value, units: PhantomData, dimension: PhantomData
+        value,
+        units: PhantomData,
+        dimension: PhantomData,
     }
 }
 
 pub const fn extract_ratio(x: &Ratio) -> f64 {
-    let Ratio { value, ..} = x;
+    let Ratio { value, .. } = x;
     *value
 }
 
@@ -103,7 +110,7 @@ pub const fn mk_ratio(x: f64) -> Ratio {
     Ratio {
         units: PhantomData,
         dimension: PhantomData,
-        value: x
+        value: x,
     }
 }
 
@@ -111,12 +118,12 @@ pub const fn length_from_imperial(x: f64) -> Length {
     Length {
         units: PhantomData,
         dimension: PhantomData,
-        value: SoftF64(x).mul(SoftF64(FOOT_TO_M)).to_f64()
+        value: SoftF64(x).mul(SoftF64(FOOT_TO_M)).to_f64(),
     }
 }
 
 pub const fn length_to_imperial(x: &Length) -> f64 {
-    let Length { value, ..} = x;
+    let Length { value, .. } = x;
     SoftF64(*value).div(SoftF64(FOOT_TO_M)).to_f64()
 }
 
@@ -124,7 +131,7 @@ pub const fn length_to_imperial(x: &Length) -> f64 {
 // ReactionVelocity es uom::si::frequency
 // HeatPerUnitArea es uom::si::radiant_exposure
 pub mod radiant_exposure {
-    
+
     unit! {
         system: uom::si;
         quantity: uom::si::radiant_exposure;
@@ -134,7 +141,7 @@ pub mod radiant_exposure {
 }
 
 pub mod heat_flux_density {
-    
+
     unit! {
         system: uom::si;
         quantity: uom::si::heat_flux_density;
@@ -143,7 +150,7 @@ pub mod heat_flux_density {
     }
 }
 pub mod reciprocal_length {
-    
+
     unit! {
         system: uom::si;
         quantity: uom::si::reciprocal_length;

@@ -1,3 +1,4 @@
+use firelib_rs::firelib::get_fuel;
 use firelib_rs::types::*;
 use rand::prelude::*;
 use uom::si::angle::degree;

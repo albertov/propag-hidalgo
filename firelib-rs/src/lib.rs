@@ -392,22 +392,15 @@ mod tests {
             }
         }
         fn almost_eq(&self, other: &Self) -> bool {
-            fn cmp(msg: &str, a: float::T, b: float::T) -> bool {
-                let r = (a - b).abs() < CMP_SMIDGEN;
-                if !r {
-                    println!("{}: {} /= {}", msg, a, b);
-                }
-                r
-            }
-            cmp(
+            fuzzy_cmp(
                 "speed",
                 self.speed.get::<foot_per_minute>(),
                 other.speed.get::<foot_per_minute>(),
-            ) && cmp(
+            ) && fuzzy_cmp(
                 "byrams",
                 self.byrams.get::<btu_foot_sec>(),
                 other.byrams.get::<btu_foot_sec>(),
-            ) && cmp("flame", self.flame.get::<foot>(), other.flame.get::<foot>())
+            ) && fuzzy_cmp("flame", self.flame.get::<foot>(), other.flame.get::<foot>())
         }
     }
 }

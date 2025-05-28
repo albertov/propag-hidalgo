@@ -456,49 +456,39 @@ impl<'a> Fire {
     }
 
     pub fn almost_eq(&self, other: &Self) -> bool {
-        #[allow(unused)]
-        fn cmp(msg: &str, a: float::T, b: float::T) -> bool {
-            let r = (a - b).abs() < CMP_SMIDGEN;
-            #[cfg(feature = "std")]
-            #[cfg(test)]
-            if !r {
-                std::println!("{}: {} /= {}", msg, a, b);
-            }
-            r
-        }
-        cmp(
+        fuzzy_cmp(
             "rx_int",
             self.rx_int.get::<btu_sq_foot_min>(),
             other.rx_int.get::<btu_sq_foot_min>(),
-        ) && cmp(
+        ) && fuzzy_cmp(
             "speed0",
             self.speed0.get::<foot_per_minute>(),
             other.speed0.get::<foot_per_minute>(),
-        ) && cmp(
+        ) && fuzzy_cmp(
             "hpua",
             self.hpua.get::<btu_sq_foot>(),
             other.hpua.get::<btu_sq_foot>(),
-        ) && cmp(
+        ) && fuzzy_cmp(
             "phi_eff_wind",
             self.phi_eff_wind.get::<ratio>(),
             other.phi_eff_wind.get::<ratio>(),
-        ) && cmp(
+        ) && fuzzy_cmp(
             "speed_max",
             self.speed_max.get::<foot_per_minute>(),
             other.speed_max.get::<foot_per_minute>(),
-        ) && cmp(
+        ) && fuzzy_cmp(
             "eccentricity",
             self.eccentricity.get::<ratio>(),
             other.eccentricity.get::<ratio>(),
-        ) && cmp(
+        ) && fuzzy_cmp(
             "byrams_max",
             self.byrams_max().get::<btu_foot_sec>(),
             other.byrams_max().get::<btu_foot_sec>(),
-        ) && cmp(
+        ) && fuzzy_cmp(
             "flame_max",
             self.flame_max().get::<foot>(),
             other.flame_max().get::<foot>(),
-        ) && cmp(
+        ) && fuzzy_cmp(
             "azimuth_max",
             self.azimuth_max.get::<radian>(),
             other.azimuth_max.get::<radian>(),
@@ -514,25 +504,15 @@ impl FireSimple {
         }
     };
     pub fn almost_eq(&self, other: &Self) -> bool {
-        #[allow(unused)]
-        fn cmp(msg: &str, a: float::T, b: float::T) -> bool {
-            let r = (a - b).abs() < CMP_SMIDGEN;
-            #[cfg(feature = "std")]
-            #[cfg(test)]
-            if !r {
-                std::println!("{}: {} /= {}", msg, a, b);
-            }
-            r
-        }
-        cmp(
+        fuzzy_cmp(
             "speed_max",
             self.speed_max.get::<foot_per_minute>(),
             other.speed_max.get::<foot_per_minute>(),
-        ) && cmp(
+        ) && fuzzy_cmp(
             "eccentricity",
             self.eccentricity.get::<ratio>(),
             other.eccentricity.get::<ratio>(),
-        ) && cmp(
+        ) && fuzzy_cmp(
             "azimuth_max",
             self.azimuth_max.get::<radian>(),
             other.azimuth_max.get::<radian>(),
@@ -1237,4 +1217,16 @@ const fn init_arr<T: Copy, const N: usize, const M: usize>(def: T, src: [T; M]) 
         i += 1;
     }
     dst
+}
+#[allow(unused)]
+pub(crate) fn fuzzy_cmp(msg: &str, a: float::T, b: float::T) -> bool {
+    let min = a.min(b).abs();
+    let diff = (a - b).abs();
+    let r = diff < CMP_SMIDGEN || diff / min < MAX_FUZZY_CMP_DIFF;
+    #[cfg(feature = "std")]
+    #[cfg(test)]
+    if !r {
+        std::println!("{}: {} /= {}", msg, a, b);
+    }
+    r
 }

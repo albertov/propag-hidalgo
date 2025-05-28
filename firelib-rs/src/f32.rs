@@ -1,7 +1,9 @@
 pub type T = f32;
 pub const PI: T = 3.141592653589793;
 pub(crate) const SMIDGEN: T = 1e-6;
-pub(crate) const CMP_SMIDGEN: T = 1e-0;
+// These are used in fuzzy_cmp for tests
+pub(crate) const CMP_SMIDGEN: T = 1e-2;
+pub(crate) const MAX_FUZZY_CMP_DIFF: T = 2e-2;
 pub use const_soft_float::soft_f32::SoftF32;
 use const_soft_float::soft_f64::SoftF64;
 pub use uom::si::f32::*;

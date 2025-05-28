@@ -313,7 +313,6 @@ pub struct PropagResults {
     pub boundary_change: Vec<u32>,
     pub refs_x: Vec<u16>,
     pub refs_y: Vec<u16>,
-    pub refs_time: Vec<f32>,
     pub grid_size: GridSize,
     pub block_size: BlockSize,
     pub super_grid_size: GridSize,
@@ -406,7 +405,6 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
         // input/output vectors
         let mut refs_x: Vec<u16> = std::iter::repeat_n(Max::MAX, len).collect();
         let mut refs_y: Vec<u16> = std::iter::repeat_n(Max::MAX, len).collect();
-        let mut refs_time: Vec<f32> = std::iter::repeat_n(Max::MAX, len).collect();
         let mut boundary_change: Vec<u32> = std::iter::repeat_n(0, len.div_ceil(32)).collect();
 
         let speed_max: Vec<float::T> = std::iter::repeat_n(0.0, len).collect();
@@ -419,7 +417,6 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
                 if time[ix] != Max::MAX {
                     refs_x[ix] = i as u16;
                     refs_y[ix] = j as u16;
-                    refs_time[ix] = time[ix];
                 }
             }
         }
@@ -429,7 +426,6 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
         let eccentricity_buf = eccentricity.as_slice().as_dbuf()?;
         let refs_x_buf = refs_x.as_slice().as_dbuf()?;
         let refs_y_buf = refs_y.as_slice().as_dbuf()?;
-        let refs_time_buf = refs_time.as_slice().as_dbuf()?;
         let time_buf = time.as_slice().as_dbuf()?;
         let boundary_change_buf = boundary_change.as_slice().as_dbuf()?;
         let (_, burn_block_size) = burn.suggested_launch_configuration(0, 0.into())?;
@@ -467,7 +463,6 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
                             time_buf.as_device_ptr(),
                             refs_x_buf.as_device_ptr(),
                             refs_y_buf.as_device_ptr(),
-                            refs_time_buf.as_device_ptr(),
                             boundary_change_buf.as_device_ptr(),
                         )
                     )?;
@@ -494,7 +489,6 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
                                 time_buf.as_device_ptr(),
                                 refs_x_buf.as_device_ptr(),
                                 refs_y_buf.as_device_ptr(),
-                                refs_time_buf.as_device_ptr(),
                                 boundary_change_buf.as_device_ptr(),
                                 progress.as_device_ptr(),
                             )
@@ -524,7 +518,6 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
                             time_buf.as_device_ptr(),
                             refs_x_buf.as_device_ptr(),
                             refs_y_buf.as_device_ptr(),
-                            refs_time_buf.as_device_ptr(),
                             boundary_change_buf.as_device_ptr(),
                         )
                     )?;
@@ -535,13 +528,11 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
         boundary_change_buf.copy_to(&mut boundary_change)?;
         refs_x_buf.copy_to(&mut refs_x)?;
         refs_y_buf.copy_to(&mut refs_y)?;
-        refs_time_buf.copy_to(&mut refs_time)?;
         Ok(PropagResults {
             time,
             boundary_change,
             refs_x,
             refs_y,
-            refs_time,
             geo_ref,
             block_size,
             grid_size,
@@ -698,11 +689,7 @@ fn write_refs(
         for i in 0..geo_ref.width {
             for j in 0..geo_ref.height {
                 let ix = (i + j * geo_ref.width) as usize;
-                let byte_ix = ix.div(32);
-                let bit_ix = ix % 32;
-                if time[ix] < Max::MAX
-                // && (boundary_change[byte_ix] & (1 << bit_ix)) != 0
-                {
+                if time[ix] < Max::MAX {
                     let dst = geo_ref.backward(USizeVec2 {
                         x: i as usize,
                         y: j as usize,

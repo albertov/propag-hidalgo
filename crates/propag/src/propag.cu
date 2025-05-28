@@ -34,7 +34,6 @@ class Propagator {
   volatile float *time_;
   volatile unsigned short *refs_x_;
   volatile unsigned short *refs_y_;
-  volatile float *refs_time_;
 
   Point *shared_;
 
@@ -43,8 +42,7 @@ public:
                         const unsigned grid_y, const float *speed_max,
                         const float *azimuth_max, const float *eccentricity,
                         float volatile *time, unsigned short volatile *refs_x,
-                        unsigned short volatile *refs_y,
-                        float volatile *refs_time, Point *shared)
+                        unsigned short volatile *refs_y, Point *shared)
       : settings_(settings), gridIx_(make_uint2(grid_x, grid_y)),
         idx_2d_(index_2d(gridIx_)),
         global_ix_(idx_2d_.x + idx_2d_.y * settings_.geo_ref.width),
@@ -56,8 +54,7 @@ public:
         shared_width_(blockDim.x + HALO_RADIUS * 2),
         local_ix_(local_x_ + local_y_ * shared_width_), speed_max_(speed_max),
         azimuth_max_(azimuth_max), eccentricity_(eccentricity), time_(time),
-        refs_x_(refs_x), refs_y_(refs_y), refs_time_(refs_time),
-        shared_(shared) {
+        refs_x_(refs_x), refs_y_(refs_y), shared_(shared) {
     ASSERT(block_ix_ < gridDim.x * gridDim.y);
     ASSERT(!(settings_.geo_ref.width < 1 || settings_.geo_ref.height < 1));
   };
@@ -213,7 +210,6 @@ private:
     ASSERT(me.reference.is_valid(settings_.geo_ref));
     refs_x_[global_ix_] = me.reference.pos.x;
     refs_y_[global_ix_] = me.reference.pos.y;
-    // refs_time_[global_ix_] = me.reference.time;
     //  Time must be writen last and after a grid-level memory
     //  fence because the time being set denotes the Point being
     //  comitted. load_point must take this into account and place
@@ -404,12 +400,12 @@ propag(const Settings settings, const unsigned grid_x, const unsigned grid_y,
        unsigned *worked, const float *const speed_max,
        const float *const azimuth_max, const float *const eccentricity,
        float volatile *time, unsigned short volatile *refs_x,
-       unsigned short volatile *refs_y, float volatile *refs_time,
+       unsigned short volatile *refs_y,
        const unsigned int *__restrict__ boundaries, unsigned *progress) {
   extern __shared__ Point shared[];
 
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
-                 time, refs_x, refs_y, refs_time, shared);
+                 time, refs_x, refs_y, shared);
   sim.run(worked, progress, boundaries);
 }
 
@@ -418,12 +414,12 @@ post_propagate(const Settings settings, const unsigned grid_x,
                const unsigned grid_y, const float *const speed_max,
                const float *const azimuth_max, const float *const eccentricity,
                float volatile *time, unsigned short volatile *refs_x,
-               unsigned short volatile *refs_y, float volatile *refs_time,
+               unsigned short volatile *refs_y,
                unsigned int *__restrict__ boundaries) {
   extern __shared__ Point shared[];
 
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
-                 time, refs_x, refs_y, refs_time, shared);
+                 time, refs_x, refs_y, shared);
   sim.post_propagate(boundaries);
 }
 
@@ -432,12 +428,11 @@ pre_propagate(const Settings settings, const unsigned grid_x,
               const unsigned grid_y, const float *const speed_max,
               const float *const azimuth_max, const float *const eccentricity,
               float volatile *time, unsigned short volatile *refs_x,
-              unsigned short volatile *refs_y, float volatile *refs_time,
-              unsigned int *boundaries) {
+              unsigned short volatile *refs_y, unsigned int *boundaries) {
   extern __shared__ Point shared[];
 
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
-                 time, refs_x, refs_y, refs_time, shared);
+                 time, refs_x, refs_y, shared);
   sim.pre_propagate(boundaries);
 }
 

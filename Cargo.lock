@@ -503,6 +503,7 @@ name = "geometry"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "cust",
  "geo",
  "heapless",
  "num-traits",

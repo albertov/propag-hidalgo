@@ -6,16 +6,33 @@ extern crate std;
 use approx::AbsDiffEq;
 
 pub use geo::*;
-use heapless::String;
 use num_traits::{Float, NumCast};
 
-#[derive(Clone)]
+#[cfg(target_os = "cuda")]
+extern crate cuda_std;
+
+#[cfg(not(target_os = "cuda"))]
+extern crate cust;
+
+#[cfg(target_os = "cuda")]
+use cuda_std::GpuFloat;
+
+#[cfg_attr(not(target_os = "cuda"), derive(Copy, Clone, Debug, cust::DeviceCopy))]
 pub enum Crs {
     Epsg(u32),
-    Wkt(String<1024>),
-    Proj4(String<1024>),
+    Wkt([u8; 1024]),
+    Proj4([u8; 1024]),
 }
 
+#[cfg_attr(not(target_os = "cuda"), derive(Copy, Clone, Debug, cust::DeviceCopy))]
+pub struct GeoReferenceCuda<T> {
+    pub transform: [T; 6],
+    inv_transform: [T; 6],
+    pub size: [i32; 2],
+    pub crs: Crs,
+}
+
+#[derive(Clone)]
 pub struct GeoReference<T>
 where
     T: CoordFloat,
@@ -24,6 +41,19 @@ where
     inv_transform: AffineTransform<T>,
     pub size: Coord<i32>,
     pub crs: Crs,
+}
+impl<T> From<GeoReferenceCuda<T>> for GeoReference<T>
+where
+    T: CoordFloat,
+{
+    fn from(f: GeoReferenceCuda<T>) -> Self {
+        Self {
+            transform: f.transform.into(),
+            inv_transform: f.transform.into(),
+            size: f.size.into(),
+            crs: f.crs,
+        }
+    }
 }
 
 impl<T> GeoReference<T>

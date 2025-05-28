@@ -61,8 +61,8 @@ fn to_spatial_ref(crs: Crs) -> Result<SpatialRef> {
     use Crs::*;
     match crs {
         Epsg(x) => SpatialRef::from_epsg(x),
-        Wkt(x) => SpatialRef::from_wkt(x.as_str()),
-        Proj4(x) => SpatialRef::from_proj4(x.as_str()),
+        Wkt(x) => SpatialRef::from_wkt(str::from_utf8(&x)?),
+        Proj4(x) => SpatialRef::from_proj4(str::from_utf8(&x)?),
     }
 }
 
@@ -78,7 +78,7 @@ mod tests {
     #[test]
     fn can_create_warped_ds() -> Result<()> {
         {
-            let geo_ref = GeoReference::new_south_up(
+            let geo_ref = GeoReference::south_up(
                 Rect::new(
                     Coord {
                         x: -180.0,
@@ -108,7 +108,7 @@ mod tests {
 
             let px_size = Coord { x: 50.0, y: 500.0 };
             let crs = Crs::Epsg(25830);
-            let geo_ref = GeoReference::new_south_up(ext, px_size, crs).unwrap();
+            let geo_ref = GeoReference::south_up(ext, px_size, crs).unwrap();
             let wrapped = WarpedDataset::new(ds, <f64>::datatype(), geo_ref)?;
             let ds2 = wrapped.get();
             assert_eq!(ds2.raster_count(), 3);

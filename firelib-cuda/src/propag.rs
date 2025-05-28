@@ -49,14 +49,17 @@ pub unsafe fn propag(
     // Index of this thread into total area
     let idx_2d = thread::index_2d();
 
+    // are we in-bounds of the target raster?
+    let in_bounds = idx_2d.x < width && idx_2d.y < height;
+
     // Our position in global pixel coords
     let pos = Coord {
         x: idx_2d.x as usize,
         y: idx_2d.y as usize,
     };
 
-    // Our linear index
-    let idx = (idx_2d.x + idx_2d.y * width) as usize;
+    // Our global index
+    let global_ix = (idx_2d.x + idx_2d.y * width) as usize;
 
     // Our index into the shared area
     let shared_ix = thread::thread_idx_x() as usize + thread::thread_idx_y() as usize * BLOCK_WIDTH;
@@ -67,9 +70,9 @@ pub unsafe fn propag(
         ////////////////////////////////////////////////////////////////////////
         // First phase, load data from global to shared memory
         ////////////////////////////////////////////////////////////////////////
-        if idx_2d.x < width && idx_2d.y < height {
+        if in_bounds {
             let me = Point::<float::T>::load(
-                idx,
+                global_ix,
                 time,
                 speed_max,
                 azimuth_max,
@@ -87,23 +90,23 @@ pub unsafe fn propag(
         // Begin neighbor analysys
         ////////////////////////////////////////////////////////////////////////
         let mut best_fire: Option<Point<float::T>> = None;
-        if (idx_2d.x < width && idx_2d.y < height) {
+        if in_bounds {
             for neighbor in iter_neighbors(&geo_ref, shared) {
                 // neighbor has fire
                 let fire: Option<FireSimple> = (*shared.wrapping_add(shared_ix)).map_or(
                     {
                         let terrain = TerrainCuda {
-                            d1hr: d1hr[idx],
-                            d10hr: d10hr[idx],
-                            d100hr: d100hr[idx],
-                            herb: herb[idx],
-                            wood: wood[idx],
-                            wind_speed: wind_speed[idx],
-                            wind_azimuth: wind_azimuth[idx],
-                            slope: slope[idx],
-                            aspect: aspect[idx],
+                            d1hr: d1hr[global_ix],
+                            d10hr: d10hr[global_ix],
+                            d100hr: d100hr[global_ix],
+                            herb: herb[global_ix],
+                            wood: wood[global_ix],
+                            wind_speed: wind_speed[global_ix],
+                            wind_azimuth: wind_azimuth[global_ix],
+                            slope: slope[global_ix],
+                            aspect: aspect[global_ix],
                         };
-                        Catalog::STANDARD.burn_simple(model[idx], &terrain.into())
+                        Catalog::STANDARD.burn_simple(model[global_ix], &terrain.into())
                     },
                     |p| p.fire,
                 );
@@ -193,7 +196,7 @@ pub unsafe fn propag(
         ///////////////////////////////////////////////////
         let improved = if let Some(point) = best_fire {
             point.save(
-                idx,
+                global_ix,
                 time,
                 speed_max,
                 azimuth_max,

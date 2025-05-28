@@ -118,7 +118,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let lo: i32 = -30;
     for i in lo..30 {
         for j in 10..20 {
-            model[fire_pos.x + (i as usize) + (fire_pos.y + j) * geo_ref.width as usize] = 0;
+            model[(fire_pos.x as i32 + i + (fire_pos.y as i32 + j) * geo_ref.width as i32)
+                as usize] = 0;
         }
     }
     // allocate the GPU memory needed to house our numbers and copy them over.

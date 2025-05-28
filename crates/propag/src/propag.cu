@@ -81,8 +81,8 @@ public:
       __syncthreads();
       // Begin neighbor analysys
       Point best = find_neighbor_with_least_access_time();
-      // Sync here because it's faster to do so
-      __syncthreads();
+
+      cooperative_groups::this_grid().sync();
       // End of neighbor analysys, update point in global and shared memory
       // if it improves
       bool improved = update_point(best);

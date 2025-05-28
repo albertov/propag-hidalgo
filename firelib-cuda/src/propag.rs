@@ -5,7 +5,7 @@ use cuda_std::*;
 use firelib_rs::float;
 use firelib_rs::float::Angle;
 use firelib_rs::*;
-use geometry::{Coord, GeoReference};
+use geometry::{Coord, CoordFloat, GeoReference};
 use uom::si::angle::{degree, radian};
 
 const BLOCK_WIDTH: usize = 32;
@@ -27,18 +27,15 @@ pub unsafe fn propag(
     wind_azimuth: &[float::T],
     slope: &[float::T],
     aspect: &[float::T],
-    speed_max: *mut float::T,
-    azimuth_max: *mut float::T,
-    eccentricity: *mut float::T,
-    time: *mut float::T,
-    refs_x: *mut u32,
-    refs_y: *mut u32,
+    speed_max: *mut Option<float::T>,
+    azimuth_max: *mut Option<float::T>,
+    eccentricity: *mut Option<float::T>,
+    time: *mut Option<float::T>,
+    refs_x: *mut Option<usize>,
+    refs_y: *mut Option<usize>,
 ) {
     // Arrays in shared memory for fast analysis within block
-    let shared_time = shared_array![float::T; SHARED_SIZE];
-    let shared_fire = shared_array![FireSimple; SHARED_SIZE];
-    let shared_ref_fire = shared_array![FireSimple; SHARED_SIZE];
-    let shared_ref = shared_array![Coord<u32>; SHARED_SIZE];
+    let shared = shared_array![Option<Point<float::T>>; SHARED_SIZE];
 
     // Dimensions of the total area
     let width = geo_ref.size[0] as u32;
@@ -54,8 +51,8 @@ pub unsafe fn propag(
 
     // Our position in global pixel coords
     let pos = Coord {
-        x: idx_2d.x,
-        y: idx_2d.y,
+        x: idx_2d.x as usize,
+        y: idx_2d.y as usize,
     };
 
     // Our linear index
@@ -69,32 +66,16 @@ pub unsafe fn propag(
         ////////////////////////////////////////////////////////////////////////
         // First phase, load data from global to shared memory
         ////////////////////////////////////////////////////////////////////////
-
-        // Read our ref's position from global memory and save it into shared
-        let sref = Coord {
-            x: *refs_x.wrapping_add(idx),
-            y: *refs_y.wrapping_add(idx),
-        };
-        *shared_ref.wrapping_add(shared_ix) = sref;
-
-        // Read our ref's fire from global memory and save it into shared
-        let idx_ref = (sref.x + sref.y * width) as usize;
-        *shared_ref_fire.wrapping_add(shared_ix) = (FireSimpleCuda {
-            azimuth_max: *azimuth_max.wrapping_add(idx_ref),
-            speed_max: *speed_max.wrapping_add(idx_ref),
-            eccentricity: *eccentricity.wrapping_add(idx_ref),
-        })
-        .into();
-
-        // Read our time from global memory and save it into shared
-        *shared_time.wrapping_add(shared_ix) = *time.wrapping_add(idx);
-        // Read our fire from global memory and save it into shared
-        *shared_fire.wrapping_add(shared_ix) = (FireSimpleCuda {
-            azimuth_max: *azimuth_max.wrapping_add(idx),
-            speed_max: *speed_max.wrapping_add(idx),
-            eccentricity: *eccentricity.wrapping_add(idx),
-        })
-        .into();
+        let me = Point::<_>::load(
+            idx,
+            time,
+            speed_max,
+            azimuth_max,
+            eccentricity,
+            refs_x,
+            refs_y,
+        );
+        *shared.wrapping_add(shared_ix) = me;
 
         // Wait until all other threads have reached this point so we can safely
         // read from shared memory
@@ -138,44 +119,143 @@ pub unsafe fn propag(
                 };
                 // Index of our neighbor in shared memory
                 let shared_neigh_ix = n_i + n_j * BLOCK_WIDTH;
-                // Read neighbor time from shared mem
-                let neigh_time: float::T = *shared_time.wrapping_add(shared_neigh_ix);
-
-                if neigh_time < max_time {
+                if let Some(neigh) = *shared.wrapping_add(shared_neigh_ix) {
                     // neighbor has fire
-                    let neigh_ref_pos = *shared_ref.wrapping_add(shared_neigh_ix);
-                    let neigh_ref_fire = &(*shared_ref_fire.wrapping_add(shared_neigh_ix));
+                    let terrain = TerrainCuda {
+                        d1hr: d1hr[idx],
+                        d10hr: d10hr[idx],
+                        d100hr: d100hr[idx],
+                        herb: herb[idx],
+                        wood: wood[idx],
+                        wind_speed: wind_speed[idx],
+                        wind_azimuth: wind_azimuth[idx],
+                        slope: slope[idx],
+                        aspect: aspect[idx],
+                    };
+                    if let Some(fire) = Catalog::STANDARD.burn_simple(model[idx], &terrain.into()) {
+                        let fire = Into::<FireSimpleCuda>::into(fire);
+                        *speed_max.wrapping_add(idx) = Some(fire.speed_max);
+                        *azimuth_max.wrapping_add(idx) = Some(fire.azimuth_max);
+                        *eccentricity.wrapping_add(idx) = Some(fire.eccentricity);
+                    }
+                    let neigh_ref = neigh.effective_ref(pos);
                     let bearing = Angle::new::<radian>(geo_ref.bearing(
                         Coord {
-                            x: neigh_ref_pos.x as _,
-                            y: neigh_ref_pos.y as _,
+                            x: neigh_ref.pos.x as _,
+                            y: neigh_ref.pos.y as _,
                         },
                         Coord {
                             x: pos.x as _,
                             y: pos.y as _,
                         },
                     ) as _);
-                    //TODO
+                    let can_use_ref = {
+                        let pos = Coord {
+                            x: pos.x as float::T,
+                            y: pos.y as float::T,
+                        };
+                        let other = Coord {
+                            x: neigh_ref.pos.x as float::T,
+                            y: neigh_ref.pos.y as float::T,
+                        };
+                        if let Some(possible_blockage) = geometry::line_to(pos, other).nth(1) {
+                            let shared_blockage_ix = {
+                                if possible_blockage.x >= 0.0
+                                    && possible_blockage.x < BLOCK_WIDTH as float::T
+                                    && possible_blockage.y >= 0.0
+                                    && possible_blockage.y < BLOCK_HEIGHT as float::T
+                                {
+                                    Some(
+                                        possible_blockage.x as usize
+                                            + possible_blockage.y as usize * BLOCK_WIDTH,
+                                    )
+                                } else {
+                                    None
+                                }
+                            };
+                            //TODO
+                            false
+                        } else {
+                            false
+                        }
+                    };
                 }
             }
         }
 
-        let terrain = TerrainCuda {
-            d1hr: d1hr[idx],
-            d10hr: d10hr[idx],
-            d100hr: d100hr[idx],
-            herb: herb[idx],
-            wood: wood[idx],
-            wind_speed: wind_speed[idx],
-            wind_azimuth: wind_azimuth[idx],
-            slope: slope[idx],
-            aspect: aspect[idx],
-        };
-        if let Some(fire) = Catalog::STANDARD.burn_simple(model[idx], &terrain.into()) {
-            let fire = Into::<FireSimpleCuda>::into(fire);
-            *time.wrapping_add(idx) = fire.speed_max;
-        }
-        *refs_x.wrapping_add(idx) = pos.x;
-        *refs_y.wrapping_add(idx) = pos.y;
+        *refs_x.wrapping_add(idx) = Some(pos.x);
+        *refs_y.wrapping_add(idx) = Some(pos.y);
+    }
+}
+
+#[derive(Copy, Clone)]
+struct PointRef<T>
+where
+    T: CoordFloat,
+{
+    time: T,
+    pos: Coord<usize>,
+    fire: FireSimple,
+}
+
+#[derive(Copy, Clone)]
+struct Point<T>
+where
+    T: CoordFloat,
+{
+    time: T,
+    fire: FireSimple,
+    reference: Option<PointRef<T>>,
+}
+
+impl Point<float::T> {
+    unsafe fn load(
+        idx: usize,
+        time: *const Option<float::T>,
+        speed_max: *const Option<float::T>,
+        azimuth_max: *const Option<float::T>,
+        eccentricity: *const Option<float::T>,
+        ref_x: *const Option<usize>,
+        ref_y: *const Option<usize>,
+    ) -> Option<Self> {
+        let p_time = (*time.wrapping_add(idx))?;
+        let fire = (Some(FireSimpleCuda {
+            azimuth_max: (*azimuth_max.wrapping_add(idx))?,
+            speed_max: (*speed_max.wrapping_add(idx))?,
+            eccentricity: (*eccentricity.wrapping_add(idx))?,
+        }))?
+        .into();
+        let ref_pos: Option<Coord<usize>> = Some(Coord {
+            x: (*ref_x.wrapping_add(idx))?,
+            y: (*ref_y.wrapping_add(idx))?,
+        });
+        let reference: Option<PointRef<float::T>> = ref_pos.and_then(|ref_pos| {
+            let ref_ix: usize = ref_pos.x + ref_pos.y * BLOCK_WIDTH;
+            let time = (*time.wrapping_add(ref_ix))?;
+            let fire = Some(FireSimpleCuda {
+                azimuth_max: (*azimuth_max.wrapping_add(ref_ix))?,
+                speed_max: (*speed_max.wrapping_add(ref_ix))?,
+                eccentricity: (*eccentricity.wrapping_add(ref_ix))?,
+            })?
+            .into();
+            Some(PointRef {
+                time,
+                pos: ref_pos,
+                fire,
+            })
+        });
+        Some(Point {
+            time: p_time,
+            fire,
+            reference,
+        })
+    }
+
+    fn effective_ref(&self, my_pos: Coord<usize>) -> PointRef<float::T> {
+        self.reference.unwrap_or(PointRef {
+            pos: my_pos,
+            time: self.time,
+            fire: self.fire,
+        })
     }
 }

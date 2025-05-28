@@ -224,7 +224,7 @@ impl From<FireCudaRef<'_>> for Fire {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct FireSimple {
     pub speed_max: Velocity,
     pub azimuth_max: Angle,

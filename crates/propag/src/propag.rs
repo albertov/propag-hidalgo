@@ -165,7 +165,7 @@ pub struct Propagation {
     pub settings: Settings,
     pub output_path: String,
     pub refs_output_path: Option<String>,
-    pub grid_output_path: Option<String>,
+    pub boundaries_out_path: Option<String>,
     pub initial_ignited_elements: Vec<TimeFeature>,
     pub initial_ignited_elements_crs: SpatialRef,
     pub terrain_loader: Box<dyn TerrainLoader>,
@@ -176,7 +176,7 @@ pub struct FFIPropagation {
     settings: Settings,
     output_path: *const c_char,
     refs_output_path: *const c_char,
-    grid_output_path: *const c_char,
+    boundaries_out_path: *const c_char,
     initial_ignited_elements: *const FFITimeFeature,
     initial_ignited_elements_len: usize,
     initial_ignited_elements_crs: *const c_char,
@@ -212,9 +212,9 @@ impl TryFrom<FFIPropagation> for Propagation {
         } else {
             None
         };
-        let grid_output_path = if !p.grid_output_path.is_null() {
-            let grid_output_path = unsafe { CStr::from_ptr(p.grid_output_path) };
-            match String::from_utf8_lossy(grid_output_path.to_bytes()).to_string() {
+        let boundaries_out_path = if !p.boundaries_out_path.is_null() {
+            let boundaries_out_path = unsafe { CStr::from_ptr(p.boundaries_out_path) };
+            match String::from_utf8_lossy(boundaries_out_path.to_bytes()).to_string() {
                 x if x.is_empty() => None,
                 x => Some(x),
             }
@@ -224,7 +224,7 @@ impl TryFrom<FFIPropagation> for Propagation {
         Ok(Propagation {
             settings: p.settings,
             output_path,
-            grid_output_path,
+            boundaries_out_path,
             refs_output_path,
             initial_ignited_elements,
             initial_ignited_elements_crs,
@@ -269,7 +269,6 @@ pub unsafe extern "C" fn FFIPropagation_run(
     use self::PropagError::*;
     match std::panic::catch_unwind(|| {
         let propag: Propagation = propag.try_into().map_err(PropagGdalError)?;
-        println!("generate_block_boundaries={:?}", propag.grid_output_path);
         let geo_ref = propag.settings.geo_ref;
         let mut time = rasterize_times(
             &propag.initial_ignited_elements,
@@ -277,24 +276,17 @@ pub unsafe extern "C" fn FFIPropagation_run(
             &geo_ref,
         )
         .map_err(PropagGdalError)?;
-        let PropagResults {
-            time,
-            boundary_change,
-            refs_x,
-            refs_y,
-            refs_time,
-        } = propagate(&propag, &mut time)?;
-        write_times(time, &geo_ref, propag.output_path).map_err(PropagGdalError)?;
+        let propag_result = propagate(&propag, &mut time)?;
+        println!(
+            "block_size={:?}, grid_size={:?}, super_grid_size={:?}",
+            &propag_result.block_size, &propag_result.grid_size, &propag_result.super_grid_size
+        );
+        write_times(&propag_result.time, &geo_ref, propag.output_path).map_err(PropagGdalError)?;
         if let Some(out_path) = propag.refs_output_path {
-            write_refs(
-                &boundary_change,
-                &refs_x,
-                &refs_y,
-                &refs_time,
-                &geo_ref,
-                out_path,
-            )
-            .map_err(PropagGdalError)?;
+            write_refs(&propag_result, out_path).map_err(PropagGdalError)?;
+        }
+        if let Some(out_path) = propag.boundaries_out_path {
+            write_boundaries(&propag_result, out_path).map_err(PropagGdalError)?;
         }
         Ok::<(), PropagError>(())
     }) {
@@ -307,23 +299,30 @@ pub unsafe extern "C" fn FFIPropagation_run(
             false
         }
         Err(err) => {
-            println!("panicked! {:?}", err);
+            let err = format!("{:?}", err);
+            if let Ok(c_err) = std::ffi::CString::new(err) {
+                libc::strncpy(err_msg, c_err.as_ptr(), err_len);
+            }
             false
         }
     }
 }
 
-struct PropagResults {
-    time: Vec<f32>,
-    boundary_change: Vec<u16>,
-    refs_x: Vec<u16>,
-    refs_y: Vec<u16>,
-    refs_time: Vec<f32>,
+#[derive(Debug)]
+pub struct PropagResults {
+    pub geo_ref: GeoReference,
+    pub time: Vec<f32>,
+    pub boundary_change: Vec<u16>,
+    pub refs_x: Vec<u16>,
+    pub refs_y: Vec<u16>,
+    pub refs_time: Vec<f32>,
+    pub grid_size: GridSize,
+    pub block_size: BlockSize,
+    pub super_grid_size: GridSize,
 }
 
 fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<PropagResults, PropagError> {
     let settings = propag.settings;
-    let max_time = settings.max_time;
     let geo_ref = settings.geo_ref;
     let len = geo_ref.len() as usize;
     let terrain = propag
@@ -341,7 +340,6 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<PropagResults,
         let ctx = Context::new(device)?;
         ctx.set_flags(ContextFlags::SCHED_AUTO)?;
 
-        println!("Loading module");
         // Make the CUDA module, modules just house the GPU code for the kernels we created.
         // they can be made from PTX code, cubins, or fatbins.
         let module = Module::from_ptx(PTX, &[])?;
@@ -351,7 +349,6 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<PropagResults,
         // GPU calls.
         let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
 
-        println!("Getting function");
         // retrieve the add kernel from the module so we can calculate the right launch config.
         let propag_c = module_c.get_function("propag")?;
         let pre_burn = module.get_function("cuda_standard_simple_burn")?;
@@ -367,27 +364,22 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<PropagResults,
         let shmem_bytes = shmem_size * 24; //FIXME: std::mem::size_of::<Point>() as u32;
                                            //assert_eq!(std::mem::size_of::<Point>(), 64);
 
-        let max_active_blocks =
+        let max_active_blocks: u32 =
             propag_c.max_active_blocks_per_multiprocessor(block_size, shmem_bytes as _)?;
-        println!("max_active_blocks_per_multiprocessor={}", max_active_blocks);
-        let mp_count = device.get_attribute(DeviceAttribute::MultiprocessorCount)?;
-        let max_total_blocks = mp_count as u32 * max_active_blocks;
-        println!("max_active_total_blocks={}", max_total_blocks);
+        let mp_count: i32 = device.get_attribute(DeviceAttribute::MultiprocessorCount)?;
+        let max_total_blocks: u32 = mp_count as u32 * max_active_blocks;
 
         // Assumes square block size
         assert_eq!(block_size.x, block_size.y);
         let grid_w = (max_total_blocks as f64).sqrt().floor() as u32;
         let grid_size: GridSize = (grid_w, grid_w).into();
 
-        let super_grid_size: (u32, u32) = (
+        let super_grid_size: GridSize = (
             geo_ref.width.div_ceil(grid_size.x * block_size.x),
             geo_ref.height.div_ceil(grid_size.y * block_size.y),
-        );
+        )
+            .into();
 
-        println!(
-        "using geo_ref={:?}\ngrid_size={:?}\nblocks_size={:?}\nsuper_grid_size={:?}\nfor {} elems",
-        geo_ref, grid_size, block_size, super_grid_size, len
-    );
         // allocate the GPU memory needed to house our numbers and copy them over.
         let model_gpu = terrain.fuel_code.as_slice().as_dbuf()?;
         let d1hr_gpu = terrain.d1hr.as_slice().as_dbuf()?;
@@ -453,9 +445,9 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<PropagResults,
             stream.synchronize()?;
             loop {
                 let mut worked: Vec<DeviceVariable<u32>> =
-                    Vec::with_capacity((super_grid_size.0 * super_grid_size.1) as usize);
-                for grid_x in 0..super_grid_size.0 {
-                    for grid_y in 0..super_grid_size.1 {
+                    Vec::with_capacity((super_grid_size.x * super_grid_size.y) as usize);
+                for grid_x in 0..super_grid_size.x {
+                    for grid_y in 0..super_grid_size.y {
                         let this_worked = DeviceVariable::new(0)?;
                         let progress = DeviceVariable::new(0)?;
                         cust::launch_cooperative!(
@@ -488,36 +480,8 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<PropagResults,
                 }
             }
             stream.synchronize()?;
-            //println!("find boundary_change done");
-            /*
-            fn write_refs(
-                        refs_x_buf.copy_to(&mut refs_x)?;
-                        refs_y_buf.copy_to(&mut refs_y)?;
-                        assert!(refs_x.iter().all(|x| *x == Max::MAX || *x == fire_pos.x),);
-                        assert!(refs_y.iter().all(|x| *x == Max::MAX || *x == fire_pos.y),);
-                        assert_eq!(
-                            refs_x.iter().filter(|x| *x < &Max::MAX).count(),
-                            refs_y.iter().filter(|x| *x < &Max::MAX).count(),
-                        );
-                        */
         };
         time_buf.copy_to(time)?;
-
-        let good_times: Vec<f32> = time
-            .iter()
-            .filter_map(|x| if *x < Max::MAX { Some(*x) } else { None })
-            .collect();
-        println!("config_max_time={}", max_time);
-        println!(
-            "max_time={:?}",
-            good_times.iter().max_by(|a, b| a.total_cmp(b))
-        );
-        println!(
-            "max_time={:?}",
-            good_times.iter().min_by(|a, b| a.total_cmp(b))
-        );
-        let num_times_after = good_times.len();
-        println!("num_times_after={}", num_times_after);
         if propag.settings.find_ref_change {
             boundary_change_buf.copy_to(&mut boundary_change)?;
             refs_x_buf.copy_to(&mut refs_x)?;
@@ -530,13 +494,17 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<PropagResults,
             refs_x,
             refs_y,
             refs_time,
+            geo_ref,
+            block_size,
+            grid_size,
+            super_grid_size,
         })
     })()
     .map_err(PropagError::PropagCudaError)
 }
 
 fn write_times(
-    times: Vec<f32>,
+    times: &[f32],
     geo_ref: &GeoReference,
     output_path: String,
 ) -> gdal::errors::Result<()> {
@@ -556,21 +524,103 @@ fn write_times(
     let mut band = ds.rasterband(1)?;
     let no_data: f32 = Max::MAX;
     band.set_no_data_value(Some(no_data as f64))?;
-    let mut buf = Buffer::new(band.size(), times);
+    let mut buf = Buffer::new(band.size(), times.to_vec());
     band.write((0, 0), band.size(), &mut buf)?;
+    Ok(())
+}
+fn write_boundaries(
+    PropagResults {
+        super_grid_size,
+        block_size,
+        grid_size,
+        geo_ref,
+        ..
+    }: &PropagResults,
+    output_path: String,
+) -> gdal::errors::Result<()> {
+    let gpkg = DriverManager::get_driver_by_name("GPKG")?;
+    let mut ds = gpkg.create_vector_only(output_path)?;
+    let srs = crate::loader::to_spatial_ref(&geo_ref.proj)?;
+    ds.create_layer(LayerOptions {
+        name: "blocks",
+        srs: Some(&srs),
+        ty: gdal_sys::OGRwkbGeometryType::wkbPolygon,
+        ..Default::default()
+    })?;
+    /*
+    ds.create_layer(LayerOptions {
+        name: "grids",
+        srs: Some(&srs),
+        ty: gdal_sys::OGRwkbGeometryType::wkbPolygon,
+        ..Default::default()
+    })?;
+    */
+    //let mut grids = ds.layer_by_name("grids")?;
+    let mut blocks = ds.layer_by_name("blocks")?;
+    let grid_cell_size: UVec2 = (block_size.x * grid_size.x, block_size.y * grid_size.y).into();
+    for grid_y in 0..super_grid_size.y {
+        for grid_x in 0..super_grid_size.x {
+            let a: UVec2 = (grid_x * grid_cell_size.x, grid_y * grid_cell_size.y).into();
+            let a = geo_ref.backward(a.as_usizevec2());
+            let b: UVec2 = ((grid_x + 1) * grid_cell_size.x, grid_y * grid_cell_size.y).into();
+            let b = geo_ref.backward(b.as_usizevec2());
+            let c: UVec2 = (
+                (grid_x + 1) * grid_cell_size.x,
+                (grid_y + 1) * grid_cell_size.y,
+            )
+                .into();
+            let c = geo_ref.backward(c.as_usizevec2());
+            let d: UVec2 = (grid_x * grid_cell_size.x, (grid_y + 1) * grid_cell_size.y).into();
+            let d = geo_ref.backward(d.as_usizevec2());
+            let _geom = Geometry::from_wkt(
+                (format!(
+                    "POLYGON(({} {}, {} {}, {} {}, {} {}, {} {}))",
+                    a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y, a.x, a.y
+                ))
+                .as_str(),
+            )?;
+            //grids.create_feature(geom)?;
+
+            let corner: UVec2 = (grid_x * grid_cell_size.x, grid_y * grid_cell_size.y).into();
+            for block_y in 0..grid_size.y {
+                for block_x in 0..grid_size.x {
+                    let block: UVec2 = (block_x, block_y).into();
+                    let a: UVec2 = (block.x * block_size.x, block.y * block_size.y).into();
+                    let a = geo_ref.backward((corner + a).as_usizevec2());
+                    let b: UVec2 = ((block.x + 1) * block_size.x, block.y * block_size.y).into();
+                    let b = geo_ref.backward((corner + b).as_usizevec2());
+                    let c: UVec2 =
+                        ((block.x + 1) * block_size.x, (block.y + 1) * block_size.y).into();
+                    let c = geo_ref.backward((corner + c).as_usizevec2());
+                    let d: UVec2 = (block.x * block_size.x, (block.y + 1) * block_size.y).into();
+                    let d = geo_ref.backward((corner + d).as_usizevec2());
+                    let geom = Geometry::from_wkt(
+                        (format!(
+                            "POLYGON(({} {}, {} {}, {} {}, {} {}, {} {}))",
+                            a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y, a.x, a.y
+                        ))
+                        .as_str(),
+                    )?;
+                    blocks.create_feature(geom)?;
+                }
+            }
+        }
+    }
     Ok(())
 }
 
 fn write_refs(
-    boundary_change: &[u16],
-    refs_x: &[u16],
-    refs_y: &[u16],
-    _refs_time: &[f32],
-    geo_ref: &GeoReference,
+    PropagResults {
+        boundary_change,
+        refs_x,
+        refs_y,
+        geo_ref,
+        ..
+    }: &PropagResults,
     output_path: String,
 ) -> gdal::errors::Result<()> {
-    let shape = DriverManager::get_driver_by_name("GPKG")?;
-    let mut ds = shape.create_vector_only(output_path)?;
+    let gpkg = DriverManager::get_driver_by_name("GPKG")?;
+    let mut ds = gpkg.create_vector_only(output_path)?;
     let srs = crate::loader::to_spatial_ref(&geo_ref.proj)?;
     let mut layer = ds.create_layer(LayerOptions {
         name: "fire_references",

@@ -29,7 +29,7 @@ use std::fmt;
 //FIXME: Use the C version as source of truth with bindgen
 pub const HALO_RADIUS: i32 = 1;
 
-const THREAD_BLOCK_AXIS_LENGTH: u32 = 24;
+const THREAD_BLOCK_AXIS_LENGTH: u32 = 19;
 
 static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
 static PTX_C: &str = include_str!("../../target/cuda/propag_c.ptx");

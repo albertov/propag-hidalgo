@@ -176,12 +176,7 @@ private:
               size_t blockage_idx =
                   possible_blockage_pos.x +
                   possible_blockage_pos.y * settings_.geo_ref.width;
-              FireSimpleCuda blockage_fire = load_fire(
-                  blockage_idx, speed_max_, azimuth_max_, eccentricity_);
-              if (!( // Check that the possible blockage has a similar fire
-                     // as the reference candidate.
-                     // Otherwise use neighbor as reference
-                      similar_fires(blockage_fire, neighbor.fire))) {
+              if (boundaries[blockage_idx]) {
                 reference = PointRef(neighbor.time, neighbor_pos);
                 break;
               };
@@ -404,7 +399,7 @@ extern "C" {
 
 __global__ void
 propag(const Settings settings, const unsigned grid_x, const unsigned grid_y,
-       unsigned *__restrict__ worked, const float *__restrict__ const speed_max,
+       unsigned *worked, const float *__restrict__ const speed_max,
        const float *__restrict__ const azimuth_max,
        const float *__restrict__ const eccentricity, float volatile *time,
        unsigned short volatile *refs_x, unsigned short volatile *refs_y,

@@ -171,20 +171,18 @@ private:
 
               Point possible_blockage = shared_[blockage_ix];
               if (!(possible_blockage.time < FLT_MAX)) {
+               // If we haven't analyzed the blockage point yet then we
+               // can't use the reference in this iteration.
                 return Point_NULL;
               }
 
-              if (!( // If we haven't analyzed the blockage point yet then we
-                     // can't use the reference in this iteration. We'll use
-                     // neighbor as reference in this iteration and it may
-                     // improve in another if no blockage
-                      // Check that the possible blockage has the same reference
-                      // as our neighbor...
+              if (!( // Check that the possible blockage has the same reference
+                     // as our neighbor and a similar fire as its reference.
+                     // Otherwise use neighbor as reference
                       possible_blockage.reference.pos.x ==
                           neighbor.reference.pos.x &&
                       possible_blockage.reference.pos.y ==
                           neighbor.reference.pos.y &&
-                      //  and a similar fire as its reference
                       similar_fires(possible_blockage.fire, neighbor.fire))) {
                 reference = PointRef(neighbor.time, neighbor_pos);
                 break;

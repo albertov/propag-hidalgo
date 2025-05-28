@@ -49,11 +49,12 @@ public:
     ASSERT(block_ix_ < gridDim.x * gridDim.y);
   };
 
-  __device__ void run(unsigned *worked, volatile unsigned *progress) const {
+  __device__ void run(unsigned *worked, volatile unsigned *progress) {
     __shared__ bool grid_improved;
     bool first_iteration = true;
     do { // Grid loop
       bool repeat_block = false;
+      bool retry = false;
       // Initialize progress to no-progress
       mark_progress(progress, 0);
       if (threadIdx.x == 0 && threadIdx.y == 0) {
@@ -61,25 +62,27 @@ public:
       };
       do { // Block loop
         // First phase, load data from global to shared memory
-        load_points_into_shared_memory(true);
+        load_points_into_shared_memory(first_iteration);
         first_iteration = false;
-
-        __syncthreads();
 
         // Begin neighbor analysys
         Point best;
-        find_neighbor_with_least_access_time(&best);
-
-        // End of neighbor analysys, save point if improves
-        bool improved = update_point(best);
+        __syncthreads();
+        retry = find_neighbor_with_least_access_time(&best);
+        if (retry) {
+          printf("retry %d %d\n", idx_2d_.x, idx_2d_.y);
+        }
+        __syncthreads();
+        bool improved = false;
+        if (!retry) {
+          // End of neighbor analysys, save point if improves
+          improved = update_point(best);
+        }
 
         // Wait for other threads to end their analysis and
         // check if any has improved. Then if we're the first
         // thread of the block mark progress
-        repeat_block = __syncthreads_or(improved);
-        if (improved) {
-          update_shared_point(best);
-        }
+        repeat_block = __syncthreads_or(improved | retry);
         if (repeat_block) {
           mark_progress(progress, 1);
         };
@@ -103,108 +106,7 @@ public:
   }
 
 private:
-  __device__ inline void mark_progress(volatile unsigned *progress,
-                                       unsigned v) const {
-    if (threadIdx.x == 0 && threadIdx.y == 0) {
-      progress[block_ix_] = v;
-    }
-  }
-  __device__ inline void mark_progress_or(volatile unsigned *progress,
-                                          unsigned v) const {
-    if (threadIdx.x == 0 && threadIdx.y == 0) {
-      progress[block_ix_] |= v;
-    }
-  }
-
-  __device__ inline bool update_point(Point p) const {
-    Point me = shared_[local_ix_];
-    if (in_bounds_ && p.time < MAX_TIME &&
-        (is_point_null(me) || p.time < me.time)) {
-      // printf("best time %f\n", best.time);
-      time_[global_ix_] = p.time;
-      refs_x_[global_ix_] = p.reference.pos.x;
-      refs_y_[global_ix_] = p.reference.pos.y;
-      return true;
-    }
-    return false;
-  }
-
-  __device__ inline void update_shared_point(Point p) const {
-    shared_[local_ix_] = p;
-  }
-
-  __device__ inline void
-  load_points_into_shared_memory(bool first_iteration) const {
-    if (in_bounds_) {
-      // Load the central block data
-      if (first_iteration) {
-        load_point_at_offset(make_int2(0, 0));
-      }
-
-      // Load the halo regions
-      bool x_near_x0 = threadIdx.x < HALO_RADIUS;
-      bool y_near_y0 = threadIdx.y < HALO_RADIUS;
-      if (y_near_y0) {
-        // Top halo
-        load_point_at_offset(make_int2(0, -HALO_RADIUS));
-        // Bottom halo
-        load_point_at_offset(make_int2(0, blockDim.y));
-      }
-      if (x_near_x0) {
-        // Left halo
-        load_point_at_offset(make_int2(-HALO_RADIUS, 0));
-        // Right halo
-        load_point_at_offset(make_int2(blockDim.x, 0));
-      }
-      if (x_near_x0 && y_near_y0) {
-        // corners
-        load_point_at_offset(make_int2(-HALO_RADIUS, -HALO_RADIUS));
-        load_point_at_offset(make_int2(blockDim.x, -HALO_RADIUS));
-        load_point_at_offset(make_int2(blockDim.x, blockDim.y));
-        load_point_at_offset(make_int2(-HALO_RADIUS, blockDim.y));
-      }
-    }
-  }
-
-  __device__ inline void load_point_at_offset(const int2 offset) const {
-    int2 local = make_int2(local_x_ + offset.x, local_y_ + offset.y);
-    int2 global = make_int2(global_x_ + offset.x, global_y_ + offset.y);
-    if (global.x >= 0 && global.x < settings_.geo_ref.width && global.y >= 0 &&
-        global.y < settings_.geo_ref.height) {
-      uint2 pos = make_uint2(global.x, global.y);
-      size_t idx = global.x + global.y * settings_.geo_ref.width;
-      Point p = Point(time_[idx],
-                      load_fire(idx, speed_max_, azimuth_max_, eccentricity_),
-                      PointRef());
-
-      if (p.time < MAX_TIME) {
-        __threadfence();
-        p.reference.pos = make_ushort2(refs_x_[idx], refs_y_[idx]);
-        ASSERT(!(p.reference.pos.x == USHRT_MAX ||
-                 p.reference.pos.y == USHRT_MAX));
-        ASSERT(p.reference.pos.x < settings_.geo_ref.width ||
-               p.reference.pos.y < settings_.geo_ref.height);
-        size_t ref_ix =
-            p.reference.pos.x + p.reference.pos.y * settings_.geo_ref.width;
-
-        if (p.reference.pos.x == pos.x && p.reference.pos.y == pos.y) {
-          p.reference.fire = p.fire;
-          p.reference.time = p.time;
-        } else {
-          p.reference.time = time_[ref_ix];
-          p.reference.fire =
-              load_fire(ref_ix, speed_max_, azimuth_max_, eccentricity_);
-        };
-        ASSERT(p.reference.time != MAX_TIME);
-      };
-      shared_[local.x + local.y * shared_width_] = p;
-    } else {
-      shared_[local.x + local.y * shared_width_] = Point_NULL;
-    }
-  }
-
-  __device__ inline void
-  find_neighbor_with_least_access_time(Point *result) const {
+  __device__ inline bool find_neighbor_with_least_access_time(Point *result) {
     Point me = shared_[local_ix_];
     FireSimpleCuda fire = me.fire;
     bool is_new = !(me.time < MAX_TIME);
@@ -252,13 +154,19 @@ private:
                  ((int)idx_2d_.y + dir.y) >= 0 &&
                  ((int)idx_2d_.y + dir.y) < settings_.geo_ref.height);
 
-          Point possible_blockage =
-              shared_[(local_x_ + dir.x) + (local_y_ + dir.y) * shared_width_];
+          int blockage_ix =
+              (local_x_ + dir.x) + (local_y_ + dir.y) * shared_width_;
+          ASSERT(0 <= blockage_ix &&
+                 blockage_ix < ((blockDim.x + HALO_RADIUS * 2) *
+                                (blockDim.y + HALO_RADIUS * 2)));
+          Point possible_blockage = shared_[blockage_ix];
 
-          if (is_point_null(possible_blockage)) {
+          if (!(possible_blockage.time < MAX_TIME)) {
             // If we haven't analyzed the blockage point yet then we can't
-            // use the reference in this iteration
-            reference = PointRef_NULL;
+            // use the reference in this iteration. If the reference is
+            // combustible then retry
+            *result = Point_NULL;
+            return !is_fire_null(possible_blockage.fire);
           } else {
             if (!similar_fires_(possible_blockage.fire, reference.fire)) {
               reference = PointRef(neighbor.time, neighbor_pos, neighbor.fire);
@@ -282,6 +190,101 @@ private:
       };
     };
     *result = best;
+    return false;
+  }
+  __device__ inline void mark_progress(volatile unsigned *progress,
+                                       unsigned v) {
+    if (threadIdx.x == 0 && threadIdx.y == 0) {
+      progress[block_ix_] = v;
+    }
+  }
+  __device__ inline void mark_progress_or(volatile unsigned *progress,
+                                          unsigned v) {
+    if (threadIdx.x == 0 && threadIdx.y == 0) {
+      progress[block_ix_] |= v;
+    }
+  }
+
+  __device__ inline bool update_point(Point p) {
+    if (in_bounds_ && p.time < settings_.max_time) {
+      // printf("best time %f\n", best.time);
+      refs_x_[global_ix_] = p.reference.pos.x;
+      refs_y_[global_ix_] = p.reference.pos.y;
+      __threadfence();
+      time_[global_ix_] = p.time;
+      shared_[local_ix_] = p;
+      return true;
+    }
+    return false;
+  }
+
+  __device__ inline void load_points_into_shared_memory(bool first_iteration) {
+    if (in_bounds_) {
+      // Load the central block data
+      if (first_iteration) {
+        load_point_at_offset(make_int2(0, 0));
+      }
+
+      // Load the halo regions
+      bool x_near_x0 = threadIdx.x < HALO_RADIUS;
+      bool y_near_y0 = threadIdx.y < HALO_RADIUS;
+      if (y_near_y0) {
+        // Top halo
+        load_point_at_offset(make_int2(0, -HALO_RADIUS));
+        // Bottom halo
+        load_point_at_offset(make_int2(0, blockDim.y));
+      }
+      if (x_near_x0) {
+        // Left halo
+        load_point_at_offset(make_int2(-HALO_RADIUS, 0));
+        // Right halo
+        load_point_at_offset(make_int2(blockDim.x, 0));
+      }
+      if (x_near_x0 && y_near_y0) {
+        // corners
+        load_point_at_offset(make_int2(-HALO_RADIUS, -HALO_RADIUS));
+        load_point_at_offset(make_int2(blockDim.x, -HALO_RADIUS));
+        load_point_at_offset(make_int2(blockDim.x, blockDim.y));
+        load_point_at_offset(make_int2(-HALO_RADIUS, blockDim.y));
+      }
+    }
+  }
+
+  __device__ inline void load_point_at_offset(const int2 offset) {
+    int2 local = make_int2(local_x_ + offset.x, local_y_ + offset.y);
+    int2 global = make_int2(global_x_ + offset.x, global_y_ + offset.y);
+    if (global.x >= 0 && global.x < settings_.geo_ref.width && global.y >= 0 &&
+        global.y < settings_.geo_ref.height) {
+      uint2 pos = make_uint2(global.x, global.y);
+      size_t idx = global.x + global.y * settings_.geo_ref.width;
+      Point p = Point(time_[idx],
+                      load_fire(idx, speed_max_, azimuth_max_, eccentricity_),
+                      PointRef());
+
+      if (p.time < MAX_TIME) {
+        __threadfence();
+        p.reference.pos = make_ushort2(refs_x_[idx], refs_y_[idx]);
+        ASSERT(!(p.reference.pos.x == USHRT_MAX ||
+                 p.reference.pos.y == USHRT_MAX));
+        ASSERT(p.reference.pos.x < settings_.geo_ref.width ||
+               p.reference.pos.y < settings_.geo_ref.height);
+        size_t ref_ix =
+            p.reference.pos.x + p.reference.pos.y * settings_.geo_ref.width;
+
+        if (p.reference.pos.x == pos.x && p.reference.pos.y == pos.y) {
+          p.reference.fire = p.fire;
+          p.reference.time = p.time;
+        } else {
+          p.reference.time = time_[ref_ix];
+          p.reference.fire =
+              load_fire(ref_ix, speed_max_, azimuth_max_, eccentricity_);
+        };
+        ASSERT(p.reference.time != MAX_TIME);
+      };
+      shared_[local.x + local.y * shared_width_] = p;
+    } else {
+      shared_[local.x + local.y * shared_width_] = Point_NULL;
+    }
   }
 };
 

@@ -94,20 +94,20 @@ pub struct TerrainCuda {
 }
 
 macro_rules! to_quantity {
-    ($quant:ident, $val:expr) => {
-	{
-	    use uom::lib::marker::PhantomData;
-	    $quant { value: $val, units: PhantomData, dimension: PhantomData}
-	}
-    };
+    ($quant:ident, $val:expr) => {{
+        use uom::lib::marker::PhantomData;
+        $quant {
+            value: $val,
+            units: PhantomData,
+            dimension: PhantomData,
+        }
+    }};
 }
 macro_rules! from_quantity {
-    ($quant:ident, $val:expr) => {
-	{
-	    let $quant { value, .. } = $val;
-	    value
-	}
-    };
+    ($quant:ident, $val:expr) => {{
+        let $quant { value, .. } = $val;
+        value
+    }};
 }
 impl From<TerrainCuda> for Terrain {
     fn from(f: TerrainCuda) -> Self {
@@ -162,7 +162,6 @@ pub struct FireCuda {
     pub eccentricity: f64,
     pub residence_time: f64,
 }
-
 
 impl From<FireCuda> for Fire {
     fn from(f: FireCuda) -> Self {
@@ -1105,4 +1104,3 @@ mod f64 {
         unsafe { sqrt(x) }
     }
 }
-

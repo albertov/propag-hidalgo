@@ -47,11 +47,11 @@
               rust-overlay.overlays.default
               (import ./overlay.nix inputs)
               /*
-              (_:_: {
-                pkgs_2311 = import inputs.nixpkgs_old {
-                  inherit system;
-                };
-              })
+                (_:_: {
+                  pkgs_2311 = import inputs.nixpkgs_old {
+                    inherit system;
+                  };
+                })
               */
             ];
             config.allowUnfree = true;
@@ -64,7 +64,8 @@
             default = self'.packages.propag;
             inherit (pkgs)
               propag
-              firelib-rs;
+              firelib-rs
+              ;
           };
           devShells.default = pkgs.mkShell {
             inputsFrom = [

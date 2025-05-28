@@ -12,10 +12,10 @@ let
     ${builtins.readFile "${stdenv.cc}/nix-support/libcxx-cxxflags"}
   '';
   LIBCLANG_PATH = "${libclang}/lib";
-  CUDA_ROOT=final.cudatoolkit;
-  CUDA_PATH=final.cudatoolkit;
+  CUDA_ROOT = final.cudatoolkit;
+  CUDA_PATH = final.cudatoolkit;
   LLVM_CONFIG = "${final.llvmPackages_7.llvm.dev}/bin/llvm-config";
-  LLVM_LINK_SHARED="1";
+  LLVM_LINK_SHARED = "1";
 
   workspaceArgs = {
     version = "git";
@@ -26,63 +26,77 @@ let
       "cuda_builder-0.3.0" = rust_cuda_sha256;
       "cuda_std-0.2.2" = rust_cuda_sha256;
     };
-    inherit BINDGEN_EXTRA_CLANG_ARGS LIBCLANG_PATH CUDA_PATH LLVM_CONFIG
-    CUDA_ROOT;
+    inherit
+      BINDGEN_EXTRA_CLANG_ARGS
+      LIBCLANG_PATH
+      CUDA_PATH
+      LLVM_CONFIG
+      CUDA_ROOT
+      ;
   };
 in
 {
-  firelib-rs = final.myRustPlatform.buildRustPackage (workspaceArgs // {
-    pname = "firelib-rs";
-    buildAndTestSubdir = "firelib-rs";
-  });
+  firelib-rs = final.myRustPlatform.buildRustPackage (
+    workspaceArgs
+    // {
+      pname = "firelib-rs";
+      buildAndTestSubdir = "firelib-rs";
+    }
+  );
 
   cudaPackages = prev.cudaPackages_12;
 
-  propag = final.myRustPlatform.buildRustPackage (workspaceArgs // {
-    pname = "propag";
-    buildAndTestSubdir = "propag";
-    buildInputs = with final; with final.myRustToolchain.availableComponents; [
-      cudatoolkit
-      cudatoolkit.lib
-      openssl
-    ];
-    LLVM_LINK_SHARED = 1;
-    nativeBuildInputs = with final; [
-      makeWrapper
-      cudatoolkit
-      #linuxPackages.nvidia_x11
-      #linuxPackages.nvidia_x11.bin
-      pkg-config
-      myRustToolchain
-      llvmPackages_7.llvm
-      ncurses # nvmm backend needs it
-      which
-    ];
+  propag = final.myRustPlatform.buildRustPackage (
+    workspaceArgs
+    // {
+      pname = "propag";
+      buildAndTestSubdir = "propag";
+      buildInputs =
+        with final;
+        with final.myRustToolchain.availableComponents;
+        [
+          cudatoolkit
+          cudatoolkit.lib
+          openssl
+        ];
+      LLVM_LINK_SHARED = 1;
+      nativeBuildInputs = with final; [
+        makeWrapper
+        cudatoolkit
+        #linuxPackages.nvidia_x11
+        #linuxPackages.nvidia_x11.bin
+        pkg-config
+        myRustToolchain
+        llvmPackages_7.llvm
+        ncurses # nvmm backend needs it
+        which
+      ];
 
-    postInstall = with final; ''
-      wrapProgram $out/bin/propag \
-        --prefix LD_LIBRARY_PATH : ${linuxPackages.nvidia_x11}/lib
+      postInstall = with final; ''
+        wrapProgram $out/bin/propag \
+          --prefix LD_LIBRARY_PATH : ${linuxPackages.nvidia_x11}/lib
       '';
 
-  });
+    }
+  );
 
+  llvmPackages_7 =
+    with final;
+    with lib;
+    recurseIntoAttrs (
+      callPackage "${inputs.nixpkgs_old}/pkgs/development/compilers/llvm/7" {
+        inherit (stdenvAdapters) overrideCC;
+        buildLlvmTools = buildPackages.llvmPackages_7.tools;
+        targetLlvm = targetPackages.llvmPackages_7.llvm or llvmPackages_7.llvm;
+        targetLlvmLibraries = targetPackages.llvmPackages_7.libraries or llvmPackages_7.libraries;
+      }
+    );
 
-  llvmPackages_7 = with final; with lib;
-  recurseIntoAttrs (callPackage "${inputs.nixpkgs_old}/pkgs/development/compilers/llvm/7" 
-  {
-    inherit (stdenvAdapters) overrideCC;
-    buildLlvmTools = buildPackages.llvmPackages_7.tools;
-    targetLlvm = targetPackages.llvmPackages_7.llvm or llvmPackages_7.llvm;
-    targetLlvmLibraries = targetPackages.llvmPackages_7.libraries or llvmPackages_7.libraries;
-  });
-
-  myRustToolchain =
-    final.buildPackages.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+  myRustToolchain = final.buildPackages.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
   myRustPlatform = final.buildPackages.makeRustPlatform {
     cargo = final.myRustToolchain;
     rustc = final.myRustToolchain;
   };
-
 
 }

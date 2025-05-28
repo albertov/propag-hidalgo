@@ -1,6 +1,6 @@
 use cust::prelude::*;
-use std::error::Error;
 use firelib_rs::*;
+use std::error::Error;
 use uom::si::angle::degree;
 use uom::si::f64::*;
 use uom::si::length::foot;
@@ -42,10 +42,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             })
         })
         .collect();
-    let models: Vec<usize> = (0..NUMBERS_LEN)
-        .map(|_n| rng.random_range(0..14))
-        .collect();
-    let mut fires : Vec<FireCuda> = vec![Fire::null().into(); NUMBERS_LEN];
+    let models: Vec<usize> = (0..NUMBERS_LEN).map(|_n| rng.random_range(0..14)).collect();
+    let mut fires: Vec<FireCuda> = vec![Fire::null().into(); NUMBERS_LEN];
 
     // initialize CUDA, this will pick the first available device and will
     // make a CUDA context from it.
@@ -56,7 +54,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let num_devices = Device::num_devices()?;
     println!("Number of devices: {}", num_devices);
-
 
     // Make the CUDA module, modules just house the GPU code for the kernels we created.
     // they can be made from PTX code, cubins, or fatbins.
@@ -82,10 +79,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         grid_size, block_size
     );
 
-
     println!("Calculating with GPU");
     timeit!({
-
         // allocate the GPU memory needed to house our numbers and copy them over.
         let models_gpu = models.as_slice().as_dbuf()?;
         let terrains_gpu = terrains.as_slice().as_dbuf()?;
@@ -115,24 +110,26 @@ fn main() -> Result<(), Box<dyn Error>> {
         fires_buf.copy_to(&mut fires)?;
     });
 
-    let terrains : Vec<Terrain> = terrains.iter().map(|t| (*t).into()).collect();
-    let mut fires_rs : Vec<Fire> = vec![Fire::null(); NUMBERS_LEN];
+    let terrains: Vec<Terrain> = terrains.iter().map(|t| (*t).into()).collect();
+    let mut fires_rs: Vec<Fire> = vec![Fire::null(); NUMBERS_LEN];
 
     println!("Calculating with CPU");
     timeit!({
-        fires_rs = models.iter().zip(terrains.iter()).map(|(m,t)|
-            firelib_rs::Catalog::STANDARD.get(*m)
-                .and_then(|f| f.burn(t)).unwrap_or(Fire::null())
-        ).collect()
+        fires_rs = models
+            .iter()
+            .zip(terrains.iter())
+            .map(|(m, t)| {
+                firelib_rs::Catalog::STANDARD
+                    .get(*m)
+                    .and_then(|f| f.burn(t))
+                    .unwrap_or(Fire::null())
+            })
+            .collect()
     });
     assert!(fires.iter().zip(fires_rs.iter()).all(|(f_gpu, f_cpu)| {
-        let f_gpu : Fire = (*f_gpu).into();
+        let f_gpu: Fire = (*f_gpu).into();
         f_gpu.almost_eq(f_cpu)
     }));
-
-
-
-
 
     Ok(())
 }

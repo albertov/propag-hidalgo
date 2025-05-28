@@ -93,6 +93,8 @@
             packages = with pkgs; [
               git
               cargo-watch
+              cargo-valgrind
+              valgrind
               rustup
               gdb
               (enableDebugging gdal)

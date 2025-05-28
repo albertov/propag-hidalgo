@@ -1,7 +1,4 @@
 use ::geometry::*;
-use gdal::Dataset;
-use std::ops::Div;
-
 use core::ffi::c_char;
 use cust::device::DeviceAttribute;
 use cust::error::CudaError;
@@ -18,6 +15,7 @@ use gdal::spatial_ref::SpatialRef;
 use gdal::vector::Geometry;
 use gdal::vector::LayerAccess;
 use gdal::vector::LayerOptions;
+use gdal::Dataset;
 use gdal::DriverManager;
 use gdal_sys::CPLErr::CE_None;
 use gdal_sys::OGRGeometryH;
@@ -667,7 +665,6 @@ fn write_boundaries(
 
 fn write_refs(
     PropagResults {
-        boundary_change,
         time,
         refs_x,
         refs_y,

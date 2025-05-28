@@ -408,7 +408,6 @@ impl Combustion {
         let fuel = Fuel::make(def);
         let (wind_b, wind_k, wind_e) = fuel.wind_bke();
         Combustion {
-            fuel: fuel.clone(),
             live_area_weight: fuel.life_area_weight(Life::Alive),
             live_rx_factor: fuel.life_rx_factor(Life::Alive),
             dead_area_weight: fuel.life_area_weight(Life::Dead),
@@ -422,6 +421,7 @@ impl Combustion {
             wind_b,
             wind_e,
             wind_k,
+            fuel,
         }
     }
     pub fn spread(&self, terrain: &Terrain) -> Spread {

@@ -1,9 +1,9 @@
 use gdal::errors::Result;
-use gdal::Dataset;
+use gdal::{Dataset, GeoTransform};
 use gdal_sys::*;
 use std::marker::PhantomData;
 
-use crate::geometry::GeoReference;
+use crate::geometry::{AffineTransform, GeoReference};
 use gdal_sys::GDALDataType::GDT_Float64;
 
 pub struct WarpedDataset<'a>(pub Dataset, PhantomData<&'a ()>);
@@ -16,7 +16,7 @@ impl<'a> WarpedDataset<'a> {
                 src.projection().as_ptr() as *const i8,
                 src.geo_transform()?.as_ptr(),
                 geo_ref.crs.to_wkt()?.as_str().as_ptr() as *const i8,
-                geo_ref.transform.as_ref().as_ptr(),
+                to_geo_transform(geo_ref.transform).as_ptr(),
             );
             let n_bands = src.raster_count();
             (*opts).pfnTransformer = Some(GDALGenImgProjTransform);
@@ -32,12 +32,12 @@ impl<'a> WarpedDataset<'a> {
             (*opts).panSrcBands = src_bands;
             (*opts).panDstBands = dst_bands;
             (*opts).eWorkingDataType = GDT_Float64;
-            let mut gt = geo_ref.transform.clone();
+            let gt = geo_ref.transform.clone();
             let dst_ds = GDALCreateWarpedVRT(
                 src.c_dataset(),
-                geo_ref.size.0 as _,
-                geo_ref.size.1 as _,
-                gt.as_mut_ref().as_mut_ptr(),
+                geo_ref.size.x,
+                geo_ref.size.y,
+                to_geo_transform(gt).as_mut_ptr(),
                 opts,
             );
             GDALDestroyWarpOptions(opts);
@@ -46,10 +46,14 @@ impl<'a> WarpedDataset<'a> {
     }
 }
 
+fn to_geo_transform(t: AffineTransform<f64>) -> GeoTransform {
+    [t.xoff(), t.a(), t.b(), t.yoff(), t.d(), t.e()]
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{GeoReference, WarpedDataset};
-    use crate::geometry::{Extent, V2};
+    use super::{to_geo_transform, GeoReference, WarpedDataset};
+    use crate::geometry::{Coord, Rect};
     use gdal::raster::GdalDataType;
     use gdal::spatial_ref::SpatialRef;
     use gdal::DriverManager;
@@ -59,26 +63,33 @@ mod tests {
     #[test]
     fn can_create_warped_ds() -> Result<()> {
         let geo_ref = GeoReference::new_south_up(
-            Extent(V2(-180.0, -90.0), V2(180.0, 90.0)),
-            V2(0.1, 0.1),
+            Rect::new(
+                Coord {
+                    x: -180.0,
+                    y: -90.0,
+                },
+                Coord { x: 180.0, y: 90.0 },
+            ),
+            Coord { x: 0.1, y: 0.1 },
             SpatialRef::from_epsg(4326)?,
         )
         .unwrap();
         let d = DriverManager::get_driver_by_name("MEM")?;
-        let mut ds = d.create(
-            "in-memory",
-            geo_ref.size.0.try_into()?,
-            geo_ref.size.1.try_into()?,
-            3,
-        )?;
+        let mut ds = d.create("in-memory", geo_ref.size.x as _, geo_ref.size.y as _, 3)?;
         ds.set_spatial_ref(&geo_ref.crs)?;
-        ds.set_geo_transform(&geo_ref.transform.as_ref())?;
+        ds.set_geo_transform(&to_geo_transform(geo_ref.transform))?;
         assert_eq!(ds.raster_count(), 3);
         assert_eq!(ds.raster_size(), (3600, 1800));
         assert_eq!(ds.rasterband(1)?.band_type(), GdalDataType::UInt8);
-        let ext = Extent(V2(0.0, 0.0), V2(1000.0, 1000.0));
+        let ext = Rect::new(
+            Coord { x: 0.0, y: 0.0 },
+            Coord {
+                x: 1000.0,
+                y: 1000.0,
+            },
+        );
 
-        let px_size = V2(5.0, 5.0);
+        let px_size = Coord { x: 5.0, y: 5.0 };
         let crs = SpatialRef::from_epsg(25830)?;
         let geo_ref = GeoReference::new_south_up(ext, px_size, crs).unwrap();
         let ds2 = WarpedDataset::new(&ds, geo_ref)?.0;

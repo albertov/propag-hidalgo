@@ -1,201 +1,65 @@
+use approx::AbsDiffEq;
 pub use gdal::spatial_ref::SpatialRef;
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct GeoTransform<T>([T; 6], [T; 6]);
+pub use geo::*;
+use num_traits::cast::ToPrimitive;
+use num_traits::*;
+use std::ops::*;
 
-impl GeoTransform<f64> {
-    pub fn new(xs: [f64; 6]) -> Option<Self> {
-        Some(Self(xs, Self::invert(xs)?))
-    }
-    pub fn origin(&self) -> V2<f64> {
-        V2(self.0[0], self.0[3])
-    }
-    pub fn as_mut_ref<'a>(&'a mut self) -> &'a mut [f64; 6] {
-        &mut self.0
-    }
-    pub fn as_ref<'a>(&'a self) -> &'a [f64; 6] {
-        &self.0
-    }
-    pub fn forward(&self, p: V2<f64>) -> V2<i32> {
-        let V2(x, y) = p - self.origin();
-        let [_, dx, rx, _, ry, dy] = self.1;
-        V2(x * dx + y * rx, x * ry + y * dy).trunc()
-    }
-    pub fn backward(&self, p: V2<i32>) -> V2<f64> {
-        let p = V2(p.0 as _, p.1 as _);
-        let V2(x, y) = p + self.origin();
-        let [_, dx, rx, _, ry, dy] = self.0;
-        V2(x * dx + y * rx, x * ry + y * dy)
-    }
-    fn invert(gt: [f64; 6]) -> Option<[f64; 6]> {
-        let [x0, a, c, y0, b, d] = gt;
-        let inv = a * d - b * c;
-        if inv.abs() > 1e-6 {
-            let f = 1.0 / inv;
-            let a2 = d * f;
-            let b2 = -b * f;
-            let c2 = -c * f;
-            let d2 = a * f;
-            Some([x0, a2, c2, y0, b2, d2])
-        } else {
-            None
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {}
-
-#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct V2<T>(pub T, pub T);
-
-impl V2<f64> {
-    pub fn line_to(self, other: Self) -> impl Iterator<Item = Self> {
-        DDA::new(self, other)
-    }
-
-    pub fn trunc(&self) -> V2<i32> {
-        V2(self.0.trunc() as _, self.1.trunc() as _)
-    }
-}
-
-impl<T: uom::num_traits::Float> V2<T> {
-    pub fn recip(self) -> Self {
-        V2(self.0.recip(), self.1.recip())
-    }
-    pub fn abs(self) -> Self {
-        V2(self.0.abs(), self.1.abs())
-    }
-}
-
-impl<T> std::ops::Sub for V2<T>
+pub struct GeoReference<T>
 where
-    T: std::ops::Sub<Output = T> + Copy + Clone,
+    T: CoordFloat,
 {
-    type Output = Self;
-
-    fn sub(self, other: Self) -> Self {
-        V2(self.0 - other.0, self.1 - other.1)
-    }
-}
-
-impl<T> std::ops::Add for V2<T>
-where
-    T: std::ops::Add<Output = T> + Copy + Clone,
-{
-    type Output = Self;
-
-    fn add(self, other: Self) -> Self {
-        V2(self.0 + other.0, self.1 + other.1)
-    }
-}
-
-impl<T> std::ops::Mul for V2<T>
-where
-    T: std::ops::Mul<Output = T> + Copy + Clone,
-{
-    type Output = Self;
-
-    fn mul(self, other: Self) -> Self {
-        V2(self.0 * other.0, self.1 * other.1)
-    }
-}
-
-impl<T> std::ops::Div for V2<T>
-where
-    T: std::ops::Div<Output = T> + Copy + Clone,
-{
-    type Output = Self;
-
-    fn div(self, other: Self) -> Self {
-        V2(self.0 / other.0, self.1 / other.1)
-    }
-}
-
-impl<T> V2<T>
-where
-    T: Copy,
-{
-    fn map<R>(&self, fun: impl Fn(T) -> R) -> V2<R> {
-        V2(fun(self.0), fun(self.1))
-    }
-}
-
-pub struct GeoReference<T> {
-    pub transform: GeoTransform<T>,
-    pub size: V2<i32>,
+    pub transform: AffineTransform<T>,
+    inv_transform: AffineTransform<T>,
+    pub size: Coord<i32>,
     pub crs: SpatialRef,
-}
-
-impl GeoReference<f64> {
-    pub fn new_south_up(
-        extent: Extent<f64>,
-        pixel_size: V2<f64>,
-        crs: SpatialRef,
-    ) -> Option<GeoReference<f64>> {
-        let V2(dx, dy) = pixel_size;
-        let V2(x0, y0) = *extent.min();
-        Some(GeoReference {
-            transform: GeoTransform::new([x0, dx, 0.0, y0, 0.0, dy])?,
-            size: (extent.size() / pixel_size).map(|p| p.round() as _),
-            crs,
-        })
-    }
 }
 
 impl<T> GeoReference<T>
 where
-    T: std::ops::Add<Output = T>
-        + Clone
-        + Copy
-        + std::ops::Mul<Output = T>
-        + std::convert::From<i32>,
+    T: CoordFloat + Clone + From<i32>,
 {
-    pub fn extent(&self) -> Extent<T> {
+    pub fn new_south_up(
+        extent: Rect<T>,
+        pixel_size: Coord<T>,
+        crs: SpatialRef,
+    ) -> Option<GeoReference<T>> {
+        let Coord { x: dx, y: dy } = pixel_size;
+        let Coord { x: x0, y: y0 } = extent.min();
+        let transform = AffineTransform::new(dx, T::zero(), x0, T::zero(), dy, y0);
+        let inv_transform = transform.inverse()?;
+        let size = Coord {
+            x: <i32 as num_traits::NumCast>::from(extent.width() / dx)?,
+            y: <i32 as num_traits::NumCast>::from(extent.height() / dy)?,
+        };
+        Some(GeoReference {
+            transform,
+            inv_transform,
+            size,
+            crs,
+        })
+    }
+    pub fn extent(&self) -> Rect<T> {
         let Self {
             transform, size, ..
         } = self;
-        let size = V2(size.0.into(), size.1.into());
-        let GeoTransform([x0, dx, _rx, y0, _ry, dy], _) = *transform;
-        //assert!(dx > 0.0 && dy > 0.0 && rx == 0.0 && ry == 0.0);
-        let origin = V2(x0, y0);
-        Extent(origin, origin + size * V2(dx, dy))
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Extent<T>(pub V2<T>, pub V2<T>);
-
-impl<T> Extent<T>
-where
-    T: std::ops::Sub<Output = T> + Copy + Clone + std::ops::Add<Output = T>,
-{
-    pub fn size(&self) -> V2<T> {
-        //V2(self.1.0 - self.0.0, self.1.1 - self.0.1)
-        self.1 - self.0
-    }
-    pub fn buffer(&self, size: V2<T>) -> Self {
-        Self(self.0 - size, self.1 + size)
-    }
-
-    pub fn min<'a>(&'a self) -> &'a V2<T> {
-        &self.0
-    }
-    pub fn max<'a>(&'a self) -> &'a V2<T> {
-        &self.1
-    }
-}
-
-impl<T> std::ops::Add for Extent<T>
-where
-    T: std::ops::Add<Output = T> + Copy + Clone + std::cmp::Ord,
-{
-    type Output = Self;
-
-    fn add(self, other: Self) -> Self {
-        Extent(
-            V2(self.0 .0.min(other.0 .0), self.0 .1.min(other.0 .1)),
-            V2(self.1 .0.max(other.1 .0), self.1 .1.max(other.1 .1)),
+        let size = Coord {
+            x: size.x.into(),
+            y: size.y.into(),
+        };
+        //assert!(dx > T::zero() && dy > T::zero() && rx == T::zero() && ry == T::zero());
+        let origin = Coord {
+            x: transform.xoff(),
+            y: transform.yoff(),
+        };
+        Rect::new(
+            origin,
+            origin
+                + Coord {
+                    x: transform.a() * size.x,
+                    y: transform.e() * size.y,
+                },
         )
     }
 }
@@ -205,20 +69,58 @@ pub struct Raster<'a, T> {
     data: &'a [T],
 }
 
-struct DDA<T> {
-    dest: V2<T>,
-    step: V2<T>,
-    cur: Option<V2<T>>,
-    t_max: V2<T>,
-    delta: V2<T>,
+struct DDA<T>
+where
+    T: CoordFloat,
+{
+    dest: Coord<T>,
+    step: Coord<T>,
+    cur: Option<Coord<T>>,
+    t_max: Coord<T>,
+    delta: Coord<T>,
 }
 
-impl DDA<f64> {
-    fn new(origin: V2<f64>, dest: V2<f64>) -> Self {
-        let t_max = dest - origin;
-        let t_max = t_max.recip().abs();
-        let step = V2((dest.0 - origin.0).signum(), (dest.1 - origin.1).signum());
-        let cur = if step.0 == 0.0 && step.1 == 0.0 {
+fn abs<T>(coord: Coord<T>) -> Coord<T>
+where
+    T: CoordFloat,
+{
+    let Coord { x, y } = coord;
+    Coord {
+        x: x.abs(),
+        y: y.abs(),
+    }
+}
+
+fn recip<T>(coord: Coord<T>) -> Coord<T>
+where
+    T: CoordFloat,
+{
+    let Coord { x, y } = coord;
+    Coord {
+        x: T::one() / x,
+        y: T::one() / y,
+    }
+}
+
+fn signum<T>(coord: Coord<T>) -> Coord<T>
+where
+    T: CoordFloat,
+{
+    let Coord { x, y } = coord;
+    Coord {
+        x: x.signum(),
+        y: y.signum(),
+    }
+}
+
+impl<T> DDA<T>
+where
+    T: CoordFloat,
+{
+    fn new(origin: Coord<T>, dest: Coord<T>) -> Self {
+        let t_max = recip(abs((dest - origin)));
+        let step = signum(dest - origin);
+        let cur = if step.x == T::zero() && step.y == T::zero() {
             None
         } else {
             Some(origin)
@@ -233,105 +135,189 @@ impl DDA<f64> {
     }
 }
 
-impl Iterator for DDA<f64> {
-    type Item = V2<f64>;
+impl<T> Iterator for DDA<T>
+where
+    T: CoordFloat + AbsDiffEq<Epsilon = T>,
+{
+    type Item = Coord<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let valid_x = |x: f64| {
-            if self.step.0 > 0.0 {
-                x <= self.dest.0
+        let valid_x = |x: T| {
+            if self.step.x > T::zero() {
+                x <= self.dest.x
             } else {
-                x >= self.dest.0
+                x >= self.dest.x
             }
         };
-        let valid_y = |y: f64| {
-            if self.step.1 > 0.0 {
-                y <= self.dest.1
+        let valid_y = |y: T| {
+            if self.step.y > T::zero() {
+                y <= self.dest.y
             } else {
-                y >= self.dest.1
+                y >= self.dest.y
             }
         };
         match self.cur {
             None => None,
-            Some(V2(x, y)) if !(valid_x(x) && valid_y(y)) => {
+            Some(Coord { x, y }) if !(valid_x(x) && valid_y(y)) => {
                 self.cur = None;
                 None
             }
-            Some(V2(x, y)) if (self.t_max.0 - self.t_max.1).abs() < 1e-6 => {
+            Some(Coord { x, y }) if (self.t_max.x - self.t_max.y).abs() < T::default_epsilon() => {
                 let ret = self.cur;
-                self.cur = Some(V2(x + self.step.0, y + self.step.1));
+                self.cur = Some(Coord {
+                    x: x + self.step.x,
+                    y: y + self.step.y,
+                });
                 self.t_max = self.t_max + self.delta;
                 ret
             }
-            Some(V2(x, y)) if self.t_max.0 < self.t_max.1 => {
+            Some(Coord { x, y }) if self.t_max.x < self.t_max.y => {
                 let ret = self.cur;
-                self.cur = Some(V2(self.step.0 + x, y));
-                self.t_max = V2(self.t_max.0 + self.delta.0, self.t_max.1);
+                self.cur = Some(Coord {
+                    x: self.step.x + x,
+                    y: y,
+                });
+                self.t_max = Coord {
+                    x: self.t_max.x + self.delta.x,
+                    y: self.t_max.y,
+                };
                 ret
             }
-            Some(V2(x, y)) => {
+            Some(Coord { x, y }) => {
                 let ret = self.cur;
-                self.cur = Some(V2(x, self.step.1 + y));
-                self.t_max = V2(self.t_max.0, self.t_max.1 + self.delta.1);
+                self.cur = Some(Coord {
+                    x,
+                    y: self.step.y + y,
+                });
+                self.t_max = Coord {
+                    x: self.t_max.x,
+                    y: self.t_max.y + self.delta.y,
+                };
                 ret
             }
         }
     }
 }
 
+pub fn line_to<T>(from: Coord<T>, to: Coord<T>) -> impl Iterator<Item = Coord<T>>
+where
+    T: CoordFloat + AbsDiffEq<Epsilon = T>,
+{
+    DDA::new(from, to)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
-    #[test]
-    fn can_add_extents() {
-        assert_eq!(
-            Extent(V2(0, 0), V2(1, 1)) + Extent(V2(-1, -1), V2(0, 1)),
-            Extent(V2(-1, -1), V2(1, 1))
-        )
-    }
+
     #[test]
     fn can_line_to_self() {
-        let points: Vec<V2<f64>> = V2(0.0, 0.0).line_to(V2(0.0, 0.0)).collect();
-        assert_eq!(points, vec![V2(0.0, 0.0)]);
+        let points: Vec<Coord<f64>> =
+            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 0.0 }).collect();
+        assert_eq!(points, vec![(Coord { x: 0.0, y: 0.0 })]);
     }
     #[test]
     fn can_line_to_north() {
-        let points: Vec<V2<f64>> = V2(0.0, 0.0).line_to(V2(0.0, 2.0)).collect();
-        assert_eq!(points, vec![V2(0.0, 0.0), V2(0.0, 1.0), V2(0.0, 2.0)]);
+        let points: Vec<Coord<f64>> =
+            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 2.0 }).collect();
+        assert_eq!(
+            points,
+            vec![
+                (Coord { x: 0.0, y: 0.0 }),
+                (Coord { x: 0.0, y: 1.0 }),
+                (Coord { x: 0.0, y: 2.0 })
+            ]
+        );
     }
     #[test]
     fn can_line_to_south() {
-        let points: Vec<V2<f64>> = V2(0.0, 0.0).line_to(V2(0.0, -2.0)).collect();
-        assert_eq!(points, vec![V2(0.0, 0.0), V2(0.0, -1.0), V2(0.0, -2.0)]);
+        let points: Vec<Coord<f64>> =
+            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: -2.0 }).collect();
+        assert_eq!(
+            points,
+            vec![
+                (Coord { x: 0.0, y: 0.0 }),
+                (Coord { x: 0.0, y: -1.0 }),
+                (Coord { x: 0.0, y: -2.0 })
+            ]
+        );
     }
     #[test]
     fn can_line_to_east() {
-        let points: Vec<V2<f64>> = V2(0.0, 0.0).line_to(V2(2.0, 0.0)).collect();
-        assert_eq!(points, vec![V2(0.0, 0.0), V2(1.0, 0.0), V2(2.0, 0.0)]);
+        let points: Vec<Coord<f64>> =
+            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 0.0 }).collect();
+        assert_eq!(
+            points,
+            vec![
+                (Coord { x: 0.0, y: 0.0 }),
+                (Coord { x: 1.0, y: 0.0 }),
+                (Coord { x: 2.0, y: 0.0 })
+            ]
+        );
     }
     #[test]
     fn can_line_to_west() {
-        let points: Vec<V2<f64>> = V2(0.0, 0.0).line_to(V2(-2.0, 0.0)).collect();
-        assert_eq!(points, vec![V2(0.0, 0.0), V2(-1.0, 0.0), V2(-2.0, 0.0)]);
+        let points: Vec<Coord<f64>> =
+            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: -2.0, y: 0.0 }).collect();
+        assert_eq!(
+            points,
+            vec![
+                (Coord { x: 0.0, y: 0.0 }),
+                (Coord { x: -1.0, y: 0.0 }),
+                (Coord { x: -2.0, y: 0.0 })
+            ]
+        );
     }
     #[test]
     fn can_line_to_north_west() {
-        let points: Vec<V2<f64>> = V2(0.0, 0.0).line_to(V2(-2.0, -2.0)).collect();
-        assert_eq!(points, vec![V2(0.0, 0.0), V2(-1.0, -1.0), V2(-2.0, -2.0)]);
+        let points: Vec<Coord<f64>> =
+            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: -2.0, y: -2.0 }).collect();
+        assert_eq!(
+            points,
+            vec![
+                (Coord { x: 0.0, y: 0.0 }),
+                (Coord { x: -1.0, y: -1.0 }),
+                (Coord { x: -2.0, y: -2.0 })
+            ]
+        );
     }
     #[test]
     fn can_line_to_north_east() {
-        let points: Vec<V2<f64>> = V2(0.0, 0.0).line_to(V2(-2.0, 2.0)).collect();
-        assert_eq!(points, vec![V2(0.0, 0.0), V2(-1.0, 1.0), V2(-2.0, 2.0)]);
+        let points: Vec<Coord<f64>> =
+            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: -2.0, y: 2.0 }).collect();
+        assert_eq!(
+            points,
+            vec![
+                (Coord { x: 0.0, y: 0.0 }),
+                (Coord { x: -1.0, y: 1.0 }),
+                (Coord { x: -2.0, y: 2.0 })
+            ]
+        );
     }
     #[test]
     fn can_line_to_south_west() {
-        let points: Vec<V2<f64>> = V2(0.0, 0.0).line_to(V2(2.0, -2.0)).collect();
-        assert_eq!(points, vec![V2(0.0, 0.0), V2(1.0, -1.0), V2(2.0, -2.0)]);
+        let points: Vec<Coord<f64>> =
+            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: -2.0 }).collect();
+        assert_eq!(
+            points,
+            vec![
+                (Coord { x: 0.0, y: 0.0 }),
+                (Coord { x: 1.0, y: -1.0 }),
+                (Coord { x: 2.0, y: -2.0 })
+            ]
+        );
     }
     #[test]
     fn can_line_to_south_east() {
-        let points: Vec<V2<f64>> = V2(0.0, 0.0).line_to(V2(2.0, 2.0)).collect();
-        assert_eq!(points, vec![V2(0.0, 0.0), V2(1.0, 1.0), V2(2.0, 2.0)]);
+        let points: Vec<Coord<f64>> =
+            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 }).collect();
+        assert_eq!(
+            points,
+            vec![
+                (Coord { x: 0.0, y: 0.0 }),
+                (Coord { x: 1.0, y: 1.0 }),
+                (Coord { x: 2.0, y: 2.0 })
+            ]
+        );
     }
 }

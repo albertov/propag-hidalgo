@@ -129,7 +129,7 @@ load_point(const GeoReference &geo_ref, uint2 pos, size_t idx,
 }
 
 #define LOAD(LOCAL_X, LOCAL_Y, GLOBAL_X, GLOBAL_Y)                             \
-  if ((GLOBAL_X) < width && (GLOBAL_Y) < height) {                             \
+  if ((GLOBAL_X >= 0) && (GLOBAL_X) < (int)width && (GLOBAL_Y >= 0) && (GLOBAL_Y) < (int)height) {                             \
     shared[(LOCAL_X) + (LOCAL_Y) * shared_width] =                             \
         load_point(settings.geo_ref, make_uint2(GLOBAL_X, GLOBAL_Y),           \
                    (GLOBAL_X) + (GLOBAL_Y) * width, speed_max, azimuth_max,    \
@@ -170,24 +170,6 @@ __device__ inline int2 neighbor_direction(uint2 ufrom, uint2 uto) {
     return make_int2(step.x, 0);
   } else {
     return make_int2(0, step.y);
-  }
-}
-
-__device__ inline uint2 neighbor_in_direction(uint2 ufrom, uint2 uto) {
-  int2 from = make_int2(ufrom.x, ufrom.y);
-  int2 to = make_int2(uto.x, uto.y);
-  if (from.x == to.x && from.y == to.y) {
-    return make_uint2(from.x, from.y);
-  }
-  int2 step = make_int2(signum(to.x - from.x), signum(to.y - from.y));
-  int2 tmax = make_int2(abs(to.x - from.x), abs(to.y - from.y));
-
-  if (tmax.x == tmax.y) {
-    return make_uint2(from.x + step.x, from.y + step.y);
-  } else if (tmax.x > tmax.y) {
-    return make_uint2(from.x + step.x, from.y);
-  } else {
-    return make_uint2(from.x, from.y + step.y);
   }
 }
 

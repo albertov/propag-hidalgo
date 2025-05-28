@@ -76,25 +76,25 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
           LOAD(local_x, local_y - HALO_RADIUS, global_x,
                global_y - HALO_RADIUS);
           // Bottom halo
-          LOAD(local_x, local_y + blockDim.y, global_x, global_y + blockDim.y);
+          LOAD(local_x, local_y + blockDim.y, global_x, global_y + (int)blockDim.y);
         }
         if (x_near_x0) {
           // Left halo
           LOAD(local_x - HALO_RADIUS, local_y, global_x - HALO_RADIUS,
                global_y);
           // Right halo
-          LOAD(local_x + blockDim.x, local_y, global_x + blockDim.x, global_y);
+          LOAD(local_x + blockDim.x, local_y, global_x + (int)blockDim.x, global_y);
         }
         if (x_near_x0 && y_near_y0) {
           // corners
           LOAD(local_x - HALO_RADIUS, local_y - HALO_RADIUS,
                global_x - HALO_RADIUS, global_y - HALO_RADIUS);
           LOAD(local_x + blockDim.x, local_y - HALO_RADIUS,
-               global_x + blockDim.x, global_y - HALO_RADIUS);
+               global_x + (int)blockDim.x, global_y - HALO_RADIUS);
           LOAD(local_x + blockDim.x, local_y + blockDim.y,
-               global_x + blockDim.x, global_y + blockDim.y);
+               global_x + (int)blockDim.x, global_y + (int)blockDim.y);
           LOAD(local_x - HALO_RADIUS, local_y + blockDim.y,
-               global_x - HALO_RADIUS, global_y + blockDim.y);
+               global_x - HALO_RADIUS, global_y + (int)blockDim.y);
         }
 
       }; // end in_bounds

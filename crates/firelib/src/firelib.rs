@@ -512,13 +512,13 @@ impl CanSpread<'_> for FireSimple {
     }
 }
 
-impl<'a> Spread<'a, FireSimple> {
+impl Spread<'_, FireSimple> {
     pub fn speed(&self) -> Velocity {
         self.fire.speed_max * to_quantity!(Ratio, self.factor)
     }
 }
 
-impl<'a> Spread<'a, Fire> {
+impl Spread<'_, Fire> {
     pub fn speed(&self) -> Velocity {
         self.fire.speed_max * to_quantity!(Ratio, self.factor)
     }
@@ -874,6 +874,7 @@ impl Fuel {
         while i < particles.len() {
             let p = &particles[i];
             if !p.is_sentinel() {
+                #[allow(clippy::single_match)]
                 match p.life() {
                     Life::Dead => {
                         sorted_particles[n_dead_particles] = Particle::make(p, &particles);
@@ -891,6 +892,7 @@ impl Fuel {
         while i < particles.len() {
             let p = &particles[i];
             if !p.is_sentinel() {
+                #[allow(clippy::single_match)]
                 match p.life() {
                     Life::Alive => {
                         sorted_particles[j] = Particle::make(p, &particles);

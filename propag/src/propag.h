@@ -33,6 +33,8 @@ public:
     eccentricity = other.eccentricity;
     return *this;
   }
+
+  __device__ inline bool is_null() const { return speed_max == 0.0; }
 };
 #define FireSimpleCuda_NULL FireSimpleCuda()
 
@@ -60,9 +62,9 @@ public:
 #define PointRef_NULL PointRef()
 
 typedef struct Settings {
-  GeoReference geo_ref;
-  float max_time;
-  bool find_ref_change;
+  const GeoReference geo_ref;
+  const float max_time;
+  const bool find_ref_change;
 } Settings;
 
 class ALIGN Point {
@@ -81,6 +83,7 @@ public:
     time = other.time;
     return *this;
   }
+  __device__ inline bool is_null() const { return !(time < MAX_TIME); }
 };
 
 #define Point_NULL Point()
@@ -96,21 +99,6 @@ __device__ inline FireSimpleCuda load_fire(size_t idx, const float *speed_max,
                                            const float *azimuth_max,
                                            const float *eccentricity) {
   return FireSimpleCuda(speed_max[idx], azimuth_max[idx], eccentricity[idx]);
-}
-
-__device__ inline bool is_point_null(const Point &p) {
-  return !(p.time < MAX_TIME);
-}
-
-__device__ inline bool is_fire_null(const volatile FireSimpleCuda &f) {
-  return f.speed_max == 0.0;
-}
-
-__device__ inline bool similar_fires_(const volatile FireSimpleCuda &a,
-                                      const volatile FireSimpleCuda &b) {
-  return (abs(a.speed_max - b.speed_max) < 0.1 &&
-          abs(a.azimuth_max - b.azimuth_max) < (5.0 * (2 * PI) / 360.0) &&
-          abs(a.eccentricity - b.eccentricity) < 0.05);
 }
 
 __device__ inline int signum(int val) { return int(0 < val) - int(val < 0); }
@@ -157,33 +145,5 @@ public:
     return true;
   }
 };
-
-__device__ inline float time_to(const GeoReference &geo_ref,
-                                const PointRef &from, const uint2 to) {
-
-  int2 from_pos = make_int2(from.pos.x, from.pos.y);
-  int2 to_pos = make_int2(to.x, to.y);
-  float azimuth;
-  if (geo_ref.transform.gt.dy < 0) {
-    // north-up geotransform
-    azimuth = atan2f(to_pos.x - from_pos.x, from_pos.y - to_pos.y);
-  } else {
-    azimuth = atan2f(to_pos.x - from_pos.x, to_pos.y - from_pos.y);
-    // south-up geotransform
-  };
-  float angle = abs(azimuth - from.fire.azimuth_max);
-  float denom = (1.0 - from.fire.eccentricity * cos(angle));
-  float speed;
-  if (denom > 1e-6) {
-    float factor = (1.0 - from.fire.eccentricity) / denom;
-    speed = from.fire.speed_max * factor;
-  } else {
-    speed = from.fire.speed_max; // FIXME should be speed0
-  }
-  float dx = (from_pos.x - to_pos.x) * geo_ref.transform.gt.dx;
-  float dy = (from_pos.y - to_pos.y) * geo_ref.transform.gt.dy;
-  float distance = sqrt(dx * dx + dy * dy);
-  return from.time + (distance / speed);
-}
 
 #endif

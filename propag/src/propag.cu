@@ -15,9 +15,9 @@ class ALIGN Propagator {
   const int shared_width_;
   const int local_ix_;
 
-  const float *__restrict__ speed_max_;
-  const float *__restrict__ azimuth_max_;
-  const float *__restrict__ eccentricity_;
+  const float *__restrict__ const speed_max_;
+  const float *__restrict__ const azimuth_max_;
+  const float *__restrict__ const eccentricity_;
 
   volatile float *__restrict__ time_;
   volatile unsigned short *__restrict__ refs_x_;
@@ -132,7 +132,7 @@ private:
           Point neighbor =
               shared_[(local_x_ + i) + (local_y_ + j) * shared_width_];
 
-          if (!(neighbor.time < MAX_TIME && !is_fire_null(neighbor.fire))) {
+          if (!(neighbor.time < MAX_TIME && !neighbor.fire.is_null())) {
             // not burning, skip it
             continue;
           };
@@ -144,7 +144,7 @@ private:
 
           ASSERT((reference.time < MAX_TIME && reference.pos.x != USHRT_MAX &&
                   reference.pos.y != USHRT_MAX));
-          ASSERT(!is_fire_null(reference.fire));
+          ASSERT(!reference.fire.is_null());
 
           // Check if neighbor's reference is usable
           DDA iter(idx_2d_, make_uint2(reference.pos.x, reference.pos.y));
@@ -196,7 +196,7 @@ private:
           }
 
           if (reference.time < MAX_TIME) {
-            float t = time_to(settings_.geo_ref, reference, idx_2d_);
+            float t = time_from_ref(reference);
             if (t < settings_.max_time && t < best.time &&
                 (is_new || t < me.time)) {
               ASSERT(!(reference.pos.x == USHRT_MAX ||
@@ -299,6 +299,40 @@ private:
     }
   }
 
+  __device__ inline float time_from_ref(const PointRef &from) {
+    int2 from_pos = make_int2(from.pos.x, from.pos.y);
+    int2 to_pos = make_int2(idx_2d_.x, idx_2d_.y);
+    float azimuth;
+    if (settings_.geo_ref.transform.gt.dy < 0) {
+      // north-up geotransform
+      azimuth = atan2f(to_pos.x - from_pos.x, from_pos.y - to_pos.y);
+    } else {
+      azimuth = atan2f(to_pos.x - from_pos.x, to_pos.y - from_pos.y);
+      // south-up geotransform
+    };
+    float angle = abs(azimuth - from.fire.azimuth_max);
+    float denom = (1.0 - from.fire.eccentricity * cos(angle));
+    float speed;
+    if (denom > 1e-6) {
+      float factor = (1.0 - from.fire.eccentricity) / denom;
+      speed = from.fire.speed_max * factor;
+    } else {
+      speed = from.fire.speed_max; // FIXME should be speed0
+    }
+    float dx = (from_pos.x - to_pos.x) * settings_.geo_ref.transform.gt.dx;
+    float dy = (from_pos.y - to_pos.y) * settings_.geo_ref.transform.gt.dy;
+    float distance = sqrt(dx * dx + dy * dy);
+    return from.time + (distance / speed);
+  }
+
+  __device__ inline bool
+  similar_fires_(const volatile FireSimpleCuda &a,
+                 const volatile FireSimpleCuda &b) const {
+    return (abs(a.speed_max - b.speed_max) < 0.1 &&
+            abs(a.azimuth_max - b.azimuth_max) < (5.0 * (2 * PI) / 360.0) &&
+            abs(a.eccentricity - b.eccentricity) < 0.05);
+  }
+
   __device__ void print_info(const char msg[]) const {
     static const char true_[] = "true";
     static const char false_[] = "false";
@@ -335,7 +369,7 @@ private:
   __device__ inline void fill_ref_change() {
     if (in_bounds_) {
       const Point me = shared_[local_ix_];
-      if (is_point_null(me)) {
+      if (me.is_null()) {
         return;
       }
       unsigned short changed = 0;
@@ -357,7 +391,7 @@ private:
           const Point neighbor =
               shared_[(local_x_ + i) + (local_y_ + j) * shared_width_];
 
-          if (is_point_null(neighbor))
+          if (neighbor.is_null())
             continue;
 
           changed |= (neighbor.reference.pos.x != me.reference.pos.x) |
@@ -373,11 +407,11 @@ private:
 extern "C" {
 #endif
 
-__global__ void propag(const Settings settings, unsigned grid_x,
-                       unsigned grid_y, unsigned *__restrict__ worked,
-                       const float *__restrict__ speed_max,
-                       const float *__restrict__ azimuth_max,
-                       const float *__restrict__ eccentricity,
+__global__ void propag(const Settings settings, const unsigned grid_x,
+                       const unsigned grid_y, unsigned *__restrict__ worked,
+                       const float *__restrict__ const speed_max,
+                       const float *__restrict__ const azimuth_max,
+                       const float *__restrict__ const eccentricity,
                        float volatile *__restrict__ time,
                        unsigned short volatile *__restrict__ refs_x,
                        unsigned short volatile *__restrict__ refs_y,

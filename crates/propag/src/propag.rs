@@ -701,7 +701,7 @@ fn write_refs(
                 let byte_ix = ix.div(32);
                 let bit_ix = ix % 32;
                 if time[ix] < Max::MAX
-                /*&& (boundary_change[byte_ix] & (1 << bit_ix)) != 0*/
+                // && (boundary_change[byte_ix] & (1 << bit_ix)) != 0
                 {
                     let dst = geo_ref.backward(USizeVec2 {
                         x: i as usize,

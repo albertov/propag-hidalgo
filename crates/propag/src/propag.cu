@@ -36,7 +36,7 @@ class Propagator {
   volatile unsigned short *refs_y_;
   volatile float *refs_time_;
 
-  __shared__ Point *shared_;
+  Point *shared_;
 
 public:
   __device__ Propagator(const Settings settings, const unsigned grid_x,
@@ -44,7 +44,7 @@ public:
                         const float *azimuth_max, const float *eccentricity,
                         float volatile *time, unsigned short volatile *refs_x,
                         unsigned short volatile *refs_y,
-                        float volatile *refs_time, __shared__ Point *shared)
+                        float volatile *refs_time, Point *shared)
       : settings_(settings), gridIx_(make_uint2(grid_x, grid_y)),
         idx_2d_(index_2d(gridIx_)),
         global_ix_(idx_2d_.x + idx_2d_.y * settings_.geo_ref.width),
@@ -65,7 +65,6 @@ public:
   __device__ void run(unsigned *worked, unsigned *progress,
                       const unsigned int *__restrict__ boundaries) {
     __shared__ bool grid_improved;
-    bool first_iteration = true;
     do { // Grid loop
       if (threadIdx.x == 0 && threadIdx.y == 0) {
         // Reset the block-local grid_improved flag if we're the block leader
@@ -76,12 +75,7 @@ public:
         }
       };
       // First phase, load data from global to shared memory.
-      // We keep track if this is the first iteration or not because
-      // we only need load this pixel's data once. On the rest of iterations
-      // we just load the halo into shared mem because it's the only place
-      // things could have changed outside of this thread.
       load_points_into_shared_memory(true);
-      first_iteration = false;
 
       // Sync here to wait for the shared Point data to have been
       // updated by other threads
@@ -138,7 +132,7 @@ public:
       load_points_into_shared_memory(true);
     }
     __syncthreads();
-    fill_boundaries(boundaries);
+    find_boundaries(boundaries);
   }
 
 private:
@@ -175,46 +169,56 @@ private:
           if ((reference.pos.x == idx_2d_.x && reference.pos.y == idx_2d_.y)) {
             continue;
           }
-          float t = time_from(reference, neighbor.fire);
-          if (t < best.time) {
+          PointRef neighbor_as_ref(neighbor.time, neighbor_pos);
+          float neighbor_time = time_from(neighbor_as_ref, neighbor.fire);
+          float candidate_time = time_from(reference, neighbor.fire);
+          if (neighbor_time < candidate_time && neighbor_time < best.time) {
+            best.time = neighbor_time;
+            best.reference = neighbor_as_ref;
+          } else if (candidate_time < best.time) {
             // Check if the path to neighbor's reference is not blocked by a
             // point with a different reference or fire
-            DDA iter(idx_2d_, make_uint2(reference.pos.x, reference.pos.y));
-
-            int2 prev_pos = neighbor_pos;
-            int2 possible_blockage_pos;
-            iter.next(possible_blockage_pos); // skip self
-            while (iter.next(possible_blockage_pos)) {
-              ASSERT(pos_in_bounds(possible_blockage_pos));
-              size_t blockage_idx =
-                  possible_blockage_pos.x +
-                  possible_blockage_pos.y * settings_.geo_ref.width;
-              if (is_boundary(boundaries, blockage_idx)) {
-                Point ref_p = load_point(prev_pos);
-                if (ref_p.time < FLT_MAX) {
-                  /*
-                  if (idx_2d_.x==182 && idx_2d_.y==settings_.geo_ref.height-57)
-                  { printf("%d %d\n", prev_pos.x, prev_pos.y);
-                  }
-                  */
-                  reference = PointRef(ref_p.time, prev_pos);
-                  break;
-                } else {
-                  /*
-                  if (idx_2d_.x==182 && idx_2d_.y==settings_.geo_ref.height-57)
-                  { printf("retry %d %d\n", possible_blockage_pos.x,
-                  possible_blockage_pos.y);
-                  }
-                  */
-                  return true;
+            if (neighbor_pos.x != reference.pos.x &&
+                neighbor_pos.y != reference.pos.y) {
+              int2 prev_pos = neighbor_pos;
+              int2 possible_blockage_pos;
+              DDA iter(neighbor_pos, reference.pos);
+              while (iter.next(possible_blockage_pos)) {
+                ASSERT(pos_in_bounds(possible_blockage_pos));
+                if (possible_blockage_pos.x == idx_2d_.x &&
+                    possible_blockage_pos.y == idx_2d_.y) {
+                  continue;
                 }
-              };
-              prev_pos = possible_blockage_pos;
+                size_t blockage_idx =
+                    possible_blockage_pos.x +
+                    possible_blockage_pos.y * settings_.geo_ref.width;
+                if (is_boundary(boundaries, blockage_idx)) {
+                  Point ref_p = load_point(prev_pos);
+                  if (ref_p.time < FLT_MAX) {
+                    /*
+                    if (idx_2d_.x==182 &&
+                    idx_2d_.y==settings_.geo_ref.height-57) { printf("%d %d\n",
+                    prev_pos.x, prev_pos.y);
+                    }
+                    */
+                    reference = PointRef(ref_p.time, prev_pos);
+                    candidate_time = time_from(reference, neighbor.fire);
+                    break;
+                  } else {
+                    /*
+                    if (idx_2d_.x==182 &&
+                    idx_2d_.y==settings_.geo_ref.height-57) { printf("retry %d
+                    %d\n", possible_blockage_pos.x, possible_blockage_pos.y);
+                    }
+                    */
+                    return true;
+                  }
+                };
+                prev_pos = possible_blockage_pos;
+              }
             }
-
-            float t = time_from(reference, neighbor.fire);
-            if (t < best.time) {
-              best.time = t;
+            if (candidate_time < best.time) {
+              best.time = candidate_time;
               best.reference = reference;
             }
           };
@@ -389,7 +393,7 @@ private:
            (in_bounds_ ? refs_y_[global_ix_] : USHRT_MAX));
   }
 
-  __device__ inline void fill_boundaries(unsigned int *boundaries) {
+  __device__ inline void find_boundaries(unsigned int *boundaries) {
     if (in_bounds_) {
       const Point me = shared_[local_ix_];
       unsigned short changed = 0;

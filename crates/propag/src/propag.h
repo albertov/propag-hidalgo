@@ -88,7 +88,7 @@ __device__ inline uint2 index_2d(uint2 gridIx) {
 
 __device__ inline int signum(int val) { return int(0 < val) - int(val < 0); }
 
-class DDA {
+template <typename A, typename B> class DDA {
   const int2 from_;
   const int2 to_;
   const int2 step_;
@@ -97,8 +97,11 @@ class DDA {
   const float2 delta_;
 
 public:
-  __device__ inline DDA(uint2 from, uint2 to)
-      : from_(make_int2(from.x, from.y)), to_(make_int2(to.x, to.y)),
+  __device__ inline DDA(A from, B to)
+      : DDA(make_int2(from.x, from.y), make_int2(to.x, to.y)){};
+
+  __device__ inline DDA(int2 from, int2 to)
+      : from_(from), to_(to),
         step_(make_int2(signum(to_.x - from_.x), signum(to_.y - from_.y))),
         cur_(from_), tmax_(make_float2(1.0 / float(abs(to_.x - from_.x)),
                                        1.0 / float(abs(to_.y - from_.y)))),

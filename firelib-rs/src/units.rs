@@ -5,7 +5,7 @@ pub mod areal_mass_density {
         system: uom::si;
         quantity: uom::si::areal_mass_density;
 
-        @pound_per_square_foot: (3.048_E-1 * 3.048_E-1) / 4.535_924_E-1; "lb/ft²", "pound mass per square foot", "pounds mass per square foot";
+        @pound_per_square_foot:  4.535_924_E-1 / (3.048_E-1 * 3.048_E-1); "lb/ft²", "pound mass per square foot", "pounds mass per square foot";
 
     }
 }
@@ -33,12 +33,12 @@ use uom::si::f64::*;
 pub const fn load_to_imperial(x: &ArealMassDensity) -> f64 {
     let ArealMassDensity { value, ..} = x;
     SoftF64(*value)
-        .mul(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(2)))
+        .div(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(2)))
         .to_f64()
 }
 pub const fn load_from_imperial(x: f64) -> ArealMassDensity {
     let value = SoftF64(x)
-        .div(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(2)))
+        .mul(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(2)))
         .to_f64();
     ArealMassDensity {
         value, units: PhantomData, dimension: PhantomData
@@ -48,13 +48,13 @@ pub const fn load_from_imperial(x: f64) -> ArealMassDensity {
 pub const fn density_to_imperial(x: &MassDensity) -> f64 {
     let MassDensity { value, ..} = x;
     SoftF64(*value)
-        .mul(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(3)))
+        .div(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(3)))
         .to_f64()
 }
 
 pub const fn density_from_imperial(x: f64) -> MassDensity {
     let value = SoftF64(x)
-        .div(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(3)))
+        .mul(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(3)))
         .to_f64();
     MassDensity {
         value, units: PhantomData, dimension: PhantomData
@@ -64,14 +64,14 @@ pub const fn density_from_imperial(x: f64) -> MassDensity {
 pub const fn savr_to_imperial(x: &ReciprocalLength) -> f64 {
     let ReciprocalLength { value, ..} = x;
     SoftF64(*value)
-        .mul(SoftF64(1.0).div(SoftF64(FOOT_TO_M)))
+        .div(SoftF64(1.0).div(SoftF64(FOOT_TO_M)))
         .to_f64()
 }
 
 pub const fn savr_from_imperial(x: f64) -> ReciprocalLength {
     let value = 
         SoftF64(x)
-            .div(SoftF64(1.0).div(SoftF64(FOOT_TO_M)))
+            .mul(SoftF64(1.0).div(SoftF64(FOOT_TO_M)))
             .to_f64();
     ReciprocalLength {
         value, units: PhantomData, dimension: PhantomData

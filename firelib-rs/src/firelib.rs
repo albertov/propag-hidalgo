@@ -248,25 +248,13 @@ impl ParticleDef {
         total
     }
     const fn surface_area(&self) -> f64 {
-        let load = {
-            let ArealMassDensity { value, ..} = self.load;
-            value / (POUND_TO_KG / (FOOT_TO_M*FOOT_TO_M))
-        };
-        let savr = {
-            let ReciprocalLength { value, ..} = self.savr;
-            value / (1.0 / FOOT_TO_M)
-        };
-        let density = {
-            let MassDensity { value, ..} = self.density;
-            value / (POUND_TO_KG / (FOOT_TO_M*FOOT_TO_M*FOOT_TO_M))
-        };
+        let load = load_to_imperial(&self.load);
+        let savr = savr_to_imperial(&self.savr);
+        let density = density_to_imperial(&self.density);
         safe_div(load * savr, density)
     }
     const fn sigma_factor(&self) -> f64 {
-        let savr = {
-            let ReciprocalLength { value, ..} = self.savr;
-            value / (1.0 / FOOT_TO_M)
-        };
+        let savr = savr_to_imperial(&self.savr);
         safe_div(-138.0, savr)
     }
 }
@@ -319,7 +307,7 @@ impl Particle {
         }
     }
     const fn moisture(&self, terrain: &Terrain) -> f64 {
-        let Ratio { value, ..} = (match self.type_ {
+        extract_ratio(&match self.type_ {
             ParticleType::NoParticle => mk_ratio(9.0E100),
             ParticleType::Herb => terrain.herb,
             ParticleType::Wood => terrain.wood,
@@ -328,8 +316,7 @@ impl Particle {
                 SizeClass::SC2 | SizeClass::SC3 => terrain.d10hr,
                 SizeClass::SC4 | SizeClass::SC5 => terrain.d100hr,
             },
-        });
-        value
+        })
     }
 }
 impl FuelDef {
@@ -398,7 +385,7 @@ impl Fuel {
     }
     const fn has_live_particles(&self) -> bool {
         let mut i = 0;
-        while i>0 || i < self.alive_particles.len() {
+        while i<1 || i < self.alive_particles.len() {
            if self.alive_particles[i].is_sentinel() {
                break;
            }
@@ -408,7 +395,7 @@ impl Fuel {
     }
     const fn has_dead_particles(&self) -> bool {
         let mut i = 0;
-        while i>0 || i < self.dead_particles.len() {
+        while i<1 || i < self.dead_particles.len() {
            if self.dead_particles[i].is_sentinel() {
                break;
            }
@@ -743,7 +730,7 @@ impl Combustion {
     }
     const fn has_live_particles(&self) -> bool {
         let mut i = 0;
-        while i>0 || i < self.alive_particles.len() {
+        while i<1 || i < self.alive_particles.len() {
            if self.alive_particles[i].is_sentinel() {
                break;
            }
@@ -753,7 +740,7 @@ impl Combustion {
     }
     const fn has_dead_particles(&self) -> bool {
         let mut i = 0;
-        while i>0 || i < self.dead_particles.len() {
+        while i<1 || i < self.dead_particles.len() {
            if self.dead_particles[i].is_sentinel() {
                break;
            }

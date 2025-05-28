@@ -1,0 +1,16 @@
+cargo-features = ["edition2024"]
+
+[package]
+name = "firelib-cuda"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cuda_std = "*"
+firelib-rs = { path = "../firelib-rs", default-features = false }
+
+[build-dependencies]
+cuda_builder = "*"

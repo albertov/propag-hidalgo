@@ -92,6 +92,7 @@
             };
             packages = with pkgs; [
               git
+              cudaPackages.cuda_cudart
               cargo-watch
               cargo-valgrind
               valgrind

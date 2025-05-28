@@ -870,10 +870,12 @@ name = "propag"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "cc",
  "compiler_builtins",
  "cuda_builder",
  "cust",
  "dlmalloc",
+ "firelib-cuda",
  "firelib-rs",
  "fortanix-sgx-abi",
  "gdal",

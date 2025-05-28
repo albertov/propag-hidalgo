@@ -10,6 +10,7 @@ use std::error::Error;
 use uom::si::angle::degree;
 use uom::si::ratio::ratio;
 use uom::si::velocity::meter_per_second;
+use firelib_cuda::Point;
 
 #[macro_use]
 extern crate timeit;
@@ -131,6 +132,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut time_buf = time.as_slice().as_dbuf()?;
         let mut progress_buf = progress.as_slice().as_dbuf()?;
         unsafe {
+            println!("pre burn");
             launch!(
                 // slices are passed as two parameters, the pointer and the length.
                 pre_burn<<<grid_size2, block_size2, 0, stream>>>(
@@ -161,6 +163,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
             let width = geo_ref.size[0];
             stream.synchronize()?;
+            println!("loop");
             loop {
                 /*
                 let num_times = time.iter().filter(|t| t.is_some()).count();
@@ -171,9 +174,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                 speed_max_buf.copy_to(&mut speed_max)?;
                 assert!(speed_max.iter().all(|t| t.is_some()));
                 */
+                println!("propag {}", std::mem::size_of::<Option<Point>>());
+                println!("propag {}", std::mem::size_of::<Point>());
+                let radius = 2;
+                let shmem_size =
+                    (((block_size.x+radius*2)*(block_size.y+radius*2)) );
+                let shmem_bytes = shmem_size
+                    * std::mem::size_of::<Option<Point>>() as u32;
                 launch!(
                     // slices are passed as two parameters, the pointer and the length.
-                    propag<<<grid_size, block_size, 0, stream>>>(
+                    propag<<<grid_size, block_size, shmem_bytes, stream>>>(
                         speed_max_buf.as_device_ptr(),
                         speed_max_buf.len(),
                         azimuth_max_buf.as_device_ptr(),
@@ -186,10 +196,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                         progress_buf.as_device_ptr(),
                         geo_ref,
                         max_time,
-                        linear_grid_size,
+                        (shmem_size as usize)
                     )
                 )?;
                 stream.synchronize()?;
+                println!("propag end");
                 /*
                 time_buf.copy_to(&mut time)?;
                 refs_x_buf.copy_to(&mut refs_x)?;
@@ -228,6 +239,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 if progress.iter().all(|x| *x == 0) {
                     break;
                 }
+                break;
             }
             time_buf.copy_to(&mut time)?;
         };

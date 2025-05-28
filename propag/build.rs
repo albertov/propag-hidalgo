@@ -1,3 +1,5 @@
+#![feature(exit_status_error)]
+use std::process::Command;
 use cuda_builder::CudaBuilder;
 
 fn main() {
@@ -9,4 +11,13 @@ fn main() {
         .copy_to(dest)
         .build()
         .unwrap();
+
+    let dest = format!("{}/propag_c.ptx", target_dir);
+    println!("cargo::rerun-if-changed={}", dest);
+    Command::new("nvcc")
+        .args(["-ptx", "-o", &dest, "src/propag.cu"])
+        .status()
+        .expect("failed to find nvcc")
+        .exit_ok()
+        .expect("failed to execute nvcc");
 }

@@ -14,11 +14,9 @@ use uom::num_traits::NumCast;
 use uom::si::angle::{degree, radian};
 use uom::si::ratio::ratio;
 use uom::si::velocity::meter_per_second;
+use cuda_std::shared::dynamic_shared_mem;
 
-const BLOCK_WIDTH: usize = 16;
-const BLOCK_HEIGHT: usize = 16;
 const BUFFER_RADIUS: usize = 1;
-const SHARED_SIZE: usize = (BLOCK_WIDTH + BUFFER_RADIUS * 2) * (BLOCK_HEIGHT + BUFFER_RADIUS * 2);
 
 
 #[kernel]
@@ -33,10 +31,17 @@ pub unsafe fn propag(
     progress: *mut u32,
     geo_ref: GeoReference,
     max_time: u32,
-    num_blocks: usize,
+    shmem_size: usize
 ) {
     // Arrays in shared memory for fast analysis within block
-    let shared: *mut Option<Point> = shared_array![Option<Point>; SHARED_SIZE];
+    let shared: *mut Option<Point> =
+        dynamic_shared_mem();
+    if thread::first() {
+        for i in 0..shmem_size {
+            *shared.add(i) = None;
+        }
+    }
+    thread::sync_threads();
 
     let when_lt_max_time = |p: Point| if p.time < max_time { Some(p) } else { None };
 
@@ -54,13 +59,12 @@ pub unsafe fn propag(
     let global_ix = (idx_2d.x + idx_2d.y * width) as usize;
     let in_bounds = idx_2d.x < width && idx_2d.y < height;
     // Our index into the shared area
-    let shared_ix = compute_shared_ix(&pos).unwrap();
+    //let shared_ix = compute_shared_ix(&pos);
 
     // mark no improvement
     let block_ix = (thread::block_idx_x() + thread::block_idx_y() * thread::grid_dim_x()) as usize;
-    if !block_ix < num_blocks {
-        println!("caca improved: {:?}", block_ix);
-        //panic!("jhjklh");
+    if !block_ix < (thread::grid_dim_x() * thread::grid_dim_y()) as usize {
+        panic!();
     };
     write_volatile(progress.add(block_ix), 0);
 
@@ -117,7 +121,9 @@ pub unsafe fn propag(
                 None
             }
             (None, Some(_)) => {
+                /*
                 println!("{:?} {:?} {:?} {:?}", x, y, shared_off, global_off);
+                */
                 panic!("should not happen");
             }
             (None, None) => None,
@@ -137,16 +143,18 @@ pub unsafe fn propag(
         let y_near_border = (thread::thread_idx_y() as i32) < radius;
         if x_near_border {
             let _ = preload_point(-radius, 0);
-            let _ = preload_point(BLOCK_WIDTH as i32, 0);
+            let _ = preload_point((thread::block_dim_x() as usize) as i32, 0);
         }
         if y_near_border {
             let _ = preload_point(0, -radius);
-            let _ = preload_point(0, BLOCK_HEIGHT as i32);
+            let _ = preload_point(0, (thread::block_dim_y() as usize) as i32);
         }
+        /*
         if x_near_border && y_near_border {
             let _ = preload_point(-radius, -radius);
-            let _ = preload_point(BLOCK_WIDTH as i32, BLOCK_HEIGHT as i32);
+            let _ = preload_point((thread::block_dim_x() as usize) as i32, (thread::block_dim_y() as usize) as i32);
         }
+        */
         (is_new, fire)
     } else {
         (false, None)
@@ -173,7 +181,7 @@ pub unsafe fn propag(
                     x: candidate.pos().x as _,
                     y: candidate.pos().y as _,
                 };
-                let possible_blockage_pos = geometry::neighbor_in_direction(pos, candidate_pos);
+                let possible_blockage_pos = neighbor_in_direction(pos, candidate_pos);
                 if possible_blockage_pos != pos {
                     let possible_blockage_pos = USizeVec2 {
                         x: possible_blockage_pos.x as _,
@@ -188,8 +196,8 @@ pub unsafe fn propag(
                         None
                     }
                 } else {
-                    println!("caca");
-                    Some(candidate)
+                    //println!("caca");
+                    Some(candidate) //FIXME
                 }
             })();
             //self::println!("vecino con fuego! {:?} {:?} {:?} {:?}", pos, me.is_some(), reference.is_some(), neighbor.reference().pos());
@@ -205,7 +213,7 @@ pub unsafe fn propag(
                             reference: reference,
                         })
                     } else {
-                        self::println!("case 1.2");
+                        //self::println!("case 1.2");
                         //panic!("caca"); //FIXME
                                         // Reference is not valid, use the neighbor
                         match neighbor.as_reference() {
@@ -228,7 +236,7 @@ pub unsafe fn propag(
                 // We are not combustible but reference can be used.
                 // We assign an access time but a None fire
                 (None, Some(reference)) => {
-                    self::println!("case 3");
+                    //self::println!("case 3");
                     //panic!("caca"); //FIXME
                     let time = reference.time_to(&geo_ref, pos)?;
                     when_lt_max_time(Point {
@@ -242,12 +250,14 @@ pub unsafe fn propag(
             })();
             // Update the best_fire with the one with lowest access time
             //self::println!("lelo: {:?}, {:?}", point, point);
+            /*
             if let Some(point) = point {
                 if point.reference.pos() == pos {
                     println!("caca punto: {:?}", pos);
                     //panic!("jhjklh");
                 };
             };
+            */
             best_fire = match (point, best_fire) {
                 (Some(point), Some(best_fire)) if point.time < best_fire.time => Some(point),
                 (Some(point), None) => Some(point),
@@ -269,7 +279,7 @@ pub unsafe fn propag(
             },
             */
             Some(best_fire) => {
-                *shared.add(shared_ix) = Some(best_fire);
+                //*shared.add(shared_ix) = Some(best_fire);
                 best_fire.save(global_ix, time, refs_x, refs_y);
                 1
             }
@@ -279,14 +289,15 @@ pub unsafe fn propag(
         0
     }; // in_bounds
     let any_improved = thread::sync_threads_or(improved) > 0;
-    thread::grid_fence();
     if any_improved && thread::thread_idx_x() == 0 && thread::thread_idx_y() == 0 {
         let block_ix =
             (thread::block_idx_x() + thread::block_idx_y() * thread::grid_dim_x()) as usize;
+        /*
         if !block_ix < num_blocks {
             println!("caca improved: {:?}", block_ix);
             //panic!("jhjklh");
         };
+        */
         //println!("progress {} {}", thread::block_idx_x(), thread::block_idx_y());
         write_volatile(progress.add(block_ix), 1);
     }
@@ -300,14 +311,16 @@ fn similar_fires(a: FireSimpleCuda, b: FireSimpleCuda) -> bool {
 }
 
 fn compute_shared_ix(pos: &USizeVec2) -> Option<usize> {
-    let shared_x = (pos.x % BLOCK_WIDTH) + BUFFER_RADIUS;
-    let shared_y = (pos.y % BLOCK_HEIGHT) + BUFFER_RADIUS;
-    if shared_x < BLOCK_WIDTH + BUFFER_RADIUS * 2 && shared_y < BLOCK_HEIGHT + BUFFER_RADIUS * 2 {
-        let ix = shared_x + shared_y * (BLOCK_WIDTH + BUFFER_RADIUS * 2);
+    let shared_x = (pos.x % (thread::block_dim_x() as usize)) + BUFFER_RADIUS;
+    let shared_y = (pos.y % (thread::block_dim_y() as usize)) + BUFFER_RADIUS;
+    if shared_x < (thread::block_dim_x() as usize) + BUFFER_RADIUS * 2 && shared_y < (thread::block_dim_y() as usize) + BUFFER_RADIUS * 2 {
+        let ix = shared_x + shared_y * ((thread::block_dim_x() as usize) + BUFFER_RADIUS * 2);
+        /*
         if !ix < SHARED_SIZE {
             println!("caca ix shared: {:?}", ix);
             //panic!("jhjklh");
         };
+        */
         Some(ix)
     } else {
         None
@@ -338,15 +351,15 @@ impl PointRef {
 
 #[derive(Copy, Clone, PartialEq, Debug, cust_core::DeviceCopy)]
 #[repr(C)]
-struct PointRef {
-    time: u32,
-    pos_x: usize,
-    pos_y: usize,
-    fire: FireSimpleCuda,
+pub struct PointRef {
+    pub time: u32,
+    pub pos_x: usize,
+    pub pos_y: usize,
+    pub fire: FireSimpleCuda,
 }
 
 impl PointRef {
-    fn pos(&self) -> USizeVec2 {
+    pub fn pos(&self) -> USizeVec2 {
         USizeVec2 {
             x: self.pos_x,
             y: self.pos_y,
@@ -356,10 +369,10 @@ impl PointRef {
 
 #[derive(Copy, Clone, Debug, PartialEq, cust_core::DeviceCopy)]
 #[repr(C)]
-struct Point {
-    time: u32,
-    fire: Option<FireSimpleCuda>,
-    reference: PointRef,
+pub struct Point {
+    pub time: u32,
+    pub fire: Option<FireSimpleCuda>,
+    pub reference: PointRef,
 }
 
 impl Point {
@@ -381,8 +394,7 @@ impl Point {
                 let ref_x = read_volatile(ref_x.add(idx));
                 let ref_y = read_volatile(ref_y.add(idx));
                 if ref_x.is_none() || ref_y.is_none() {
-                    println!("caca ref: {:?}", idx);
-                    panic!("jnkjk");
+                    panic!();
                 }
                 let ref_pos = USizeVec2 {
                     x: ref_x?,
@@ -391,13 +403,11 @@ impl Point {
                 let ref_ix: usize = ref_pos.x + ref_pos.y * geo_ref.size[0] as usize;
                 let fire = load_fire(ref_ix, speed_max, azimuth_max, eccentricity);
                 if fire.is_none() {
-                    println!("caca fuego: {:?}", ref_pos);
-                    panic!("jnkjk");
+                    panic!();
                 };
                 let r_time = read_volatile(time.add(ref_ix));
                 if r_time.is_none() {
-                    println!("caca tiempo: {:?}", ref_pos);
-                    panic!("jnkjk");
+                    panic!();
                 };
                 Some(PointRef {
                     time: r_time?,
@@ -407,7 +417,7 @@ impl Point {
                 })
             }
             _ => {
-                println!("cacalalala");
+                //println!("cacalalala");
                 None
             }
         };
@@ -482,7 +492,8 @@ unsafe fn iter_neighbors(
     // Index of this thread into total area
     let idx_2d = thread::index_2d();
     (-1..2)
-        .flat_map(|dj| (-1..2).map(move |di| (di, dj)))
+        .map(|dj| (-1..2).map(move |di| (di, dj)))
+        .flatten()
         .filter(|(di, dj)| !(*di == 0 && *dj == 0))
         .filter_map(move |(di, dj)| {
             // Neighbor position in global pixel coords
@@ -564,4 +575,21 @@ unsafe fn read_volatile<T: Copy>(p: *const T) -> T {
 unsafe fn write_volatile<T: Copy>(p: *mut T, v: T) {
     *p = v
     //core::intrinsics::volatile_store(p, v)
+}
+fn neighbor_in_direction(from: IVec2, to: IVec2) -> IVec2
+{
+    if from == to {
+        from
+    } else {
+        let IVec2 { x, y } = from;
+        let step = (to - from).signum();
+        let t_max = (to - from).abs();
+        if t_max.x == t_max.y {
+            IVec2 { x: x + step.x, y: y + step.y }
+        } else if t_max.x > t_max.y {
+            IVec2 { x: step.x + x, y: y, }
+        } else {
+            IVec2 { x, y: step.y + y }
+        }
+    }
 }

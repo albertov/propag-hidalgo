@@ -1,11 +1,11 @@
 #![feature(int_roundings)]
 use ::geometry::*;
-use firelib::{TerrainCuda, TerrainCudaVec};
+use firelib::TerrainCuda;
 use gdal::vector::*;
 use min_max_traits::Max;
 use propag::loader::to_spatial_ref;
 use propag::propag::Settings;
-use propag::propag::{propagate, Propagation, TerrainLoader, TimeFeature};
+use propag::propag::{propagate, Propagation, TimeFeature};
 use std::error::Error;
 
 #[macro_use]
@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             geom: Geometry::from_wkt(&wkt)?,
         }],
         initial_ignited_elements_crs: to_spatial_ref(&geo_ref.proj)?,
-        terrain_loader: Box::new(ConstantLoader(TerrainCuda {
+        terrain_loader: Box::new(TerrainCuda {
             fuel_code: 1,
             d1hr: 0.1,
             d10hr: 0.1,
@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             wind_azimuth: 0.0,
             aspect: 0.0,
             slope: 0.0,
-        })),
+        }),
     };
 
     timeit!({
@@ -82,12 +82,4 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("num_times_after={}", num_times_after);
     });
     Ok(())
-}
-
-struct ConstantLoader(TerrainCuda);
-
-impl TerrainLoader for ConstantLoader {
-    fn load_extent(&self, geo_ref: &GeoReference) -> Option<TerrainCudaVec> {
-        Some(std::iter::repeat_n(self.0, geo_ref.len() as _).collect())
-    }
 }

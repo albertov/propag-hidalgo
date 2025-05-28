@@ -720,6 +720,13 @@ pub trait TerrainLoader {
     fn load_extent(&self, geo_ref: &geometry::GeoReference) -> Option<TerrainCudaVec>;
 }
 
+/// Constant value TerrainLoader
+impl TerrainLoader for TerrainCuda {
+    fn load_extent(&self, geo_ref: &GeoReference) -> Option<TerrainCudaVec> {
+        Some(std::iter::repeat_n(*self, geo_ref.len() as _).collect())
+    }
+}
+
 #[repr(C)]
 struct FFITerrain {
     fuel_code: *mut u8,

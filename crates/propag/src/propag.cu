@@ -181,16 +181,15 @@ private:
                       possible_blockage.reference.pos.y ==
                           neighbor.reference.pos.y &&
                       //  and a similar fire as its reference
-                      similar_fires(possible_blockage.fire,
-                                    neighbor.reference.fire))) {
+                      similar_fires(possible_blockage.fire, neighbor.fire))) {
                 reference =
-                    PointRef(neighbor.time, neighbor_pos, neighbor.fire);
+                    PointRef(neighbor.time, neighbor_pos);
                 break;
               };
             }
           }
 
-          float t = time_from(reference);
+          float t = time_from(reference, neighbor.fire);
           if (t < best.time) {
             best.time = t;
             best.reference = reference;
@@ -242,8 +241,6 @@ private:
         size_t ref_ix =
             p.reference.pos.x + p.reference.pos.y * settings_.geo_ref.width;
         p.reference.time = time_[ref_ix];
-        p.reference.fire =
-            load_fire(ref_ix, speed_max_, azimuth_max_, eccentricity_);
         ASSERT(p.reference.time != FLT_MAX);
       };
       return p;
@@ -289,7 +286,7 @@ private:
     shared_[local.x + local.y * shared_width_] = load_point(global);
   }
 
-  __device__ inline float time_from(const PointRef &from) const {
+  __device__ inline float time_from(const PointRef &from, const FireSimpleCuda &fire) const {
     int2 from_pos = make_int2(from.pos.x, from.pos.y);
     int2 to_pos = make_int2(idx_2d_.x, idx_2d_.y);
     float azimuth;
@@ -304,10 +301,10 @@ private:
     // a * __frcp_rd(x) ~= a / x
     // __fsqrt_rz(x) ~= sqrt(x)
     // __cosf(x) ~= cos(x)
-    float angle = abs(azimuth - from.fire.azimuth_max);
-    float denom = (1.0 - from.fire.eccentricity * __cosf(angle));
-    float factor = (1.0 - from.fire.eccentricity) * __frcp_rd(denom);
-    float speed = from.fire.speed_max * factor;
+    float angle = abs(azimuth - fire.azimuth_max);
+    float denom = (1.0 - fire.eccentricity * __cosf(angle));
+    float factor = (1.0 - fire.eccentricity) * __frcp_rd(denom);
+    float speed = fire.speed_max * factor;
     float dx = (from_pos.x - to_pos.x) * settings_.geo_ref.transform.gt.dx;
     float dy = (from_pos.y - to_pos.y) * settings_.geo_ref.transform.gt.dy;
     float distance = __fsqrt_rz(dx * dx + dy * dy);

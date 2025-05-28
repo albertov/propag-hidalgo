@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let radius = HALO_RADIUS as u32;
     let shmem_size = (block_size.x + radius * 2) * (block_size.y + radius * 2);
-    let shmem_bytes = shmem_size * 48; //FIXME: std::mem::size_of::<Point>() as u32;
+    let shmem_bytes = shmem_size * 32; //FIXME: std::mem::size_of::<Point>() as u32;
                                        //assert_eq!(std::mem::size_of::<Point>(), 64);
 
     let max_active_blocks =

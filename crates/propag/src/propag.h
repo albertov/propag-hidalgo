@@ -37,19 +37,17 @@ class PointRef {
 public:
   float time;
   ushort2 pos;
-  FireSimpleCuda fire;
 
   __device__ PointRef()
-      : time(FLT_MAX), pos(make_ushort2(USHRT_MAX, USHRT_MAX)), fire() {};
-  __device__ PointRef(float time, ushort2 pos, FireSimpleCuda fire)
-      : time(time), pos(pos), fire(fire) {};
-  __device__ PointRef(float time, int2 pos, FireSimpleCuda fire)
-      : time(time), pos(make_ushort2(pos.x, pos.y)), fire(fire) {};
+      : time(FLT_MAX), pos(make_ushort2(USHRT_MAX, USHRT_MAX)) {};
+  __device__ PointRef(float time, ushort2 pos)
+      : time(time), pos(pos) {};
+  __device__ PointRef(float time, int2 pos)
+      : time(time), pos(make_ushort2(pos.x, pos.y)) {};
 
   __device__ volatile PointRef &operator=(const PointRef &other) volatile {
     pos.x = other.pos.x;
     pos.y = other.pos.y;
-    set_fire(&fire, other.fire);
     time = other.time;
     return *this;
   }

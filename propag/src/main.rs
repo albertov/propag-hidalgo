@@ -39,9 +39,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             })
         })
         .collect();
-    let models: Vec<usize> = (0..NUMBERS_LEN).map(|_n| rng.random_range(0..14)).collect();
-    let mut fires: FireCudaVec = std::iter::repeat(Fire::null().into())
-        .take(models.len())
+    let model: Vec<usize> = (0..NUMBERS_LEN).map(|_n| rng.random_range(0..14)).collect();
+    let mut fire: FireCudaVec = std::iter::repeat(Fire::null().into())
+        .take(model.len())
         .collect();
 
     // initialize CUDA, this will pick the first available device and will
@@ -65,16 +65,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     // current CUDA device/architecture.
     let (_, block_size) = func.suggested_launch_configuration(0, 0.into())?;
 
-    let grid_size = (models.len() as u32).div_ceil(block_size);
+    let grid_size = (model.len() as u32).div_ceil(block_size);
 
     println!(
-        "using {} blocks and {} threads per block",
-        grid_size, block_size
+        "using {} blocks and {} threads per block for {} elems",
+        grid_size,
+        block_size,
+        model.len()
     );
 
     println!("Calculating with GPU");
     // allocate the GPU memory needed to house our numbers and copy them over.
-    let model_gpu = models.as_slice().as_dbuf()?;
+    let model_gpu = model.as_slice().as_dbuf()?;
     let d1hr_gpu = terrain.d1hr.as_slice().as_dbuf()?;
     let d10hr_gpu = terrain.d10hr.as_slice().as_dbuf()?;
     let d100hr_gpu = terrain.d100hr.as_slice().as_dbuf()?;
@@ -90,14 +92,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     unsafe {
         // allocate our output buffers. You could also use DeviceBuffer::uninitialized() to avoid the
         // cost of the copy, but you need to be careful not to read from the buffer.
-        let rx_int_buf = DeviceBuffer::uninitialized(models.len())?;
-        let speed0_buf = DeviceBuffer::uninitialized(models.len())?;
-        let hpua_buf = DeviceBuffer::uninitialized(models.len())?;
-        let phi_eff_wind_buf = DeviceBuffer::uninitialized(models.len())?;
-        let speed_max_buf = DeviceBuffer::uninitialized(models.len())?;
-        let azimth_max_buf = DeviceBuffer::uninitialized(models.len())?;
-        let eccentricity_buf = DeviceBuffer::uninitialized(models.len())?;
-        let residence_time_buf = DeviceBuffer::uninitialized(models.len())?;
+        let rx_int_buf = DeviceBuffer::uninitialized(model.len())?;
+        let speed0_buf = DeviceBuffer::uninitialized(model.len())?;
+        let hpua_buf = DeviceBuffer::uninitialized(model.len())?;
+        let phi_eff_wind_buf = DeviceBuffer::uninitialized(model.len())?;
+        let speed_max_buf = DeviceBuffer::uninitialized(model.len())?;
+        let azimuth_max_buf = DeviceBuffer::uninitialized(model.len())?;
+        let eccentricity_buf = DeviceBuffer::uninitialized(model.len())?;
+        let residence_time_buf = DeviceBuffer::uninitialized(model.len())?;
         timeit!({
             launch!(
                 // slices are passed as two parameters, the pointer and the length.
@@ -127,7 +129,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     hpua_buf.as_device_ptr(),
                     phi_eff_wind_buf.as_device_ptr(),
                     speed_max_buf.as_device_ptr(),
-                    azimth_max_buf.as_device_ptr(),
+                    azimuth_max_buf.as_device_ptr(),
                     eccentricity_buf.as_device_ptr(),
                     residence_time_buf.as_device_ptr(),
                 )
@@ -136,25 +138,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         });
 
         // copy back the data from the GPU.
-        rx_int_buf.copy_to(&mut fires.rx_int)?;
-        speed0_buf.copy_to(&mut fires.speed0)?;
-        hpua_buf.copy_to(&mut fires.hpua)?;
-        phi_eff_wind_buf.copy_to(&mut fires.phi_eff_wind)?;
-        speed_max_buf.copy_to(&mut fires.speed_max)?;
-        azimth_max_buf.copy_to(&mut fires.azimuth_max)?;
-        eccentricity_buf.copy_to(&mut fires.eccentricity)?;
-        residence_time_buf.copy_to(&mut fires.residence_time)?;
+        rx_int_buf.copy_to(&mut fire.rx_int)?;
+        speed0_buf.copy_to(&mut fire.speed0)?;
+        hpua_buf.copy_to(&mut fire.hpua)?;
+        phi_eff_wind_buf.copy_to(&mut fire.phi_eff_wind)?;
+        speed_max_buf.copy_to(&mut fire.speed_max)?;
+        azimuth_max_buf.copy_to(&mut fire.azimuth_max)?;
+        eccentricity_buf.copy_to(&mut fire.eccentricity)?;
+        residence_time_buf.copy_to(&mut fire.residence_time)?;
     }
 
     let terrain: Vec<Terrain> = terrain.iter().map(|t| t.into()).collect();
-    let mut fires_rs: Vec<Fire> = Vec::new();
-    for _ in 0..fires.len() {
-        fires_rs.push(Fire::null())
+    let mut fire_rs: Vec<Fire> = Vec::new();
+    for _ in 0..fire.len() {
+        fire_rs.push(Fire::null())
     }
 
     println!("Calculating with CPU");
     timeit!({
-        fires_rs = models
+        fire_rs = model
             .iter()
             .zip(terrain.iter())
             .map(|(m, t)| {
@@ -165,10 +167,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             })
             .collect()
     });
-    assert!(fires.iter().zip(fires_rs.iter()).all(|(f_gpu, f_cpu)| {
-        let f_gpu: Fire = (f_gpu.as_ptr()).into();
-        f_gpu.almost_eq(f_cpu)
-    }));
+    assert!(fire
+        .iter()
+        .zip(fire_rs.iter())
+        .all(|(f_gpu, f_cpu)| { Into::<Fire>::into(f_gpu).almost_eq(f_cpu) }));
 
     Ok(())
 }

@@ -132,22 +132,6 @@ impl From<TerrainCuda> for Terrain {
         }
     }
 }
-#[cfg(not(target_os = "cuda"))]
-impl From<TerrainCudaRef<'_>> for Terrain {
-    fn from(f: TerrainCudaRef<'_>) -> Self {
-        Self {
-            d1hr: to_quantity!(Ratio, *f.d1hr),
-            d10hr: to_quantity!(Ratio, *f.d10hr),
-            d100hr: to_quantity!(Ratio, *f.d100hr),
-            herb: to_quantity!(Ratio, *f.herb),
-            wood: to_quantity!(Ratio, *f.wood),
-            wind_speed: to_quantity!(Velocity, *f.wind_speed),
-            wind_azimuth: to_quantity!(Angle, *f.wind_azimuth),
-            slope: to_quantity!(Ratio, *f.slope),
-            aspect: to_quantity!(Angle, *f.aspect),
-        }
-    }
-}
 impl From<Terrain> for TerrainCuda {
     fn from(f: Terrain) -> Self {
         Self {
@@ -161,6 +145,12 @@ impl From<Terrain> for TerrainCuda {
             slope: from_quantity!(Ratio, f.slope),
             aspect: from_quantity!(Angle, f.aspect),
         }
+    }
+}
+#[cfg(not(target_os = "cuda"))]
+impl From<TerrainCudaRef<'_>> for Terrain {
+    fn from(f: TerrainCudaRef<'_>) -> Self {
+        From::<TerrainCuda>::from(f.into())
     }
 }
 
@@ -205,12 +195,6 @@ impl From<FireCuda> for Fire {
         }
     }
 }
-#[cfg(not(target_os = "cuda"))]
-impl From<FireCudaPtr> for Fire {
-    fn from(f: FireCudaPtr) -> Self {
-        unsafe { f.read().into() }
-    }
-}
 impl From<Fire> for FireCuda {
     fn from(f: Fire) -> Self {
         Self {
@@ -223,6 +207,18 @@ impl From<Fire> for FireCuda {
             eccentricity: from_quantity!(Ratio, f.eccentricity),
             residence_time: from_quantity!(Time, f.residence_time),
         }
+    }
+}
+#[cfg(not(target_os = "cuda"))]
+impl From<FireCudaPtr> for Fire {
+    fn from(f: FireCudaPtr) -> Self {
+        unsafe { f.read().into() }
+    }
+}
+#[cfg(not(target_os = "cuda"))]
+impl From<FireCudaRef<'_>> for Fire {
+    fn from(f: FireCudaRef<'_>) -> Self {
+        From::<FireCuda>::from(f.into())
     }
 }
 

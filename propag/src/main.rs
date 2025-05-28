@@ -2,12 +2,9 @@
 use ::geometry::*;
 use cust::device::DeviceAttribute;
 use cust::function::{BlockSize, GridSize};
-use cust::memory::UnifiedBox;
 use cust::prelude::*;
-use firelib_cuda::{Settings, HALO_RADIUS, SIZEOF_FBC_SHARED_ITEM};
+use firelib_cuda::{Settings, HALO_RADIUS};
 use firelib_rs::float;
-use firelib_rs::float::*;
-use firelib_rs::*;
 use gdal::raster::*;
 use gdal::spatial_ref::SpatialRef;
 use gdal::vector::*;
@@ -15,9 +12,6 @@ use gdal::*;
 use min_max_traits::Max;
 use num_traits::Float;
 use std::error::Error;
-use uom::si::angle::degree;
-use uom::si::ratio::ratio;
-use uom::si::velocity::meter_per_second;
 
 #[macro_use]
 extern crate timeit;
@@ -37,8 +31,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         (
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 {
-                x: px.x * 4096.0,
-                y: px.y * 4096.0,
+                x: px.x * 1024.0,
+                y: px.y * 1024.0,
             },
         ),
         px,
@@ -102,7 +96,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let linear_block_size = block_size.x * block_size.y * block_size.z;
     let radius = HALO_RADIUS as u32;
-    let shmem_size = ((block_size.x + radius * 2) * (block_size.y + radius * 2));
+    let shmem_size = (block_size.x + radius * 2) * (block_size.y + radius * 2);
     let shmem_bytes = shmem_size * 48; //FIXME: std::mem::size_of::<Point>() as u32;
                                        //assert_eq!(std::mem::size_of::<Point>(), 64);
 
@@ -128,7 +122,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         geo_ref, grid_size, block_size, super_grid_size, len
     );
     let lo: i32 = -30;
-    for i in (lo..30) {
+    for i in lo..30 {
         for j in 10..20 {
             model[fire_pos.x + (i as usize) + (fire_pos.y + j) * geo_ref.width as usize] = 0;
         }
@@ -158,24 +152,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     timeit!({
-        let mut speed_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
-        let mut azimuth_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
-        let mut eccentricity: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
+        let speed_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
+        let azimuth_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
+        let eccentricity: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
 
         time.fill(Max::MAX);
         refs_x.fill(Max::MAX);
         refs_y.fill(Max::MAX);
-        time[(fire_pos.x + fire_pos.y * geo_ref.width as usize)] = 0.0;
-        refs_x[(fire_pos.x + fire_pos.y * geo_ref.width as usize)] = fire_pos.x as u16;
-        refs_y[(fire_pos.x + fire_pos.y * geo_ref.width as usize)] = fire_pos.y as u16;
+        time[fire_pos.x + fire_pos.y * geo_ref.width as usize] = 0.0;
+        refs_x[fire_pos.x + fire_pos.y * geo_ref.width as usize] = fire_pos.x as u16;
+        refs_y[fire_pos.x + fire_pos.y * geo_ref.width as usize] = fire_pos.y as u16;
 
-        let mut speed_max_buf = speed_max.as_slice().as_dbuf()?;
-        let mut azimuth_max_buf = azimuth_max.as_slice().as_dbuf()?;
-        let mut eccentricity_buf = eccentricity.as_slice().as_dbuf()?;
-        let mut refs_x_buf = refs_x.as_slice().as_dbuf()?;
-        let mut refs_y_buf = refs_y.as_slice().as_dbuf()?;
-        let mut time_buf = time.as_slice().as_dbuf()?;
-        let mut boundary_change_buf = boundary_change.as_slice().as_dbuf()?;
+        let speed_max_buf = speed_max.as_slice().as_dbuf()?;
+        let azimuth_max_buf = azimuth_max.as_slice().as_dbuf()?;
+        let eccentricity_buf = eccentricity.as_slice().as_dbuf()?;
+        let refs_x_buf = refs_x.as_slice().as_dbuf()?;
+        let refs_y_buf = refs_y.as_slice().as_dbuf()?;
+        let time_buf = time.as_slice().as_dbuf()?;
+        let boundary_change_buf = boundary_change.as_slice().as_dbuf()?;
         let (_, pre_burn_block_size) = pre_burn.suggested_launch_configuration(0, 0.into())?;
         let pre_burn_grid_size = geo_ref.len().div_ceil(pre_burn_block_size);
         unsafe {
@@ -205,8 +199,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             loop {
                 let mut worked: Vec<DeviceVariable<u32>> =
                     Vec::with_capacity((super_grid_size.0 * super_grid_size.1) as usize);
-                for grid_x in (0..super_grid_size.0) {
-                    for grid_y in (0..super_grid_size.1) {
+                for grid_x in 0..super_grid_size.0 {
+                    for grid_y in 0..super_grid_size.1 {
                         let linear_grid_size: usize =
                             (grid_size.x * grid_size.y * grid_size.z) as usize;
                         let this_worked = DeviceVariable::new(0)?;

@@ -3,7 +3,7 @@
 #[cfg(test)]
 extern crate std;
 
-use approx::{abs_diff_eq, abs_diff_ne};
+use approx::abs_diff_ne;
 
 pub use approx::AbsDiffEq;
 

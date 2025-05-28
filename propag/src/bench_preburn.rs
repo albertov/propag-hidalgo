@@ -1,7 +1,6 @@
 use ::geometry::*;
-use cust::function::{BlockSize, GridSize};
 use cust::prelude::*;
-use firelib_cuda::{FireSimpleCuda, FireSimpleCudaVec};
+use firelib_cuda::FireSimpleCuda;
 use firelib_rs::float;
 use firelib_rs::float::*;
 use firelib_rs::*;
@@ -9,7 +8,6 @@ use num_traits::Float;
 use std::error::Error;
 use uom::si::angle::degree;
 use uom::si::ratio::ratio;
-use uom::si::velocity::meter_per_second;
 
 #[macro_use]
 extern crate timeit;
@@ -26,9 +24,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     // generate our random vectors.
     use rand::prelude::*;
     let rng = &mut rand::rng();
-    let mut mkratio = { || Ratio::new::<ratio>(rng.random_range(0..10000) as float::T / 10000.0) };
+    let mkratio = { || Ratio::new::<ratio>(rng.random_range(0..10000) as float::T / 10000.0) };
     let rng = &mut rand::rng();
-    let mut azimuth = { || Angle::new::<degree>(rng.random_range(0..36000) as float::T / 100.0) };
+    let azimuth = { || Angle::new::<degree>(rng.random_range(0..36000) as float::T / 100.0) };
     let rng = &mut rand::rng();
     type OptionalVec<T> = Vec<Option<T>>;
     let model: OptionalVec<usize> = (0..NUMBERS_LEN)
@@ -116,9 +114,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     unsafe {
         // allocate our output buffers. You could also use DeviceBuffer::uninitialized() to avoid the
         // cost of the copy, but you need to be careful not to read from the buffer.
-        let mut speed_max_buf = speed_max.as_slice().as_dbuf()?;
-        let mut azimuth_max_buf = azimuth_max.as_slice().as_dbuf()?;
-        let mut eccentricity_buf = eccentricity.as_slice().as_dbuf()?;
+        let speed_max_buf = speed_max.as_slice().as_dbuf()?;
+        let azimuth_max_buf = azimuth_max.as_slice().as_dbuf()?;
+        let eccentricity_buf = eccentricity.as_slice().as_dbuf()?;
         timeit!({
             launch!(
                 // slices are passed as two parameters, the pointer and the length.

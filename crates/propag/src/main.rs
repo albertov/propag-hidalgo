@@ -43,8 +43,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         find_ref_change: true,
     };
     let fire_pos = USizeVec2 {
-        x: geo_ref.width as usize / 2 - 24 as usize / 2,
-        y: geo_ref.height as usize / 2 - 24 as usize / 2,
+        x: geo_ref.width as usize / 2 - 24_usize / 2,
+        y: geo_ref.height as usize / 2 - 24_usize / 2,
     };
     println!("fire_pos={:?}", fire_pos);
     let len = geo_ref.len();
@@ -135,16 +135,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     let aspect_gpu = aspect.as_slice().as_dbuf()?;
 
     // input/output vectors
-    let mut time: Vec<f32> = std::iter::repeat(Max::MAX).take(model.len()).collect();
-    let mut refs_x: Vec<u16> = std::iter::repeat(Max::MAX).take(model.len()).collect();
-    let mut refs_y: Vec<u16> = std::iter::repeat(Max::MAX).take(model.len()).collect();
-    let mut refs_time: Vec<f32> = std::iter::repeat(Max::MAX).take(model.len()).collect();
-    let mut boundary_change: Vec<u16> = std::iter::repeat(0).take(model.len()).collect();
+    let mut time: Vec<f32> = std::iter::repeat_n(Max::MAX, model.len()).collect();
+    let mut refs_x: Vec<u16> = std::iter::repeat_n(Max::MAX, model.len()).collect();
+    let mut refs_y: Vec<u16> = std::iter::repeat_n(Max::MAX, model.len()).collect();
+    let mut refs_time: Vec<f32> = std::iter::repeat_n(Max::MAX, model.len()).collect();
+    let mut boundary_change: Vec<u16> = std::iter::repeat_n(0, model.len()).collect();
 
     timeit!({
-        let speed_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
-        let azimuth_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
-        let eccentricity: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
+        let speed_max: Vec<float::T> = std::iter::repeat_n(0.0, model.len()).collect();
+        let azimuth_max: Vec<float::T> = std::iter::repeat_n(0.0, model.len()).collect();
+        let eccentricity: Vec<float::T> = std::iter::repeat_n(0.0, model.len()).collect();
 
         time.fill(Max::MAX);
         refs_x.fill(Max::MAX);
@@ -255,7 +255,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "max_time={:?}",
         good_times.iter().min_by(|a, b| a.total_cmp(b))
     );
-    let num_times_after = good_times.iter().count();
+    let num_times_after = good_times.len();
     println!("num_times_after={}", num_times_after);
     //time_buf.copy_to(&mut time)?;
     //assert!(time.len() > 1);

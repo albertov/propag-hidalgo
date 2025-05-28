@@ -11,7 +11,7 @@ use gdal_sys::*;
 pub struct WarpedDataset(Dataset, /* orig ds */ Dataset);
 
 impl WarpedDataset {
-    pub fn get<'a>(&'a self) -> &'a Dataset {
+    pub fn get(&self) -> &Dataset {
         &self.0
     }
 

@@ -7,7 +7,7 @@ use approx::AbsDiffEq;
 
 pub use geo::*;
 use heapless::String;
-use num_traits::NumCast;
+use num_traits::{Float, NumCast};
 
 #[derive(Clone)]
 pub enum Crs {
@@ -43,14 +43,27 @@ where
             y: NumCast::from(p.y).expect("usize to T failed"),
         })
     }
-    pub fn new_south_up(
-        extent: Rect<T>,
-        pixel_size: Coord<T>,
-        crs: Crs,
-    ) -> Option<GeoReference<T>> {
+    pub fn south_up(extent: Rect<T>, pixel_size: Coord<T>, crs: Crs) -> Option<GeoReference<T>> {
         let Coord { x: dx, y: dy } = pixel_size;
         let Coord { x: x0, y: y0 } = extent.min();
         let transform = AffineTransform::new(dx, T::zero(), x0, T::zero(), dy, y0);
+        let inv_transform = transform.inverse()?;
+        let size = Coord {
+            x: NumCast::from(extent.width() / dx)?,
+            y: NumCast::from(extent.height() / dy)?,
+        };
+        Some(GeoReference {
+            transform,
+            inv_transform,
+            size,
+            crs,
+        })
+    }
+    pub fn north_up(extent: Rect<T>, pixel_size: Coord<T>, crs: Crs) -> Option<GeoReference<T>> {
+        let Coord { x: dx, y: dy } = pixel_size;
+        let Coord { x: x0, .. } = extent.min();
+        let Coord { y: y1, .. } = extent.max();
+        let transform = AffineTransform::new(dx, T::zero(), x0, T::zero(), -dy, y1);
         let inv_transform = transform.inverse()?;
         let size = Coord {
             x: NumCast::from(extent.width() / dx)?,
@@ -84,6 +97,21 @@ where
                     y: transform.e() * size.y,
                 },
         )
+    }
+    pub fn is_north_up(&self) -> bool {
+        self.transform.e() < T::zero()
+    }
+    /*
+    azimuth (V2 x0 y0) (V2 x1 y1)
+          = atan2 (x1-x0) (y1-y0)
+    */
+    // Azimuth (radian)
+    pub fn bearing(&self, a: Coord<T>, b: Coord<T>) -> T {
+        if self.is_north_up() {
+            Float::atan2(b.x - a.x, a.y - b.y)
+        } else {
+            Float::atan2(b.x - a.x, b.y - a.y)
+        }
     }
 }
 
@@ -235,6 +263,7 @@ where
 mod test {
     use super::*;
 
+    use std::f64::consts::PI;
     use std::vec::*;
     use std::*;
 
@@ -347,5 +376,131 @@ mod test {
                 (Coord { x: 2.0, y: 2.0 })
             ]
         );
+    }
+    type Result<A> = std::result::Result<A, std::boxed::Box<dyn std::error::Error>>;
+
+    #[test]
+    fn south_up_bearing() -> Result<()> {
+        let geo_ref = GeoReference::south_up(
+            Rect::new(
+                Coord {
+                    x: -180.0,
+                    y: -90.0,
+                },
+                Coord { x: 180.0, y: 90.0 },
+            ),
+            Coord { x: 0.1, y: 0.1 },
+            Crs::Epsg(4326),
+        )
+        .ok_or("should not happen")?;
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 0.0 }),
+            0.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 1.0 }),
+            0.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: -1.0 }),
+            PI
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: -1.0, y: 0.0 }),
+            -PI / 2.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 0.0 }),
+            PI / 2.0
+        );
+
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }),
+            PI / 4.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: -1.0 }),
+            PI - PI / 4.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }),
+            PI / 4.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: -1.0 }),
+            PI - PI / 4.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: -1.0, y: 1.0 }),
+            -PI / 4.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: -1.0, y: -1.0 }),
+            -(PI - PI / 4.0)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn north_up_bearing() -> Result<()> {
+        let geo_ref = GeoReference::north_up(
+            Rect::new(
+                Coord {
+                    x: -180.0,
+                    y: -90.0,
+                },
+                Coord { x: 180.0, y: 90.0 },
+            ),
+            Coord { x: 0.1, y: 0.1 },
+            Crs::Epsg(4326),
+        )
+        .ok_or("should not happen")?;
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 0.0 }),
+            0.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: -1.0 }),
+            0.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 1.0 }),
+            PI
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: -1.0, y: 0.0 }),
+            -PI / 2.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 0.0 }),
+            PI / 2.0
+        );
+
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: -1.0 }),
+            PI / 4.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }),
+            PI - PI / 4.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: -1.0 }),
+            PI / 4.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }),
+            PI - PI / 4.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: -1.0, y: -1.0 }),
+            -PI / 4.0
+        );
+        assert_eq!(
+            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: -1.0, y: 1.0 }),
+            -(PI - PI / 4.0)
+        );
+        Ok(())
     }
 }

@@ -1,4 +1,5 @@
 #include "qgsalgorithmpropag.h"
+#include "plugin_base.h"
 #include "qgis.h"
 #include "qgspropagloader.h"
 
@@ -15,17 +16,11 @@ Qgis::ProcessingAlgorithmFlag::HideFromToolbox;
 QString QgsPropagAlgorithm::name() const { return QStringLiteral("propag"); }
 
 QString QgsPropagAlgorithm::displayName() const {
-  return QObject::tr("Wildfire Propagator");
+  return QObject::tr("Simulate");
 }
 
 QStringList QgsPropagAlgorithm::tags() const {
-  return QObject::tr("simulation").split(',');
-}
-
-QString QgsPropagAlgorithm::group() const { return QObject::tr("Simulators"); }
-
-QString QgsPropagAlgorithm::groupId() const {
-  return QStringLiteral("simulators");
+  return QObject::tr("simulation,wildfire,forest").split(',');
 }
 
 QString QgsPropagAlgorithm::shortHelpString() const {
@@ -232,5 +227,14 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
   outputs.insert(QStringLiteral("TIMES"), outputFile);
   return outputs;
 }
+
+class QgsPropagAlgorithmPlugin : public Base {
+public:
+  QgsProcessingAlgorithm *makeAlgorithm() { return new QgsPropagAlgorithm(); };
+};
+
+extern "C" Base *plugin_create() { return new QgsPropagAlgorithmPlugin; }
+
+extern "C" void plugin_destroy(Base *a) { delete a; }
 
 ///@endcond

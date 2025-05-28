@@ -1,8 +1,8 @@
 #include "qgsproviderpropag.h"
 #include "qgsalgorithmpropag.h"
 
-PropagProvider::PropagProvider(QObject *parent)
-    : QgsProcessingProvider(parent) {}
+PropagProvider::PropagProvider(QObject *parent, QgsProcessingAlgorithm *algo)
+    : QgsProcessingProvider(parent), algo(algo) {}
 
 QIcon PropagProvider::icon() const {
 
@@ -18,13 +18,16 @@ QString PropagProvider::svgIconPath() const {
 
 QString PropagProvider::id() const { return QStringLiteral("propagprovider"); }
 
-QString PropagProvider::name() const { return tr("PropagProvider"); }
+QString PropagProvider::name() const { return tr("Wildfire Simulator"); }
 
-QString PropagProvider::helpId() const { return tr("PropagProvider"); }
+QString PropagProvider::helpId() const {
+  return tr("A cellular automata wildfile siumlator");
+}
 
 bool PropagProvider::supportsNonFileBasedOutput() const { return true; }
 
 void PropagProvider::loadAlgorithms() {
   // const QgsScopedRuntimeProfile profile(QObject::tr("PropagProvider"));
-  addAlgorithm(new QgsPropagAlgorithm());
+  std::cout << "loadAlgorithms" << std::endl;
+  addAlgorithm(algo);
 }

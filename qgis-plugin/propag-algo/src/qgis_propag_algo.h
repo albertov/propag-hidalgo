@@ -9,6 +9,7 @@
 #define M_PI_2 1.57079632679489661923132169163975144 // pi/2
 #endif
 
+#include "plugincontainer.h"
 #include "qgisinterface.h"
 #include "qgisplugin.h"
 #include "qgsmapcanvas.h"
@@ -17,6 +18,7 @@
 #include <QAction>
 #include <QApplication>
 #include <iostream>
+#include <qgsprocessingprovider.h>
 
 class PropagAlgoPlugin : public QObject, public QgisPlugin {
   Q_OBJECT
@@ -39,6 +41,7 @@ public:
 
 private:
   QgisInterface *m_qgis_if;
+  PluginContainer *plugin;
 };
 
 #endif

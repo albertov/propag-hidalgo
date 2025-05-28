@@ -55,23 +55,26 @@ QGISEXTERN void unload(QgisPlugin *plugin) {
 
 PropagAlgoPlugin::PropagAlgoPlugin(QgisInterface *iface)
     : QgisPlugin(s_name, s_description, s_category, s_version, s_type),
-      m_qgis_if(iface) {}
+      m_qgis_if(iface), plugin(NULL) {}
 
 void PropagAlgoPlugin::unload() {
-  // TODO - need to remove the actions from the menu again.
+  QgsApplication::processingRegistry()->removeProvider(
+      QStringLiteral("propagprovider"));
+  delete plugin;
+  plugin = NULL;
 }
 
 void PropagAlgoPlugin::initGui() {
   std::cout << "PropagAlgoPlugin::initGui" << std::endl;
+  plugin = new PluginContainer("libpropagalgoplugin.so");
   initProcessing();
 }
 
 void PropagAlgoPlugin::initProcessing() {
-
-  QgsProcessingProvider *processing_provider =
-      new PropagProvider(QgsApplication::processingRegistry());
-  bool ok =
-      QgsApplication::processingRegistry()->addProvider(processing_provider);
+  QgsProcessingAlgorithm *algo = plugin->instance()->makeAlgorithm();
+  QgsProcessingProvider *provider =
+      new PropagProvider(QgsApplication::processingRegistry(), algo);
+  bool ok = QgsApplication::processingRegistry()->addProvider(provider);
   std::cout << "PropagAlgoPlugin::initProcessing" << std::endl;
   if (!ok) {
     m_qgis_if->messageBar()->pushMessage(

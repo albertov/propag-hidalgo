@@ -3,6 +3,7 @@
 
 #define SIP_NO_FILE
 
+#include "plugin_base.h"
 #include "propag_host.h"
 #include "qgis_sip.h"
 #include "qgsapplication.h"
@@ -21,8 +22,6 @@ public:
   QString name() const override;
   QString displayName() const override;
   QStringList tags() const override;
-  QString group() const override;
-  QString groupId() const override;
   QString shortHelpString() const override;
   QgsPropagAlgorithm *createInstance() const override SIP_FACTORY;
 

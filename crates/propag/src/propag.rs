@@ -37,7 +37,7 @@ pub struct Propagation {
     pub epsg: u32,
     pub res_x: f32,
     pub res_y: f32,
-    pub ignited_elements: Vec<TimeFeature>,
+    pub initial_ignited_elements: Vec<TimeFeature>,
     pub terrain_loader: Box<dyn TerrainLoader>,
 }
 
@@ -108,16 +108,15 @@ pub struct TimeFeature {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone)]
 struct FFITimeFeature {
     time: float::T,
     geom_wkb: *const u8,
     geom_wkb_len: usize,
 }
 #[cfg(not(target_os = "cuda"))]
-impl TryFrom<FFITimeFeature> for TimeFeature {
+impl TryFrom<&FFITimeFeature> for TimeFeature {
     type Error = gdal::errors::GdalError;
-    fn try_from(f: FFITimeFeature) -> Result<Self, Self::Error> {
+    fn try_from(f: &FFITimeFeature) -> Result<Self, Self::Error> {
         let s = unsafe { std::slice::from_raw_parts(f.geom_wkb, f.geom_wkb_len) };
         let geom = gdal::vector::Geometry::from_wkb(s)?;
         Ok(TimeFeature { time: f.time, geom })
@@ -129,19 +128,21 @@ pub struct FFIPropagation {
     max_time: f32,
     find_ref_change: bool,
     epsg: u32,
-    pub res_x: f32,
-    pub res_y: f32,
-    ignited_elements: *const FFITimeFeature,
-    ignited_elements_len: usize,
+    res_x: f32,
+    res_y: f32,
+    initial_ignited_elements: *const FFITimeFeature,
+    initial_ignited_elements_len: usize,
     terrain_loader: FFITerrainLoader,
 }
 
 impl From<FFIPropagation> for Propagation {
     fn from(p: FFIPropagation) -> Self {
-        let is = unsafe { std::slice::from_raw_parts(p.ignited_elements, p.ignited_elements_len) };
-        let ignited_elements = is
+        let is = unsafe {
+            std::slice::from_raw_parts(p.initial_ignited_elements, p.initial_ignited_elements_len)
+        };
+        let initial_ignited_elements = is
             .iter()
-            .filter_map(|x| TimeFeature::try_from(*x).ok())
+            .filter_map(|x| TimeFeature::try_from(x).ok())
             .collect();
         Propagation {
             max_time: p.max_time,
@@ -149,7 +150,7 @@ impl From<FFIPropagation> for Propagation {
             epsg: p.epsg,
             res_x: p.res_x,
             res_y: p.res_y,
-            ignited_elements,
+            initial_ignited_elements,
             terrain_loader: Box::new(p.terrain_loader),
         }
     }

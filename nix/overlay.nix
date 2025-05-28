@@ -3,16 +3,10 @@ let
 
   rust_cuda_sha256 = "sha256-3cpFOdAdoKLnd5HB9ryNWIUOXlF/g1cm8RA+0nAQDK0=";
   cargoDepsHash = "sha256-NLY3TkUO5Kz0tvA2z2tXeDmeTKGFoC3cDa8Vg6uRNBM=";
+
   inherit (final) lib buildPackages stdenv;
   libclang = buildPackages.llvmPackages.libclang.lib;
-  clangMajorVer = builtins.head (lib.splitString "." (lib.getVersion buildPackages.clang));
-  BINDGEN_EXTRA_CLANG_ARGS = ''
-    -isystem ${libclang}/lib/clang/${clangMajorVer}/include \
-    ${builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"} \
-    ${builtins.readFile "${stdenv.cc}/nix-support/libc-cflags"} \
-    ${builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"} \
-    ${builtins.readFile "${stdenv.cc}/nix-support/libcxx-cxxflags"}
-  '';
+
   LIBCLANG_PATH = "${libclang}/lib";
   CUDA_ROOT = final.cudaCombined;
   CUDA_PATH = final.cudaCombined;
@@ -30,7 +24,6 @@ let
       };
     };
     inherit
-      BINDGEN_EXTRA_CLANG_ARGS
       LIBCLANG_PATH
       CUDA_PATH
       LLVM_CONFIG
@@ -71,6 +64,7 @@ in
       // args
       // {
         nativeBuildInputs = args.nativeBuildInputs or [ ] ++ [
+          final.myRustPlatform.bindgenHook
           final.myRustToolchain
           final.removeReferencesTo
         ];
@@ -88,6 +82,7 @@ in
       // args
       // {
         nativeBuildInputs = args.nativeBuildInputs or [ ] ++ [
+          final.myRustPlatform.bindgenHook
           final.myRustToolchain
           final.removeReferencesTo
         ];

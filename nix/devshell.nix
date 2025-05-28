@@ -10,7 +10,6 @@ pkgs.mkShell {
     inherit (pkgs.propag)
       GDAL_DATA
       PROJ_DATA
-      BINDGEN_EXTRA_CLANG_ARGS
       LIBCLANG_PATH
       CUDA_PATH
       CUDA_ROOT

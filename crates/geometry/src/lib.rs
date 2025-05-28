@@ -159,6 +159,7 @@ pub struct GeoReference {
 
 impl GeoReference {
     #[unsafe(no_mangle)]
+    #[allow(clippy::len_without_is_empty)]
     pub extern "C" fn len(&self) -> u32 {
         self.width * self.height
     }
@@ -240,6 +241,7 @@ pub struct Raster<'a, T> {
 */
 
 #[repr(C)]
+#[allow(clippy::upper_case_acronyms)]
 struct DDA {
     dest: IVec2,
     step: IVec2,
@@ -346,6 +348,8 @@ pub fn neighbor_in_direction(from: IVec2, to: IVec2) -> IVec2 {
         let IVec2 { x, y } = from;
         let step = (to - from).signum();
         let t_max = (to - from).abs();
+        // allow comparison_chain beacuse we're no_std
+        #[allow(clippy::comparison_chain)]
         if t_max.x == t_max.y {
             IVec2 {
                 x: x + step.x,

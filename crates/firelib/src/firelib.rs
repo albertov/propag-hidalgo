@@ -387,7 +387,7 @@ impl Terrain {
     }
 }
 
-impl<'a> Fire {
+impl Fire {
     pub const NULL: Self = {
         Self {
             rx_int: to_quantity!(HeatFluxDensity, 0.0),
@@ -551,10 +551,7 @@ impl ParticleDef {
         }
     }
     const fn is_sentinel(&self) -> bool {
-        match self.type_ {
-            ParticleType::NoParticle => true,
-            _ => false,
-        }
+        matches!(self.type_, ParticleType::NoParticle)
     }
     const fn size_class(&self) -> SizeClass {
         let savr = savr_to_imperial(&self.savr);
@@ -579,12 +576,12 @@ impl ParticleDef {
         }
     }
     const fn same_life(&self, life: Life) -> bool {
-        match (self.life(), life) {
-            (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead) => true,
-            _ => false,
-        }
+        matches!(
+            (self.life(), life),
+            (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead)
+        )
     }
-    const fn area_weight<'a, const N: usize>(&self, particles: &[ParticleDef; N]) -> float::T {
+    const fn area_weight<const N: usize>(&self, particles: &[ParticleDef; N]) -> float::T {
         const fn fun(p: &ParticleDef, life: Life) -> float::T {
             if p.same_life(life) {
                 p.surface_area()
@@ -596,10 +593,7 @@ impl ParticleDef {
         let total = accum_particles!(particles, fun, life);
         safe_div(self.surface_area(), total)
     }
-    const fn size_class_weight<'a, const N: usize>(
-        &self,
-        particles: &[ParticleDef; N],
-    ) -> float::T {
+    const fn size_class_weight<const N: usize>(&self, particles: &[ParticleDef; N]) -> float::T {
         const fn fun<const N: usize>(
             p: &ParticleDef,
             life: Life,
@@ -673,16 +667,13 @@ impl Particle {
         }
     }
     const fn is_sentinel(&self) -> bool {
-        match self.type_ {
-            ParticleType::NoParticle => true,
-            _ => false,
-        }
+        matches!(self.type_, ParticleType::NoParticle)
     }
     const fn same_life(&self, life: Life) -> bool {
-        match (self.life, life) {
-            (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead) => true,
-            _ => false,
-        }
+        matches!(
+            (self.life, life),
+            (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead)
+        )
     }
     const fn moisture(&self, terrain: &Terrain) -> float::T {
         from_quantity!(

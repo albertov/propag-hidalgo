@@ -14,11 +14,17 @@ pub unsafe fn standard_burn(
     wind_azimuth: &[f64],
     slope: &[f64],
     aspect: &[f64],
-    result: *mut FireCuda
+    rx_int: *mut f64,
+    speed0: *mut f64,
+    hpua: *mut f64,
+    phi_eff_wind: *mut f64,
+    speed_max: *mut f64,
+    azimuth_max: *mut f64,
+    eccentricity: *mut f64,
+    residence_time: *mut f64,
 ) {
     let i = thread::index_1d() as usize;
     if i < model.len() {
-        let elem = &mut *result.add(i);
         let terrain = TerrainCuda {
             d1hr: d1hr[i],
             d10hr: d10hr[i],
@@ -34,7 +40,15 @@ pub unsafe fn standard_burn(
             .get(model[i])
             .and_then(|fuel| fuel.burn(&terrain.into()))
         {
-            *elem = fire.into()
+            let fire: FireCuda = fire.into();
+            *rx_int.add(i) = fire.rx_int;
+            *speed0.add(i) = fire.speed0;
+            *hpua.add(i) = fire.hpua;
+            *phi_eff_wind.add(i) = fire.phi_eff_wind;
+            *speed_max.add(i) = fire.speed_max;
+            *azimuth_max.add(i) = fire.azimuth_max;
+            *eccentricity.add(i) = fire.eccentricity;
+            *residence_time.add(i) = fire.residence_time;
         }
     }
 }

@@ -3,17 +3,31 @@ use crate::units::heat_flux_density::btu_sq_foot_min;
 use crate::units::linear_power_density::btu_foot_sec;
 use crate::units::radiant_exposure::btu_sq_foot;
 use crate::units::reciprocal_length::reciprocal_foot;
+use std::f64::consts::PI;
 use uom::si::angle::degree;
+use uom::si::angle::radian;
 use uom::si::available_energy::btu_per_pound;
 use uom::si::f64::*;
 use uom::si::length::foot;
 use uom::si::mass_density::pound_per_cubic_foot;
 use uom::si::ratio::ratio;
 use uom::si::velocity::foot_per_minute;
+use uom::si::velocity::meter_per_second;
 
 use crate::types::*;
 
 const SMIDGEN: f64 = 1e-6;
+
+impl Terrain {
+    fn upslope(&self) -> f64 {
+        let aspect = self.aspect.get::<radian>();
+        if aspect >= PI {
+            aspect - PI
+        } else {
+            aspect + PI
+        }
+    }
+}
 
 impl Spread {
     pub fn no_spread() -> Spread {
@@ -33,6 +47,54 @@ impl Spread {
     pub fn at_azimuth(&self, azimuth: Angle) -> SpreadAtAzimuth {
         // TODO
         SpreadAtAzimuth::no_spread()
+    }
+
+    fn almost_eq(&self, other: &Spread) -> bool {
+        fn cmp(msg: &str, a: f64, b: f64) -> bool {
+            let r = (a - b).abs() < SMIDGEN;
+            if !r {
+                println!("{}: {} /= {}", msg, a, b);
+            }
+            r
+        }
+        //TODO: extract using base units
+        cmp(
+            "rx_int",
+            self.rx_int.get::<btu_sq_foot_min>(),
+            other.rx_int.get::<btu_sq_foot_min>(),
+        ) && cmp(
+            "speed0",
+            self.speed0.get::<foot_per_minute>(),
+            other.speed0.get::<foot_per_minute>(),
+        ) && cmp(
+            "hpua",
+            self.hpua.get::<btu_sq_foot>(),
+            other.hpua.get::<btu_sq_foot>(),
+        ) && cmp(
+            "phi_eff_wind",
+            self.phi_eff_wind.get::<ratio>(),
+            other.phi_eff_wind.get::<ratio>(),
+        ) && cmp(
+            "speed_max",
+            self.speed_max.get::<foot_per_minute>(),
+            other.speed_max.get::<foot_per_minute>(),
+        ) && cmp(
+            "eccentricity",
+            self.eccentricity.get::<ratio>(),
+            other.eccentricity.get::<ratio>(),
+        ) && cmp(
+            "byrams_max",
+            self.byrams_max.get::<btu_foot_sec>(),
+            other.byrams_max.get::<btu_foot_sec>(),
+        ) && cmp(
+            "flame_max",
+            self.flame_max.get::<foot>(),
+            other.flame_max.get::<foot>(),
+        ) && cmp(
+            "azimuth_max",
+            self.azimuth_max.get::<radian>(),
+            other.azimuth_max.get::<radian>(),
+        )
     }
 }
 
@@ -320,16 +382,20 @@ impl Combustion {
         if self.fuel.alive_particles.is_empty() && self.fuel.dead_particles.is_empty() {
             Spread::no_spread()
         } else {
+            let (phi_eff_wind, eff_wind, speed_max, azimuth_max) =
+                self.calculate_wind_dependent_vars(terrain);
             Spread {
                 rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(self.rx_int(terrain)),
                 speed0: Velocity::new::<foot_per_minute>(self.speed0(terrain)),
                 hpua: RadiantExposure::new::<btu_sq_foot>(self.hpua(terrain)),
-                phi_eff_wind: Ratio::new::<ratio>(self.phi_eff_wind(terrain)),
-                speed_max: Velocity::new::<foot_per_minute>(self.speed_max(terrain)),
-                azimuth_max: Angle::new::<degree>(self.azimuth_max(terrain)),
-                eccentricity: Ratio::new::<ratio>(self.eccentricity(terrain)),
-                byrams_max: LinearPowerDensity::new::<btu_foot_sec>(self.byrams_max(terrain)),
-                flame_max: Length::new::<foot>(self.flame_max(terrain)),
+                phi_eff_wind: Ratio::new::<ratio>(phi_eff_wind),
+                speed_max: Velocity::new::<foot_per_minute>(speed_max),
+                azimuth_max: Angle::new::<radian>(azimuth_max),
+                eccentricity: Ratio::new::<ratio>(self.eccentricity(eff_wind)),
+                byrams_max: LinearPowerDensity::new::<btu_foot_sec>(
+                    self.byrams_max(terrain, speed_max),
+                ),
+                flame_max: Length::new::<foot>(self.flame_max(terrain, speed_max)),
             }
         }
     }
@@ -337,32 +403,119 @@ impl Combustion {
         self.fuel.life_rx_factor(Life::Alive) * self.life_eta_m(Life::Alive, terrain)
             + self.fuel.life_rx_factor(Life::Dead) * self.life_eta_m(Life::Dead, terrain)
     }
+    fn calculate_wind_dependent_vars(&self, terrain: &Terrain) -> (f64, f64, f64, f64) {
+        let speed_max1 = self.speed0(terrain) * (1.0 + self.phi_ew(terrain));
+        let phi_ew = self.phi_ew(terrain);
+        let speed0 = self.speed0(terrain);
+        let upslope = terrain.upslope();
+        let wind_speed = terrain.wind_speed.get::<foot_per_minute>();
+        let wind_az = terrain.wind_azimuth.get::<radian>();
+        let ew_from_phi_ew = |p: f64| (p * self.wind_e).powf(1.0 / self.wind_b);
+        let max_wind = 0.9 * self.rx_int(terrain);
+        let check_wind_limit = |pew: f64, ew: f64, s: f64, a: f64| {
+            if ew > max_wind {
+                let phi_ew_max_wind = if max_wind < SMIDGEN {
+                    0.0
+                } else {
+                    self.wind_k * max_wind.powf(self.wind_b)
+                };
+                let speed_max_wind = speed0 * (1.0 + phi_ew_max_wind);
+                (phi_ew_max_wind, max_wind, speed_max_wind, a)
+            } else {
+                (pew, ew, s, a)
+            }
+        };
+        use WindSlopeSituation::*;
+        let situation = self.wind_slope_situation(terrain);
+        println!("{:?}", situation);
+        match situation {
+            NoSpread => (phi_ew, 0.0, 0.0, 0.0),
+            NoSlopeNoWind => (phi_ew, 0.0, speed0, 0.0),
+            WindNoSlope => check_wind_limit(phi_ew, wind_speed, speed_max1, wind_az),
+            SlopeNoWind | UpSlope => {
+                check_wind_limit(phi_ew, ew_from_phi_ew(phi_ew), speed_max1, upslope)
+            }
+            CrossSlope => {
+                let wind_rate = speed0 * self.phi_wind(terrain);
+                let slope_rate = speed0 * self.phi_slope(terrain);
+                let split = if upslope <= wind_az {
+                    wind_az - upslope
+                } else {
+                    2.0 * PI - upslope + wind_az
+                };
+                let x = slope_rate + wind_rate * split.cos();
+                let y = wind_rate * split.sin();
+                let rv = (x * x + y * y).sqrt();
+                let speed_max2 = speed0 + rv;
+                let phi_ew2 = speed_max2 / speed0 - 1.0;
+                let eff_wind = {
+                    if phi_ew2 > SMIDGEN {
+                        ew_from_phi_ew(phi_ew2)
+                    } else {
+                        0.0
+                    }
+                };
+                let al = (y.abs() / rv).asin();
+                let split2 = {
+                    if x >= 0.0 && y >= 0.0 {
+                        al
+                    } else if x >= 0.0 {
+                        2.0 * PI - al
+                    } else if y >= 0.0 {
+                        PI - al
+                    } else {
+                        PI + al
+                    }
+                };
+                let azimuth_max2 = {
+                    let ret = upslope + split2;
+                    if ret > 2.0 * PI {
+                        ret - 2.0 * PI
+                    } else {
+                        ret
+                    }
+                };
+                check_wind_limit(phi_ew2, eff_wind, speed_max2, azimuth_max2)
+            }
+        }
+    }
+    fn wind_slope_situation(&self, terrain: &Terrain) -> WindSlopeSituation {
+        let wind_az = terrain.wind_azimuth.get::<radian>();
+
+        use WindSlopeSituation::*;
+        if self.speed0(terrain) < SMIDGEN {
+            NoSpread
+        } else if self.phi_ew(terrain) < SMIDGEN {
+            NoSlopeNoWind
+        } else if terrain.slope.get::<ratio>() < SMIDGEN {
+            WindNoSlope
+        } else if terrain.wind_speed.get::<meter_per_second>() < SMIDGEN {
+            SlopeNoWind
+        } else if (terrain.upslope() - wind_az).abs() < SMIDGEN {
+            UpSlope
+        } else {
+            CrossSlope
+        }
+    }
     fn speed0(&self, terrain: &Terrain) -> f64 {
         safe_div(self.rx_int(terrain) * self.flux_ratio, self.rbqig(terrain))
     }
     fn hpua(&self, terrain: &Terrain) -> f64 {
         self.rx_int(terrain) * self.residence_time
     }
-    fn phi_eff_wind(&self, terrain: &Terrain) -> f64 {
-        //todo!()
-        0.0
+    fn eccentricity(&self, eff_wind: f64) -> f64 {
+        let lw_ratio = 1.0 + 0.002840909 * eff_wind;
+        if eff_wind > SMIDGEN && lw_ratio > 1.0 + SMIDGEN {
+            (lw_ratio * lw_ratio - 1.0).sqrt() / lw_ratio
+        } else {
+            0.0
+        }
     }
-    fn speed_max(&self, terrain: &Terrain) -> f64 {
-        self.speed0(terrain) * (1.0 + self.phi_ew(terrain))
+    fn byrams_max(&self, terrain: &Terrain, speed_max: f64) -> f64 {
+        self.residence_time * speed_max * self.rx_int(terrain) / 60.0
     }
-    fn azimuth_max(&self, terrain: &Terrain) -> f64 {
-        //todo!()
-        0.0
-    }
-    fn eccentricity(&self, terrain: &Terrain) -> f64 {
-        //todo!()
-        0.0
-    }
-    fn byrams_max(&self, terrain: &Terrain) -> f64 {
-        self.residence_time * self.speed_max(terrain) * self.rx_int(terrain) / 60.0
-    }
-    fn flame_max(&self, terrain: &Terrain) -> f64 {
-        flame_length(self.byrams_max(terrain))
+    fn flame_max(&self, terrain: &Terrain, speed_max: f64) -> f64 {
+        flame_length(self.byrams_max(terrain, speed_max))
     }
 
     fn life_moisture(&self, life: Life, terrain: &Terrain) -> f64 {
@@ -420,12 +573,13 @@ impl Combustion {
     }
 
     fn phi_slope(&self, terrain: &Terrain) -> f64 {
-        self.slope_k * terrain.slope.get::<ratio>().powf(2.0)
+        let s = terrain.slope.get::<ratio>();
+        self.slope_k * s * s
     }
 
     fn phi_wind(&self, terrain: &Terrain) -> f64 {
-        if terrain.wind_speed.get::<foot_per_minute>() > SMIDGEN {
-            let ws = terrain.wind_speed.get::<foot_per_minute>();
+        let ws = terrain.wind_speed.get::<foot_per_minute>();
+        if ws > SMIDGEN {
             self.wind_k * ws.powf(self.wind_b)
         } else {
             0.0
@@ -445,6 +599,16 @@ fn flame_length(byrams: f64) -> f64 {
     }
 }
 
+#[derive(Debug)]
+enum WindSlopeSituation {
+    NoSpread,
+    NoSlopeNoWind,
+    WindNoSlope,
+    SlopeNoWind,
+    UpSlope,
+    CrossSlope,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,11 +619,6 @@ mod tests {
 
     use quickcheck::{Arbitrary, Gen};
 
-    fn almost_eq(a: f64, b: f64) -> bool {
-        let r = (a - b).abs() < SMIDGEN;
-        println!("{:?} = {:?}", a, b);
-        r
-    }
     #[test]
     fn particles_works() {
         assert_eq!(STANDARD_CATALOG.get(4).unwrap().particles().count(), 4)
@@ -469,10 +628,7 @@ mod tests {
         fn behave_rs_produces_same_output_as_firelib(terrain: Terrain, model: ValidModel, azimuth: ValidAzimuth) -> bool {
             let (behave_sp, _behave_sp_az) = behave_rs_spread(model.0, &terrain, azimuth.0);
             let (firelib_sp, _firelib_sp_az) = firelib_spread(model.0, &terrain, azimuth.0);
-            almost_eq(
-                behave_sp.speed0.get::<foot_per_minute>(),
-                firelib_sp.speed0.get::<foot_per_minute>(),
-            )
+            Spread::almost_eq(&behave_sp, &firelib_sp)
         }
     }
 
@@ -513,13 +669,13 @@ mod tests {
                 terrain.aspect.get::<degree>(),
             );
             let fuel: *mut fuelModelDataStruct = *(*catalog).modelPtr.wrapping_add(model);
-            let f = *fuel;
             Fire_SpreadAtAzimuth(
                 catalog,
                 model,
-                azimuth,
+                (*fuel).azimuthMax,
                 (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
             );
+            let f = *fuel;
             let spread = Spread {
                 rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(f.rxInt),
                 speed0: Velocity::new::<foot_per_minute>(f.spread0),
@@ -531,6 +687,12 @@ mod tests {
                 byrams_max: LinearPowerDensity::new::<btu_foot_sec>(f.byrams),
                 flame_max: Length::new::<foot>(f.flame),
             };
+            Fire_SpreadAtAzimuth(
+                catalog,
+                model,
+                azimuth,
+                (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
+            );
             let spread_az = SpreadAtAzimuth {
                 speed: Velocity::new::<foot_per_minute>(f.spreadAny),
                 byrams: LinearPowerDensity::new::<btu_foot_sec>(f.byrams),

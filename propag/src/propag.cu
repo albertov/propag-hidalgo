@@ -37,14 +37,14 @@ __global__ void propag(const Settings &settings, const float *speed_max,
   int local_ix = local_x + local_y * shared_width;
 
   bool first_iteration = true;
-  do {
+  do { // Grid loop
     bool any_improved = false;
     // Initialize progress to no-progress
     if (threadIdx.x == 0 && threadIdx.y == 0) {
       progress[block_ix] = 0;
       grid_improved = false;
     };
-    do {
+    do { // Block loop
       //////////////////////////////////////////////////////
       // First phase, load data from global to shared memory
       //////////////////////////////////////////////////////
@@ -211,26 +211,23 @@ __global__ void propag(const Settings &settings, const float *speed_max,
         // write our Point to shared mem *after* __syncthreads_or
         shared[local_x + local_y * shared_width] = best;
       }
-      __syncthreads();
-
       if (any_improved && threadIdx.x == 0 && threadIdx.y == 0) {
         progress[block_ix] = 1;
       };
-    } while (any_improved);
+    } while (any_improved); // end block loop
 
+    // Block has finished. Check if others have too and set grid_improved.
+    // Analysys ends when grid has not improved
     cooperative_groups::grid_group grid = cooperative_groups::this_grid();
     grid.sync();
     if (threadIdx.x == 0 && threadIdx.y == 0) {
       grid_improved = false;
       for (int i = 0; i < gridDim.x * gridDim.y; i++) {
-        if (progress[i] != 0) {
-          grid_improved = true;
-          break;
-        }
+        grid_improved |= progress[i];
       }
     }
     grid.sync();
-  } while (grid_improved);
+  } while (grid_improved); // end grid loop
 }
 
 #ifdef __cplusplus

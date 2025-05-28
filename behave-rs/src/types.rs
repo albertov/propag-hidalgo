@@ -1,12 +1,18 @@
 use crate::units::areal_mass_density::pound_per_square_foot;
+use uom::si::absement::foot_second;
+use uom::si::angle::radian;
 use uom::si::area::square_meter;
 use uom::si::available_energy::btu_per_pound;
 use uom::si::f64::*;
+use uom::si::heat_flux_density::watt_per_square_meter;
 use uom::si::length::{foot, meter};
-use uom::si::mass::pound;
+use uom::si::linear_power_density::watt_per_meter;
+use uom::si::mass::{kilogram, pound};
 use uom::si::mass_density::pound_per_cubic_foot;
+use uom::si::radiant_exposure::joule_per_square_meter;
 use uom::si::ratio::ratio;
-use uom::si::time::{minute, second};
+use uom::si::time::second;
+use uom::si::velocity::meter_per_second;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Life {
@@ -32,11 +38,99 @@ pub struct Particle {
     pub si_effective: Ratio, // effective silica content
 }
 
+pub struct Terrain {
+    pub d1hr: Ratio,
+    pub d10hr: Ratio,
+    pub d100hr: Ratio,
+    pub herb: Ratio,
+    pub wood: Ratio,
+    pub wind_speed: Velocity,
+    pub wind_azimuth: Angle,
+    pub slope: Ratio,
+    pub aspect: Ratio,
+}
+
+pub struct Spread {
+    pub rx_int: HeatFluxDensity,
+    pub speed: Velocity,
+    pub hpua: RadiantExposure,
+    pub phi_eff_wind: Ratio,
+    pub speed_max: Velocity,
+    pub azimuth_max: Angle,
+    pub eccentricity: Ratio,
+    pub byrams_max: LinearPowerDensity,
+    pub flame_max: Length,
+}
+
+impl Spread {
+    pub fn no_spread() -> Spread {
+        Spread {
+            rx_int: HeatFluxDensity::new::<watt_per_square_meter>(0.0),
+            speed: Velocity::new::<meter_per_second>(0.0),
+            hpua: RadiantExposure::new::<joule_per_square_meter>(0.0),
+            phi_eff_wind: Ratio::new::<ratio>(0.0),
+            speed_max: Velocity::new::<meter_per_second>(0.0),
+            azimuth_max: Angle::new::<radian>(0.0),
+            eccentricity: Ratio::new::<ratio>(0.0),
+            byrams_max: LinearPowerDensity::new::<watt_per_meter>(0.0),
+            flame_max: Length::new::<meter>(0.0),
+        }
+    }
+}
+
+pub struct Combustion<'a> {
+    pub fuel: &'a Fuel,
+    pub live_area_weight: Ratio,
+    pub live_rx_factor: HeatFluxDensity,
+    pub dead_area_weight: Ratio,
+    pub dead_rx_factor: HeatFluxDensity,
+    pub fine_dead_factor: ArealMassDensity,
+    pub live_ext_factor: Ratio,
+    pub fuel_bed_bulk_dens: MassDensity,
+    pub residence_time: Time,
+    pub flux_ratio: Ratio,
+    pub slope_k: f64,
+    pub wind_b: f64,
+    pub wind_e: f64,
+    pub wind_k: f64,
+}
+
+#[derive(PartialEq)]
+pub enum SizeClass {
+    SC0,
+    SC1,
+    SC2,
+    SC3,
+    SC4,
+    SC5,
+}
+
+pub struct Fuel {
+    pub name: String,
+    pub desc: String,
+    pub depth: Length,
+    pub mext: Ratio,
+    pub adjust: Ratio,
+    pub particles: Vec<Particle>,
+}
+
 impl Particle {
     pub fn life(&self) -> Life {
         match &self.type_ {
             ParticleType::Dead => Life::Dead,
             _ => Life::Alive,
+        }
+    }
+
+    pub fn moisture(&self, terrain: &Terrain) -> Ratio {
+        match self.type_ {
+            ParticleType::Herb => terrain.herb,
+            ParticleType::Wood => terrain.wood,
+            ParticleType::Dead => match self.size_class() {
+                SizeClass::SC0 | SizeClass::SC1 => terrain.d1hr,
+                SizeClass::SC2 | SizeClass::SC3 => terrain.d10hr,
+                SizeClass::SC4 | SizeClass::SC5 => terrain.d100hr,
+            },
         }
     }
 
@@ -70,45 +164,12 @@ impl Particle {
     }
 }
 
-#[derive(PartialEq)]
-pub enum SizeClass {
-    SC0,
-    SC1,
-    SC2,
-    SC3,
-    SC4,
-    SC5,
-}
-
-pub struct Fuel {
-    pub name: String,
-    pub desc: String,
-    pub depth: Length,
-    pub mext: Ratio,
-    pub adjust: Ratio,
-    pub particles: Vec<Particle>,
-}
-
-pub struct Combustion<'a> {
-    pub fuel: &'a Fuel,
-    pub live_area_weight: Ratio,
-    pub live_rx_factor: Ratio,
-    pub dead_area_weight: Ratio,
-    pub dead_rx_factor: Ratio,
-    pub fine_dead_factor: ArealMassDensity,
-    pub live_ext_factor: Ratio,
-    pub fuel_bed_bulk_dens: MassDensity,
-    pub residence_time: Time,
-    pub flux_ratio: Ratio,
-    pub slope_k: f64,
-    pub wind_b: f64,
-    pub wind_e: f64,
-    pub wind_k: f64,
-}
-
 impl Fuel {
-    pub fn life_particles(&self, life: Life) -> impl Iterator<Item = &Particle> {
+    fn life_particles(&self, life: Life) -> impl Iterator<Item = &Particle> {
         self.particles.iter().filter(move |&p| p.life() == life)
+    }
+    fn has_live_particles(&self) -> bool {
+        self.life_particles(Life::Alive).count() > 0
     }
     fn total_area(&self) -> Area {
         self.particles.iter().map(|p| p.surface_area()).sum()
@@ -152,7 +213,7 @@ impl Fuel {
             .map(|p| self.part_area_weight(p) * p.si_effective)
             .sum()
     }
-    fn life_eta(&self, life: Life) -> Ratio {
+    fn life_eta_s(&self, life: Life) -> Ratio {
         let seff: f64 = self.life_seff(life).get::<ratio>();
         if seff <= SMIDGEN {
             Ratio::new::<ratio>(0.0)
@@ -174,6 +235,13 @@ impl Fuel {
         let beta = self.beta().get::<ratio>();
         beta / (3.348 / (sigma.powf(0.8189)))
     }
+    fn flux_ratio(&self) -> Ratio {
+        let sigma = self.sigma().get::<foot>();
+        let beta = self.beta().get::<ratio>();
+        Ratio::new::<ratio>(
+            ((0.792 + 0.681 * sigma.sqrt()) * (beta.sqrt() + 0.1)).exp() / (192.0 + 0.2595 * sigma),
+        )
+    }
     fn beta(&self) -> Ratio {
         if self.depth.get::<foot>() > SMIDGEN {
             let x: Length = self.particles.iter().map(|p| p.load / p.density).sum();
@@ -191,13 +259,9 @@ impl Fuel {
         Ratio::new::<ratio>(r)
     }
 
-    fn life_rx_factor(&self, life: Life) -> Ratio {
-        self.life_load(life)
-            * self.life_heat(life)
-            * self.life_eta(life)
-            * self.gamma()
-            * (Time::new::<second>(1.0) * Time::new::<second>(1.0))
-            / Mass::new::<pound>(1.0)
+    fn life_rx_factor(&self, life: Life) -> HeatFluxDensity {
+        self.life_load(life) * self.life_heat(life) * self.life_eta_s(life) * self.gamma()
+            / Time::new::<second>(1.0)
     }
     fn part_area_weight(&self, particle: &Particle) -> Ratio {
         let total_area_life: Area = self
@@ -223,8 +287,32 @@ impl Fuel {
             / self.life_fine_load(Life::Alive)
     }
 
+    fn bulk_density(&self) -> MassDensity {
+        self.particles.iter().map(|p| p.load / self.depth).sum()
+    }
+
+    fn residence_time(&self) -> Time {
+        Absement::new::<foot_second>(384.0 / 60.0) / self.sigma()
+    }
+
+    fn slope_k(&self) -> f64 {
+        let beta = self.beta().get::<ratio>();
+        5.275 * beta.powf(-0.3)
+    }
+
+    fn wind_bke(&self) -> (f64, f64, f64) {
+        let sigma = self.sigma().get::<foot>();
+        let wind_b = 0.02526 * sigma.powf(0.54);
+        let r = self.ratio();
+        let c = 7.47 * ((-0.133) * (sigma.powf(0.55))).exp();
+        let e = 0.715 * ((-0.000359) * sigma).exp();
+        let wind_k = c * r.powf(-e);
+        let wind_e = r.powf(e) / c;
+        (wind_b, wind_k, wind_e)
+    }
+
     pub fn combustion(&self) -> Combustion {
-        //TBD
+        let (wind_b, wind_k, wind_e) = self.wind_bke();
         Combustion {
             fuel: self,
             live_area_weight: self.life_area_weight(Life::Alive),
@@ -233,13 +321,13 @@ impl Fuel {
             dead_rx_factor: self.life_rx_factor(Life::Dead),
             fine_dead_factor: self.life_load(Life::Dead),
             live_ext_factor: self.live_ext_factor(),
-            fuel_bed_bulk_dens: MassDensity::new::<pound_per_cubic_foot>(1.0),
-            residence_time: Time::new::<minute>(1.0),
-            flux_ratio: Ratio::new::<ratio>(1.0),
-            slope_k: 1.0,
-            wind_b: 1.0,
-            wind_e: 1.0,
-            wind_k: 1.0,
+            fuel_bed_bulk_dens: self.bulk_density(),
+            residence_time: self.residence_time(),
+            flux_ratio: self.flux_ratio(),
+            slope_k: self.slope_k(),
+            wind_b,
+            wind_e,
+            wind_k,
         }
     }
 }
@@ -336,4 +424,112 @@ pub fn standard_catalog() -> Catalog {
             ],
         },
     ]
+}
+
+impl Combustion<'_> {
+    pub fn spread(&self, terrain: &Terrain) -> Spread {
+        if self.fuel.particles.is_empty() {
+            Spread::no_spread()
+        } else {
+            Spread {
+                rx_int: self.rx_int(terrain),
+                speed: self.speed(terrain),
+                hpua: self.hpua(terrain),
+                phi_eff_wind: self.phi_eff_wind(terrain),
+                speed_max: self.speed_max(terrain),
+                azimuth_max: self.azimuth_max(terrain),
+                eccentricity: self.eccentricity(terrain),
+                byrams_max: self.byrams_max(terrain),
+                flame_max: self.flame_max(terrain),
+            }
+        }
+    }
+    fn rx_int(&self, terrain: &Terrain) -> HeatFluxDensity {
+        self.fuel.life_rx_factor(Life::Alive) * self.life_eta_m(Life::Alive, terrain)
+            + self.fuel.life_rx_factor(Life::Dead) * self.life_eta_m(Life::Dead, terrain)
+    }
+    fn speed(&self, terrain: &Terrain) -> Velocity {
+        (self.rx_int(terrain) * self.flux_ratio / self.rbqig(terrain))
+            * Length::new::<meter>(1.0)
+            * (Time::new::<second>(1.0) * Time::new::<second>(1.0))
+            / Mass::new::<kilogram>(1.0)
+    }
+    fn hpua(&self, terrain: &Terrain) -> RadiantExposure {
+        self.rx_int(terrain) * self.residence_time
+    }
+    fn phi_eff_wind(&self, terrain: &Terrain) -> Ratio {
+        todo!()
+    }
+    fn speed_max(&self, terrain: &Terrain) -> Velocity {
+        todo!()
+    }
+    fn azimuth_max(&self, terrain: &Terrain) -> Angle {
+        todo!()
+    }
+    fn eccentricity(&self, terrain: &Terrain) -> Ratio {
+        todo!()
+    }
+    fn byrams_max(&self, terrain: &Terrain) -> LinearPowerDensity {
+        todo!()
+    }
+    fn flame_max(&self, terrain: &Terrain) -> Length {
+        todo!()
+    }
+
+    fn life_moisture(&self, life: Life, terrain: &Terrain) -> Ratio {
+        self.fuel
+            .life_particles(life)
+            .map(|p| self.fuel.part_area_weight(p) * p.moisture(terrain))
+            .sum()
+    }
+
+    fn life_mext(&self, life: Life, terrain: &Terrain) -> Ratio {
+        match life {
+            Life::Alive => {
+                if self.fuel.has_live_particles() {
+                    let fdmois = self.wfmd(terrain) / self.fine_dead_factor;
+                    let live_mext = self.fuel.live_ext_factor()
+                        * (Ratio::new::<ratio>(1.0) - fdmois / self.fuel.mext)
+                        - Ratio::new::<ratio>(0.226);
+                    live_mext.max(self.fuel.mext)
+                } else {
+                    Ratio::new::<ratio>(0.0)
+                }
+            }
+            Life::Dead => self.fuel.mext,
+        }
+    }
+
+    fn life_eta_m(&self, life: Life, terrain: &Terrain) -> Ratio {
+        if self.life_moisture(life, terrain) >= self.life_mext(life, terrain) {
+            Ratio::new::<ratio>(0.0)
+        } else if self.life_mext(life, terrain) > Ratio::new::<ratio>(SMIDGEN) {
+            let rt =
+                (self.life_moisture(life, terrain) / self.life_mext(life, terrain)).get::<ratio>();
+            let x = 1.0 - 2.59 * rt.powf(1.0) + 5.11 * rt.powf(2.0) - 3.52 * rt.powf(3.0);
+            Ratio::new::<ratio>(x)
+        } else {
+            Ratio::new::<ratio>(0.0)
+        }
+    }
+
+    fn wfmd(&self, terrain: &Terrain) -> ArealMassDensity {
+        self.fuel
+            .life_particles(Life::Dead)
+            .map(|p| p.moisture(terrain) * p.sigma_factor() * p.load)
+            .sum()
+    }
+
+    fn rbqig(&self, terrain: &Terrain) -> Ratio {
+        self.fuel
+            .particles
+            .iter()
+            .map(|p| {
+                (Ratio::new::<ratio>(250.0) + Ratio::new::<ratio>(1116.0) * p.moisture(terrain))
+                    * self.fuel.part_area_weight(p)
+                    * self.fuel.life_area_weight(p.life())
+                    * p.sigma_factor()
+            })
+            .sum()
+    }
 }

@@ -20,6 +20,7 @@ pub mod linear_power_density {
     }
 }
 
+// ReactionIntensity es uom::si::heat_flux_density
 // ReactionVelocity es uom::si::frequency
 // HeatPerUnitArea es uom::si::radiant_exposure
 pub mod radiant_exposure {

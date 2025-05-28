@@ -450,6 +450,7 @@ dependencies = [
  "geometry",
  "glam 0.30.1",
  "min_max_traits",
+ "soa_derive",
  "uom",
 ]
 

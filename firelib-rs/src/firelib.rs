@@ -109,6 +109,7 @@ pub struct TerrainCuda {
     pub aspect: float::T,
 }
 
+#[macro_export]
 macro_rules! to_quantity {
     ($quant:ident, $val:expr) => {{
         use uom::lib::marker::PhantomData;
@@ -119,6 +120,7 @@ macro_rules! to_quantity {
         }
     }};
 }
+#[macro_export]
 macro_rules! from_quantity {
     ($quant:ident, $val:expr) => {{
         let $quant { value, .. } = $val;
@@ -238,54 +240,6 @@ pub struct FireSimple {
     pub speed_max: Velocity,
     pub azimuth_max: Angle,
     pub eccentricity: Ratio,
-}
-
-#[cfg_attr(not(target_os = "cuda"), derive(StructOfArray), soa_derive(Debug))]
-#[derive(Copy, Clone, Debug, PartialEq, cust_core::DeviceCopy)]
-#[repr(C)]
-pub struct FireSimpleCuda {
-    pub speed_max: float::T,
-    pub azimuth_max: float::T,
-    pub eccentricity: float::T,
-}
-
-impl FireSimpleCuda {
-    pub const NULL: Self = Self {
-        speed_max: 0.0,
-        azimuth_max: 0.0,
-        eccentricity: 0.0,
-    };
-}
-
-impl From<FireSimpleCuda> for FireSimple {
-    fn from(f: FireSimpleCuda) -> Self {
-        Self {
-            speed_max: to_quantity!(Velocity, f.speed_max),
-            azimuth_max: to_quantity!(Angle, f.azimuth_max),
-            eccentricity: to_quantity!(Ratio, f.eccentricity),
-        }
-    }
-}
-impl From<FireSimple> for FireSimpleCuda {
-    fn from(f: FireSimple) -> Self {
-        Self {
-            speed_max: from_quantity!(Velocity, &f.speed_max),
-            azimuth_max: from_quantity!(Angle, &f.azimuth_max),
-            eccentricity: from_quantity!(Ratio, &f.eccentricity),
-        }
-    }
-}
-#[cfg(not(target_os = "cuda"))]
-impl From<FireSimpleCudaPtr> for FireSimple {
-    fn from(f: FireSimpleCudaPtr) -> Self {
-        unsafe { f.read().into() }
-    }
-}
-#[cfg(not(target_os = "cuda"))]
-impl From<FireSimpleCudaRef<'_>> for FireSimple {
-    fn from(f: FireSimpleCudaRef<'_>) -> Self {
-        From::<FireSimpleCuda>::from(f.into())
-    }
 }
 
 #[derive(Debug)]
@@ -564,23 +518,9 @@ impl CanSpread<'_> for FireSimple {
     }
 }
 
-impl CanSpread<'_> for FireSimpleCuda {
-    fn azimuth_max(&self) -> Angle {
-        to_quantity!(Angle, self.azimuth_max)
-    }
-    fn eccentricity(&self) -> Ratio {
-        to_quantity!(Ratio, self.eccentricity)
-    }
-}
 impl<'a> Spread<'a, FireSimple> {
     pub fn speed(&self) -> Velocity {
         self.fire.speed_max * to_quantity!(Ratio, self.factor)
-    }
-}
-
-impl<'a> Spread<'a, FireSimpleCuda> {
-    pub fn speed(&self) -> Velocity {
-        to_quantity!(Velocity, self.fire.speed_max * self.factor)
     }
 }
 

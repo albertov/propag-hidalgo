@@ -14,3 +14,6 @@ geometry = { path = "../geometry" }
 glam = { version = "0.30.1", default-features = false, features = ["approx", "cuda"] }
 min_max_traits = "0.1.0"
 uom = { version = "0.36.0", default-features = false, features=["f64", "f32", "si"]}
+
+[target.'cfg(not(target_os = "cuda"))'.dependencies]
+soa_derive = "0.14.0"

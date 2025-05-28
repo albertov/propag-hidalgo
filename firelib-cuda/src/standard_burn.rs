@@ -1,3 +1,4 @@
+use crate::propag::FireSimpleCuda;
 use cuda_std::prelude::*;
 use cuda_std::thread::sync_threads;
 use firelib_rs::float;

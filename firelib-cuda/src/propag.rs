@@ -5,7 +5,7 @@ use cuda_std::shared::dynamic_shared_mem;
 use cuda_std::thread::*;
 use cuda_std::*;
 use firelib_rs::float;
-use firelib_rs::float::Angle;
+use firelib_rs::float::*;
 use firelib_rs::*;
 use geometry::GeoReference;
 use glam::f32::*;
@@ -319,7 +319,8 @@ impl PointRef {
             y: to.y as _,
         };
         let bearing = Angle::new::<radian>(geo_ref.bearing(from_pos, to));
-        let speed = self.fire.spread(bearing).speed().get::<meter_per_second>();
+        let fire: FireSimple = self.fire.into();
+        let speed = fire.spread(bearing).speed().get::<meter_per_second>();
         let distance = geo_ref.distance(from_pos, to);
         let time = self.time;
         if speed > 1e-6 {
@@ -409,7 +410,14 @@ impl Point {
         }
     }
 
-    unsafe fn save(&self, idx: usize, time: *mut f32, ref_x: *mut usize, ref_y: *mut usize) {
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn save(
+        &self,
+        idx: usize,
+        time: *mut f32,
+        ref_x: *mut usize,
+        ref_y: *mut usize,
+    ) {
         write_volatile(time.add(idx), self.time);
         write_volatile(ref_x.add(idx), self.reference.pos_x);
         write_volatile(ref_y.add(idx), self.reference.pos_y);
@@ -558,6 +566,70 @@ pub unsafe fn pre_burn(
         }
     }
 }
+
+#[cfg_attr(not(target_os = "cuda"), derive(StructOfArray), soa_derive(Debug))]
+#[derive(Copy, Clone, Debug, PartialEq, cust_core::DeviceCopy)]
+#[repr(C)]
+pub struct FireSimpleCuda {
+    pub speed_max: float::T,
+    pub azimuth_max: float::T,
+    pub eccentricity: float::T,
+}
+
+impl FireSimpleCuda {
+    pub const NULL: Self = Self {
+        speed_max: 0.0,
+        azimuth_max: 0.0,
+        eccentricity: 0.0,
+    };
+}
+
+impl From<FireSimpleCuda> for FireSimple {
+    fn from(f: FireSimpleCuda) -> Self {
+        Self {
+            speed_max: to_quantity!(Velocity, f.speed_max),
+            azimuth_max: to_quantity!(Angle, f.azimuth_max),
+            eccentricity: to_quantity!(Ratio, f.eccentricity),
+        }
+    }
+}
+impl From<FireSimple> for FireSimpleCuda {
+    fn from(f: FireSimple) -> Self {
+        Self {
+            speed_max: from_quantity!(Velocity, &f.speed_max),
+            azimuth_max: from_quantity!(Angle, &f.azimuth_max),
+            eccentricity: from_quantity!(Ratio, &f.eccentricity),
+        }
+    }
+}
+#[cfg(not(target_os = "cuda"))]
+impl From<FireSimpleCudaPtr> for FireSimple {
+    fn from(f: FireSimpleCudaPtr) -> Self {
+        unsafe { f.read().into() }
+    }
+}
+#[cfg(not(target_os = "cuda"))]
+impl From<FireSimpleCudaRef<'_>> for FireSimple {
+    fn from(f: FireSimpleCudaRef<'_>) -> Self {
+        From::<FireSimpleCuda>::from(f.into())
+    }
+}
+/*
+impl CanSpread<'_> for FireSimpleCuda {
+    fn azimuth_max(&self) -> Angle {
+        to_quantity!(Angle, self.azimuth_max)
+    }
+    fn eccentricity(&self) -> Ratio {
+        to_quantity!(Ratio, self.eccentricity)
+    }
+}
+
+impl<'a> Spread<'a, FireSimpleCuda> {
+    pub fn speed(&self) -> Velocity {
+        to_quantity!(Velocity, self.fire.speed_max * self.factor)
+    }
+}
+*/
 
 #[inline(always)]
 unsafe fn read_volatile<T: Copy>(p: *const T) -> T {

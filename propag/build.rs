@@ -20,6 +20,7 @@ fn main() {
     cbindgen::Builder::new()
         .with_crate("../firelib-cuda")
         .with_language(cbindgen::Language::C)
+        .with_after_include("#define T float")
         //.with_parse_deps(true)
         .generate()
         .expect("Unable to generate bindings")
@@ -38,7 +39,16 @@ fn main() {
     let dest = format!("{}/propag_c.ptx", target_dir);
     println!("cargo::rerun-if-changed={}", dest);
     Command::new("nvcc")
-        .args(["-ptx", "-I", &include_dir, "-o", &dest, "src/propag.cu"])
+        .args([
+            "-arch",
+            "compute_62",
+            "-ptx",
+            "-I",
+            &include_dir,
+            "-o",
+            &dest,
+            "src/propag.cu",
+        ])
         .status()
         .expect("failed to find nvcc")
         .exit_ok()

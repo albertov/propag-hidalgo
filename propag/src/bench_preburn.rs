@@ -1,6 +1,7 @@
 use ::geometry::*;
 use cust::function::{BlockSize, GridSize};
 use cust::prelude::*;
+use firelib_cuda::{FireSimpleCuda, FireSimpleCudaVec};
 use firelib_rs::float;
 use firelib_rs::float::*;
 use firelib_rs::*;

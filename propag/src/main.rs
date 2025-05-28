@@ -20,6 +20,7 @@ mod loader;
 const THREAD_BLOCK_AXIS_LENGTH: u32 = 16;
 
 static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
+static PTX_C: &str = include_str!("../../target/cuda/propag_c.ptx");
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("Calculating with GPU Propag");
@@ -59,6 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Make the CUDA module, modules just house the GPU code for the kernels we created.
     // they can be made from PTX code, cubins, or fatbins.
     let module = Module::from_ptx(PTX, &[])?;
+    let module_c = Module::from_ptx(PTX_C, &[])?;
 
     // make a CUDA stream to issue calls to. You can think of this as an OS thread but for dispatching
     // GPU calls.
@@ -67,6 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Getting function");
     // retrieve the add kernel from the module so we can calculate the right launch config.
     let propag = module.get_function("propag")?;
+    let propag_c = module_c.get_function("propag")?;
     let pre_burn = module.get_function("standard_simple_burn")?;
 
     let grid_size = GridSize {
@@ -178,7 +181,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 //println!("propag");
                 launch!(
                     // slices are passed as two parameters, the pointer and the length.
-                    propag<<<grid_size, block_size, shmem_bytes, stream>>>(
+                    propag_c<<<grid_size, block_size, shmem_bytes, stream>>>(
                         Settings {
                             geo_ref,
                             max_time,

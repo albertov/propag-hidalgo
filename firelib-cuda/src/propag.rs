@@ -1,6 +1,7 @@
 use core::ops::Div;
 use cuda_std::prelude::*;
 use cuda_std::thread::*;
+use core::sync::atomic::Ordering;
 use cuda_std::*;
 use firelib_rs::float;
 use firelib_rs::float::Angle;
@@ -49,9 +50,6 @@ pub unsafe fn propag(
     // Index of this thread into total area
     let idx_2d = thread::index_2d();
 
-    // are we in-bounds of the target raster?
-    let in_bounds = idx_2d.x < width && idx_2d.y < height;
-
     // Our position in global pixel coords
     let pos = Coord {
         x: idx_2d.x as usize,
@@ -70,7 +68,8 @@ pub unsafe fn propag(
             ////////////////////////////////////////////////////////////////////////
             // First phase, load data from global to shared memory
             ////////////////////////////////////////////////////////////////////////
-            if in_bounds {
+            // are we in-bounds of the target raster?
+            if idx_2d.x < width && idx_2d.y < height {
                 let me = Point::<float::T>::load(
                     global_ix,
                     time,
@@ -90,133 +89,128 @@ pub unsafe fn propag(
             // Begin neighbor analysys
             ////////////////////////////////////////////////////////////////////////
             let mut best_fire: Option<Point<float::T>> = None;
-            if in_bounds {
-                for neighbor in iter_neighbors(&geo_ref, shared) {
-                    // neighbor has fire
-                    let fire: Option<FireSimple> = (*shared.wrapping_add(shared_ix)).map_or(
-                        {
-                            let terrain = TerrainCuda {
-                                d1hr: d1hr[global_ix],
-                                d10hr: d10hr[global_ix],
-                                d100hr: d100hr[global_ix],
-                                herb: herb[global_ix],
-                                wood: wood[global_ix],
-                                wind_speed: wind_speed[global_ix],
-                                wind_azimuth: wind_azimuth[global_ix],
-                                slope: slope[global_ix],
-                                aspect: aspect[global_ix],
-                            };
-                            Catalog::STANDARD.burn_simple(model[global_ix], &terrain.into())
-                        },
-                        |p| p.fire,
-                    );
-                    let neighbor_as_reference = || match neighbor.as_reference() {
-                        Some(reference) => {
-                            let time = reference.time_to(&geo_ref, pos);
-                            when_lt_max_time(Point {
-                                time,
-                                fire,
-                                reference: Some(reference),
-                            })
-                        }
-                        None => None,
+            for neighbor in iter_neighbors(&geo_ref, shared) {
+                // neighbor has fire
+                let fire: Option<FireSimple> = (*shared.wrapping_add(shared_ix)).map_or(
+                    {
+                        let terrain = TerrainCuda {
+                            d1hr: d1hr[global_ix],
+                            d10hr: d10hr[global_ix],
+                            d100hr: d100hr[global_ix],
+                            herb: herb[global_ix],
+                            wood: wood[global_ix],
+                            wind_speed: wind_speed[global_ix],
+                            wind_azimuth: wind_azimuth[global_ix],
+                            slope: slope[global_ix],
+                            aspect: aspect[global_ix],
+                        };
+                        Catalog::STANDARD.burn_simple(model[global_ix], &terrain.into())
+                    },
+                    |p| p.fire,
+                );
+                let neighbor_as_reference = || match neighbor.as_reference() {
+                    Some(reference) => {
+                        let time = reference.time_to(&geo_ref, pos);
+                        when_lt_max_time(Point {
+                            time,
+                            fire,
+                            reference: Some(reference),
+                        })
+                    }
+                    None => None,
+                };
+                let reference = (|| {
+                    let neigh_ref = neighbor.effective_ref()?;
+                    let pos = Coord {
+                        x: pos.x as float::T,
+                        y: pos.y as float::T,
                     };
-                    let reference = (|| {
-                        let neigh_ref = neighbor.point.effective_ref(pos)?;
-                        let pos = Coord {
-                            x: pos.x as float::T,
-                            y: pos.y as float::T,
-                        };
-                        let other = Coord {
-                            x: neigh_ref.pos.x as float::T,
-                            y: neigh_ref.pos.y as float::T,
-                        };
-                        let possible_blockage_pos = geometry::line_to(pos, other).nth(1)?;
-                        let shared_blockage_ix = {
-                            if possible_blockage_pos.x >= 0.0
-                                && possible_blockage_pos.x < BLOCK_WIDTH as float::T
-                                && possible_blockage_pos.y >= 0.0
-                                && possible_blockage_pos.y < BLOCK_HEIGHT as float::T
-                            {
-                                Some(
-                                    possible_blockage_pos.x as usize
-                                        + possible_blockage_pos.y as usize * BLOCK_WIDTH,
-                                )
-                            } else {
-                                None
-                            }
-                        }?;
-                        let possible_blockage = (*shared.wrapping_add(shared_blockage_ix))?;
-                        let blockage_fire = possible_blockage.fire?;
-                        if similar_fires(&blockage_fire, &neighbor.point.fire?) {
-                            Some(neigh_ref)
+                    let other = Coord {
+                        x: neigh_ref.pos.x as float::T,
+                        y: neigh_ref.pos.y as float::T,
+                    };
+                    let possible_blockage_pos = geometry::line_to(pos, other).nth(1)?;
+                    let shared_blockage_ix = {
+                        if possible_blockage_pos.x >= 0.0
+                            && possible_blockage_pos.x < BLOCK_WIDTH as float::T
+                            && possible_blockage_pos.y >= 0.0
+                            && possible_blockage_pos.y < BLOCK_HEIGHT as float::T
+                        {
+                            Some(
+                                possible_blockage_pos.x as usize
+                                    + possible_blockage_pos.y as usize * BLOCK_WIDTH,
+                            )
                         } else {
                             None
                         }
-                    })();
-                    let point = match (fire, reference) {
-                        // We are combustible and reference can be used
-                        (Some(fire), Some(reference)) => {
-                            if similar_fires(&fire, &reference.fire) {
-                                let time = reference.time_to(&geo_ref, pos);
-                                when_lt_max_time(Point {
-                                    time,
-                                    fire: Some(fire),
-                                    reference: Some(reference),
-                                })
-                            } else {
-                                // Reference is not valid, use the neighbor
-                                neighbor_as_reference()
-                            }
-                        }
-                        // We are combustible but reference is not valid, use the neighbor
-                        (Some(_), None) => neighbor_as_reference(),
-                        // We are not combustible but reference can be used.
-                        // We assign an acces time but a None fire
-                        (None, Some(reference)) => {
+                    }?;
+                    let possible_blockage = (*shared.wrapping_add(shared_blockage_ix))?;
+                    let blockage_fire = possible_blockage.fire?;
+                    if similar_fires(&blockage_fire, &neighbor.point.fire?) {
+                        Some(neigh_ref)
+                    } else {
+                        None
+                    }
+                })();
+                let point = match (fire, reference) {
+                    // We are combustible and reference can be used
+                    (Some(fire), Some(reference)) => {
+                        if similar_fires(&fire, &reference.fire) {
                             let time = reference.time_to(&geo_ref, pos);
                             when_lt_max_time(Point {
                                 time,
-                                fire: None,
+                                fire: Some(fire),
                                 reference: Some(reference),
                             })
+                        } else {
+                            // Reference is not valid, use the neighbor
+                            neighbor_as_reference()
                         }
-                        // Not combustible and invalid reference
-                        (None, None) => None,
-                    };
-                    // Update the best_fire with the one with closes access time
-                    best_fire = match (point, best_fire) {
-                        (Some(point), Some(best_fire)) if point.time < best_fire.time => {
-                            Some(point)
-                        }
-                        _ => best_fire,
-                    };
-                }
+                    }
+                    // We are combustible but reference is not valid, use the neighbor
+                    (Some(_), None) => neighbor_as_reference(),
+                    // We are not combustible but reference can be used.
+                    // We assign an access time but a None fire
+                    (None, Some(reference)) => {
+                        let time = reference.time_to(&geo_ref, pos);
+                        when_lt_max_time(Point {
+                            time,
+                            fire: None,
+                            reference: Some(reference),
+                        })
+                    }
+                    // Not combustible and invalid reference
+                    (None, None) => None,
+                };
+                // Update the best_fire with the one with lowest access time
+                best_fire = match (point, best_fire) {
+                    (Some(point), Some(best_fire)) if point.time < best_fire.time => Some(point),
+                    _ => best_fire,
+                };
             }
             ///////////////////////////////////////////////////
             // End of neighbor analysys, save point if improves
             ///////////////////////////////////////////////////
-            let improved = if let Some(point) = best_fire {
-                point.save(
-                    global_ix,
-                    time,
-                    speed_max,
-                    azimuth_max,
-                    eccentricity,
-                    refs_x,
-                    refs_y,
-                );
-                1
+            let improved = if best_fire.is_some() { 1 } else { 0 };
+            if thread::sync_threads_or(improved) != 0 {
+                if let Some(point) = best_fire {
+                    point.save(
+                        global_ix,
+                        time,
+                        speed_max,
+                        azimuth_max,
+                        eccentricity,
+                        refs_x,
+                        refs_y,
+                    );
+                }
             } else {
-                0
-            };
-            // If no threads in this block have improved
-            // break the block loop
-            if thread::sync_threads_or(improved) == 0 {
+                // If no threads in this block have improved
+                // break the block_loop
                 break 'block_loop;
-            }
+            } 
         } // end block_loop
-          // TODO
+        // TODO
         thread::grid_fence();
     } // end grid_loop
 }
@@ -270,13 +264,6 @@ where
 }
 
 impl Point<float::T> {
-    fn effective_ref(&self, my_pos: Coord<usize>) -> Option<PointRef<float::T>> {
-        self.reference.or(Some(PointRef {
-            pos: my_pos,
-            time: self.time,
-            fire: self.fire?,
-        }))
-    }
     unsafe fn load(
         idx: usize,
         time: *const Option<float::T>,
@@ -364,6 +351,9 @@ impl Neighbor {
             fire: self.point.fire?,
         })
     }
+    fn effective_ref(&self) -> Option<PointRef<float::T>> {
+        self.point.reference.or(self.as_reference())
+    }
 }
 
 unsafe fn iter_neighbors(
@@ -412,7 +402,10 @@ unsafe fn iter_neighbors(
                 };
                 let shared_mem_ix = local_pos.x + local_pos.y * BLOCK_WIDTH;
                 let point = (*shared.wrapping_add(shared_mem_ix))?;
-                Some(Neighbor { pos, point })
+                Some(Neighbor {
+                    pos,
+                    point,
+                })
             }
         })
 }

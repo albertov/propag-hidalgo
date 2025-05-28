@@ -962,7 +962,7 @@ impl Fuel {
             live_rx_factor: fuel.life_rx_factor(Life::Alive, sigma, beta),
             dead_area_weight: fuel.life_area_weight(Life::Dead),
             dead_rx_factor: fuel.life_rx_factor(Life::Dead, sigma, beta),
-            fine_dead_factor: fuel.life_fine_load(Life::Dead),
+            fine_dead_factor: 1.0 / fuel.life_fine_load(Life::Dead),
             live_ext_factor: fuel.live_ext_factor(),
             fuel_bed_bulk_dens: fuel.bulk_density(),
             residence_time: fuel.residence_time(sigma),
@@ -1075,7 +1075,7 @@ impl Fuel {
         let life_mext = match (self.has_live_particles(), life) {
             (_, Life::Dead) => self.mext,
             (true, Life::Alive) => {
-                let fdmois = wfmd / self.fine_dead_factor;
+                let fdmois = wfmd * self.fine_dead_factor;
                 let live_mext = self.live_ext_factor * (1.0 - fdmois / self.mext) - 0.226;
                 live_mext.max(self.mext)
             }
@@ -1104,11 +1104,8 @@ impl Fuel {
         let max_wind = 0.9 * rx_int;
         let check_wind_limit = |pew: f64, ew: f64, s: f64, a: f64| {
             if ew > max_wind {
-                let phi_ew_max_wind = if max_wind < SMIDGEN {
-                    0.0
-                } else {
-                    self.wind_k * max_wind.powf(self.wind_b)
-                };
+                let phi_ew_max_wind =
+                    self.wind_k * max_wind.powf(self.wind_b);
                 let speed_max_wind = speed0 * (1.0 + phi_ew_max_wind);
                 (phi_ew_max_wind, max_wind, speed_max_wind, a)
             } else {
@@ -1116,7 +1113,7 @@ impl Fuel {
             }
         };
         use WindSlopeSituation::*;
-        match self.wind_slope_situation(terrain, speed0, phi_ew) {
+        match Self::wind_slope_situation(terrain, speed0, phi_ew) {
             NoSpread => (phi_ew, 0.0, 0.0, 0.0),
             NoSlopeNoWind => (phi_ew, 0.0, speed0, 0.0),
             WindNoSlope => check_wind_limit(phi_ew, wind_speed, speed_max1, wind_az),
@@ -1162,7 +1159,6 @@ impl Fuel {
         }
     }
     fn wind_slope_situation(
-        &self,
         terrain: &Terrain,
         speed0: f64,
         phi_ew: f64,

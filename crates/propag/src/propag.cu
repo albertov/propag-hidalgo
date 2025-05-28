@@ -63,20 +63,17 @@ public:
                       const unsigned int *__restrict__ boundaries) {
     __shared__ bool grid_improved;
     do { // Grid loop
-      if (threadIdx.x == 0 && threadIdx.y == 0) {
+      if (threadIdx.x + threadIdx.y == 0) {
         // Reset the block-local grid_improved flag if we're the block leader
         grid_improved = false;
-        if (blockIdx.x == 0 && blockIdx.y == 0) {
+        if (blockIdx.x + blockIdx.y == 0) {
           // Reset the grid-global progress flag if we're also the grid leader
           *progress = 0;
         }
       };
       // First phase, load data from global to shared memory.
-      load_points_into_shared_memory(true);
+      load_points_into_shared_memory();
 
-      // Sync here to wait for the shared Point data to have been
-      // updated by other threads
-      __syncthreads();
       // Begin neighbor analysys
       Point best = find_neighbor_which_reaches_first(boundaries);
 
@@ -88,7 +85,7 @@ public:
       // check if any has improved. Then if we're the first
       // thread of the block mark progress
       bool block_improved = __syncthreads_or(improved);
-      if (block_improved && threadIdx.x == 0 && threadIdx.y == 0) {
+      if (block_improved && threadIdx.x + threadIdx.y == 0) {
         // Signal that at least one block in this grid has progressed.
         // No need for atomic here because it's enough to flip it != 0
         *progress = 1;
@@ -97,10 +94,10 @@ public:
       // Block has finished. Check if others have too after syncing grid to
       // set shared grid_improved in (shared mem) for the rest of the block.
       cooperative_groups::this_grid().sync();
-      if (threadIdx.x == 0 && threadIdx.y == 0) {
+      if (threadIdx.x + threadIdx.y == 0) {
         // Update grid_improved flag if we're the block leader
         grid_improved = *progress > 0;
-        if (grid_improved && blockIdx.x == 0 && blockIdx.y == 0) {
+        if (grid_improved && blockIdx.x + blockIdx.y == 0) {
           // If we're also the grid leader, signal the kernel launcher
           // that this grid has worked on this round
           *worked = 1;
@@ -120,10 +117,7 @@ public:
     };
   }
   __device__ void pre_propagate(unsigned int *boundaries) {
-    if (in_bounds_) {
-      load_points_into_shared_memory(true);
-    }
-    __syncthreads();
+    load_points_into_shared_memory();
     find_boundaries(boundaries);
   }
 
@@ -210,11 +204,6 @@ private:
     ASSERT(me.reference.is_valid(settings_.geo_ref));
     refs_x_[global_ix_] = me.reference.pos.x;
     refs_y_[global_ix_] = me.reference.pos.y;
-    //  Time must be writen last and after a grid-level memory
-    //  fence because the time being set denotes the Point being
-    //  comitted. load_point must take this into account and place
-    //  a memory barrier too
-    __threadfence();
     time_[global_ix_] = me.time;
   }
 
@@ -228,10 +217,6 @@ private:
                       PointRef());
 
       if (p.time < FLT_MAX) {
-        // This grid-level memory fence is to ensure that reading
-        // the time happens before reading the reference to ensure
-        // that the Pont has been fully comitted to global memory
-        __threadfence();
         p.reference.pos = make_ushort2(refs_x_[idx], refs_y_[idx]);
         ASSERT(p.reference.is_valid(settings_.geo_ref));
         int reference_ix =
@@ -244,12 +229,9 @@ private:
     return Point_NULL;
   };
 
-  __device__ inline void load_points_into_shared_memory(bool load_center) {
+  __device__ inline void load_points_into_shared_memory() {
     if (in_bounds_) {
-      // Load the central block data
-      if (load_center) {
-        load_point_at_offset(make_int2(0, 0));
-      }
+      load_point_at_offset(make_int2(0, 0));
 
       // Load the halo regions
       bool x_near_x0 = threadIdx.x < HALO_RADIUS;
@@ -274,6 +256,9 @@ private:
         load_point_at_offset(make_int2(blockDim.x, 0));
       }
     }
+    // Sync here to wait for the shared Point data to have been
+    // updated by other threads
+    __syncthreads();
   }
 
   __device__ inline void load_point_at_offset(const int2 offset) {

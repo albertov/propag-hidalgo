@@ -46,7 +46,7 @@ fn main() {
     Command::new("nvcc")
         .args([
             "-arch",
-            "compute_62",
+            "compute_80",
             //"-use_fast_math",
             "-std=c++17",
             "-O3",

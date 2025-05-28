@@ -158,12 +158,49 @@ pub struct GeoReference {
 }
 
 impl GeoReference {
-    #[unsafe(no_mangle)]
     #[allow(clippy::len_without_is_empty)]
-    pub extern "C" fn len(&self) -> u32 {
+    pub fn len(&self) -> u32 {
         self.width * self.height
     }
 
+    #[unsafe(no_mangle)]
+    pub extern "C" fn GeoReference_len(&self) -> u32 {
+        self.len()
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn GeoReference_x0(&self) -> f32 {
+        if self.transform.dx() > 0.0 {
+            self.transform.gt.x0
+        } else {
+            self.transform.gt.x0 + self.transform.dx() * (self.width as f32)
+        }
+    }
+    #[unsafe(no_mangle)]
+    pub extern "C" fn GeoReference_x1(&self) -> f32 {
+        if self.transform.dx() > 0.0 {
+            self.transform.gt.x0 + self.transform.dx() * (self.width as f32)
+        } else {
+            self.transform.gt.x0
+        }
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn GeoReference_y0(&self) -> f32 {
+        if self.transform.dy() > 0.0 {
+            self.transform.gt.y0
+        } else {
+            self.transform.gt.y0 + self.transform.dy() * (self.height as f32)
+        }
+    }
+    #[unsafe(no_mangle)]
+    pub extern "C" fn GeoReference_y1(&self) -> f32 {
+        if self.transform.dy() > 0.0 {
+            self.transform.gt.y0 + self.transform.dy() * (self.height as f32)
+        } else {
+            self.transform.gt.y0
+        }
+    }
     pub fn forward(&self, p: Vec2) -> USizeVec2 {
         self.transform.forward(p)
     }

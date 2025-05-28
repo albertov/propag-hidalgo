@@ -51,7 +51,7 @@ void QgsPropagAlgorithm::initAlgorithm(const QVariantMap &) {
       QStringLiteral("FUEL_CODE_FIELD"),
       QObject::tr("The name of the field of the fuel code feature that "
                   "holds the fuel code"),
-      QVariant("code"), false, false));
+      QVariant("BEHAVE"), false, false));
   addParameter(new QgsProcessingParameterBoolean(
       QStringLiteral("GENERATE_REFS"),
       QObject::tr("Generate references vector layer"), false));
@@ -62,9 +62,6 @@ void QgsPropagAlgorithm::initAlgorithm(const QVariantMap &) {
       1e-9));
   addParameter(new QgsProcessingParameterExtent(
       QStringLiteral("EXTENT"), QObject::tr("Extent"), QVariant(), false));
-  addParameter(new QgsProcessingParameterCrs(
-      QStringLiteral("CRS"),
-      QObject::tr("Output Coordinate Reference System")));
   addParameter(new QgsProcessingParameterNumber(
       QStringLiteral("CELL_SIZE_X"), QObject::tr("Cell size X"),
       Qgis::ProcessingNumberParameterType::Double, QVariant(5.0), false, 1e-9));
@@ -139,6 +136,9 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
   } else {
     throw QgsProcessingException(QObject::tr("Invalid EXTENT"));
   }
+  // Use the extent CRS as the target CRS
+  QgsCoordinateReferenceSystem crs =
+      parameterAsExtentCrs(parameters, QStringLiteral("EXTENT"), context);
 
   double max_time;
   if (parameters.value(QStringLiteral("MAX_SIMULATION_MINUTES")).isValid()) {
@@ -152,13 +152,6 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
   if (max_time <= 0) {
     throw QgsProcessingException(
         QObject::tr("MAX_SIMULATION_MINUTES must be > 0"));
-  }
-
-  QgsCoordinateReferenceSystem crs;
-  if (parameters.value(QStringLiteral("CRS")).isValid()) {
-    crs = parameterAsCrs(parameters, QStringLiteral("CRS"), context);
-  } else {
-    throw QgsProcessingException(QObject::tr("Invalid CRS"));
   }
 
   GeoReference geo_ref;
@@ -177,11 +170,25 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
   QByteArray outputFile_ba = outputFile.toUtf8();
   const char *output_path = outputFile_ba.data();
 
-  QgsPropagLoader loader(fuelCodes, fuel_code_field);
+  int fuelIdx = fuelCodes->fields().indexOf(fuel_code_field);
+  if (fuelIdx == -1) {
+    throw QgsProcessingException(
+        QObject::tr("FUEL source does not have a FUEL_CODE_FIELD"));
+  }
+
+  QgsPropagLoader loader(fuelCodes, fuelIdx);
   FFITerrainLoader terrain_loader(&load_terrain, &loader);
 
   std::vector<QByteArray> wkbs;
   std::vector<FFITimeFeature> features;
+
+  QgsCoordinateTransformContext transformCtx =
+      QgsProject::instance()->transformContext();
+  QgsCoordinateTransform ignitedElementsTransform(
+      crs, ignitedElements->sourceCrs(), transformCtx);
+  QgsRectangle ignitedElementsExtent =
+      ignitedElementsTransform.transformBoundingBox(extent);
+  QgsFeatureRequest request(ignitedElementsExtent);
   QgsFeatureIterator it = ignitedElements->getFeatures();
   QgsFeature feature;
   int timeIdx = ignitedElements->fields().indexOf(ignited_element_time_field);
@@ -192,12 +199,14 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
   while (it.nextFeature(feature)) {
     QgsGeometry geom = feature.geometry();
     wkbs.push_back(geom.asWkb());
-    QByteArray const *wkb = &wkbs[wkbs.size() - 1];
     QVariant timeValue = feature.attribute(timeIdx);
-    FFITimeFeature time_feature(timeValue.toDouble() * 60.0,
-                                (const uint8_t *)wkb->data(), wkb->size());
+    FFITimeFeature time_feature(timeValue.toDouble() * 60.0, NULL, 0);
     features.push_back(time_feature);
   };
+  for (int i = 0; i < features.size(); i++) {
+    features[i].geom_wkb = (const uint8_t *)wkbs[i].data();
+    features[i].geom_wkb_len = wkbs[i].size();
+  }
   QString ie_proj = ignitedElements->sourceCrs().toProj();
   QByteArray ie_proj_ba = ie_proj.toUtf8();
 

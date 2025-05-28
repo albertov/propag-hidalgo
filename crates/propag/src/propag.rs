@@ -145,6 +145,28 @@ impl TryFrom<&FFITimeFeature> for TimeFeature {
     }
 }
 
+#[cfg_attr(not(target_os = "cuda"), derive(Debug))]
+pub struct FuelFeature {
+    code: u8,
+    geom: gdal::vector::Geometry,
+}
+
+#[repr(C)]
+pub struct FFIFuelFeature {
+    code: u8,
+    geom_wkb: *const u8,
+    geom_wkb_len: usize,
+}
+#[cfg(not(target_os = "cuda"))]
+impl TryFrom<&FFIFuelFeature> for FuelFeature {
+    type Error = gdal::errors::GdalError;
+    fn try_from(f: &FFIFuelFeature) -> Result<Self, Self::Error> {
+        let s = unsafe { std::slice::from_raw_parts(f.geom_wkb, f.geom_wkb_len) };
+        let geom = gdal::vector::Geometry::from_wkb(s)?;
+        Ok(FuelFeature { code: f.code, geom })
+    }
+}
+
 #[repr(C)]
 pub struct FFIPropagation {
     settings: Settings,
@@ -171,13 +193,10 @@ impl TryFrom<FFIPropagation> for Propagation {
         } else {
             Vec::new()
         };
+        let initial_ignited_elements_crs =
+            unsafe { spatial_ref_from_buf(p.initial_ignited_elements_crs) }?;
         let output_path = unsafe { CStr::from_ptr(p.output_path) };
         let output_path = String::from_utf8_lossy(output_path.to_bytes()).to_string();
-        let initial_ignited_elements_crs =
-            unsafe { CStr::from_ptr(p.initial_ignited_elements_crs) };
-        let initial_ignited_elements_crs =
-            String::from_utf8_lossy(initial_ignited_elements_crs.to_bytes()).to_string();
-        let initial_ignited_elements_crs = SpatialRef::from_proj4(&initial_ignited_elements_crs)?;
         Ok(Propagation {
             settings: p.settings,
             output_path,
@@ -186,6 +205,12 @@ impl TryFrom<FFIPropagation> for Propagation {
             terrain_loader: Box::new(p.terrain_loader),
         })
     }
+}
+
+unsafe fn spatial_ref_from_buf(buf: *const c_char) -> gdal::errors::Result<SpatialRef> {
+    let crs = unsafe { CStr::from_ptr(buf) };
+    let crs = String::from_utf8_lossy(crs.to_bytes()).to_string();
+    SpatialRef::from_proj4(&crs)
 }
 
 #[derive(Debug, Clone)]
@@ -554,6 +579,96 @@ pub fn rasterize_times(
             None,
             core::ptr::null_mut(),
             time_values.as_ptr(),
+            core::ptr::null_mut(),
+            None,
+            core::ptr::null_mut(),
+        )
+    };
+    if ret == CE_None {
+        ds.flush_cache()?;
+        let b = ds.rasterband(1)?;
+        let buf = b.read_band_as()?;
+        Ok(buf.into_shape_and_vec().1)
+    } else {
+        Err(CplError {
+            class: ret,
+            number: -1,
+            msg: "GDALRasterizeGeometries".to_string(),
+        })
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn propag_rasterize_fuels(
+    fuels: *const FFIFuelFeature,
+    fuels_len: usize,
+    fuels_crs: *const c_char,
+    geo_ref: &GeoReference,
+    result: *mut u8,
+    err_msg: *mut c_char,
+    err_len: usize,
+) -> bool {
+    let fuels = if fuels_len > 0 {
+        let is = std::slice::from_raw_parts(fuels, fuels_len);
+        is.iter()
+            .filter_map(|x| FuelFeature::try_from(x).ok())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    match (|| {
+        let fuels_crs = spatial_ref_from_buf(fuels_crs)?;
+        let vec = rasterize_fuels(&fuels, fuels_crs, geo_ref)?;
+        std::ptr::copy_nonoverlapping(vec.as_ptr(), result, geo_ref.len() as usize);
+        use gdal::errors::GdalError;
+        Ok::<(), GdalError>(())
+    })() {
+        Ok(()) => true,
+        Err(err) => {
+            let err = format!("{}", err);
+            let c_err = std::ffi::CString::new(err).unwrap();
+            libc::strncpy(err_msg, c_err.as_ptr(), err_len);
+            false
+        }
+    }
+}
+
+pub fn rasterize_fuels(
+    fuels: &[FuelFeature],
+    fuels_crs: SpatialRef,
+    geo_ref: &GeoReference,
+) -> gdal::errors::Result<Vec<u8>> {
+    let d = DriverManager::get_driver_by_name("MEM")?;
+    let mut ds =
+        d.create_with_band_type::<u8, _>("in-memory", geo_ref.width as _, geo_ref.height as _, 1)?;
+    let ds_srs = crate::loader::to_spatial_ref(&geo_ref.proj)?;
+    ds.set_spatial_ref(&ds_srs)?;
+    ds.set_geo_transform(&geo_ref.transform.as_array_64())?;
+    let mut b = ds.rasterband(1)?;
+    let no_data: u8 = Max::MAX;
+    b.fill(no_data as f64, None)?;
+    b.set_no_data_value(Some(no_data as f64))?;
+    let values: Vec<f64> = fuels.iter().map(|f| f.code as f64).collect();
+    let geoms: Vec<Geometry> = fuels
+        .iter()
+        .filter_map(|f| {
+            let mut geom = f.geom.clone();
+            geom.set_spatial_ref(fuels_crs.clone());
+            geom.transform_to_inplace(&ds_srs).ok()?;
+            Some(geom)
+        })
+        .collect();
+    let ret = unsafe {
+        let geoms: Vec<OGRGeometryH> = geoms.iter().map(|x| x.c_geometry()).collect();
+        gdal_sys::GDALRasterizeGeometries(
+            ds.c_dataset(),
+            1,
+            [1i32].as_ptr(),
+            geoms.len() as _,
+            geoms.as_ptr(),
+            None,
+            core::ptr::null_mut(),
+            values.as_ptr(),
             core::ptr::null_mut(),
             None,
             core::ptr::null_mut(),

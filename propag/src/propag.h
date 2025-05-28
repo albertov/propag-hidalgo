@@ -22,36 +22,17 @@ public:
   __device__ FireSimpleCuda()
       : speed_max(0.0), azimuth_max(0.0), eccentricity(0.0) {}
 
-  __device__ FireSimpleCuda(const T speed_max, const T azimuth_max, const T eccentricity)
+  __device__ FireSimpleCuda(T speed_max, T azimuth_max, T eccentricity)
       : speed_max(speed_max), azimuth_max(azimuth_max),
         eccentricity(eccentricity) {};
 
   __device__ volatile FireSimpleCuda &
-  operator=(volatile FireSimpleCuda &other) volatile {
+  operator=(const FireSimpleCuda &other) volatile {
     speed_max = other.speed_max;
     azimuth_max = other.azimuth_max;
     eccentricity = other.eccentricity;
     return *this;
   }
-  __device__ FireSimpleCuda &
-  operator=(const FireSimpleCuda &other) {
-    speed_max = other.speed_max;
-    azimuth_max = other.azimuth_max;
-    eccentricity = other.eccentricity;
-    return *this;
-  }
-
-  __device__ FireSimpleCuda(volatile FireSimpleCuda *other)
-      : speed_max(other->speed_max), azimuth_max(other->azimuth_max),
-        eccentricity(other->eccentricity) {};
-
-  __device__ FireSimpleCuda(volatile FireSimpleCuda &other)
-      : speed_max(other.speed_max), azimuth_max(other.azimuth_max),
-        eccentricity(other.eccentricity) {};
-
-  __device__ FireSimpleCuda(const FireSimpleCuda &other)
-      : speed_max(other.speed_max), azimuth_max(other.azimuth_max),
-        eccentricity(other.eccentricity) {};
 };
 #define FireSimpleCuda_NULL FireSimpleCuda()
 
@@ -63,28 +44,12 @@ public:
 
   __device__ PointRef()
       : time(MAX_TIME), pos(make_ushort2(USHRT_MAX, USHRT_MAX)), fire() {};
-  __device__ PointRef(const float time, const ushort2 pos, const FireSimpleCuda fire)
+  __device__ PointRef(float time, ushort2 pos, FireSimpleCuda fire)
       : time(time), pos(pos), fire(fire) {};
-  __device__ PointRef(const float time, const int2 pos, const FireSimpleCuda fire)
+  __device__ PointRef(float time, int2 pos, FireSimpleCuda fire)
       : time(time), pos(make_ushort2(pos.x, pos.y)), fire(fire) {};
-  __device__ PointRef(volatile PointRef &other)
-      : time(other.time), pos(make_ushort2(other.pos.x, other.pos.y)),
-        fire(other.fire) {};
-  __device__ PointRef(const PointRef &other)
-      : time(other.time), pos(make_ushort2(other.pos.x, other.pos.y)),
-        fire(other.fire) {};
-  __device__ PointRef(volatile PointRef *other)
-      : time(other->time), pos(make_ushort2(other->pos.x, other->pos.y)),
-        fire(other->fire) {};
 
-  __device__ volatile PointRef &operator=(volatile PointRef &other) volatile {
-    time = other.time;
-    pos.x = other.pos.x;
-    pos.y = other.pos.y;
-    fire = other.fire;
-    return *this;
-  }
-  __device__ const PointRef &operator=(const PointRef &other) {
+  __device__ volatile PointRef &operator=(const PointRef &other) volatile {
     time = other.time;
     pos.x = other.pos.x;
     pos.y = other.pos.y;
@@ -106,25 +71,10 @@ public:
   PointRef reference;
 
   __device__ Point() : time(MAX_TIME), fire(), reference() {};
-  __device__ Point(float time, const FireSimpleCuda fire, const PointRef reference)
+  __device__ Point(float time, FireSimpleCuda fire, PointRef reference)
       : time(time), fire(fire), reference(reference) {};
 
-  __device__ Point(volatile Point &other)
-      : time(other.time), fire(other.fire), reference(other.reference) {};
-
-  __device__ Point(volatile Point *other)
-      : time(other->time), fire(other->fire), reference(other->reference) {};
-
-
-  /*
   __device__ volatile Point &operator=(const Point &other) volatile {
-    time = other.time;
-    fire = other.fire;
-    reference = other.reference;
-    return *this;
-  }
-  */
-  __device__ volatile Point operator=(volatile Point other) volatile {
     time = other.time;
     fire = other.fire;
     reference = other.reference;
@@ -147,38 +97,53 @@ __device__ inline FireSimpleCuda load_fire(size_t idx, const float *speed_max,
   return FireSimpleCuda(speed_max[idx], azimuth_max[idx], eccentricity[idx]);
 }
 
+__device__ inline Point
+load_point(const GeoReference &geo_ref, uint2 pos, size_t idx,
+           const float *speed_max, const float *azimuth_max,
+           const float *eccentricity, volatile float *time,
+           volatile unsigned short *ref_x, volatile unsigned short *ref_y) {
+  Point result =
+      Point(time[idx], load_fire(idx, speed_max, azimuth_max, eccentricity),
+            PointRef());
+
+  if (result.time < MAX_TIME) {
+    result.reference.pos = make_ushort2(ref_x[idx], ref_y[idx]);
+    ASSERT(!(result.reference.pos.x == USHRT_MAX ||
+             result.reference.pos.y == USHRT_MAX));
+    ASSERT(result.reference.pos.x < geo_ref.width ||
+           result.reference.pos.y < geo_ref.height);
+    size_t ref_ix =
+        result.reference.pos.x + result.reference.pos.y * geo_ref.width;
+
+    if (result.reference.pos.x == pos.x && result.reference.pos.y == pos.y) {
+      result.reference.fire = result.fire;
+      result.reference.time = result.time;
+    } else {
+      result.reference.time = time[ref_ix];
+      result.reference.fire =
+          load_fire(ref_ix, speed_max, azimuth_max, eccentricity);
+    };
+    ASSERT(result.reference.time != MAX_TIME);
+  };
+  return result;
+}
+
+#define LOAD(LOCAL_X, LOCAL_Y, GLOBAL_X, GLOBAL_Y)                             \
+  if ((GLOBAL_X >= 0) && (GLOBAL_X) < (int)width && (GLOBAL_Y >= 0) && (GLOBAL_Y) < (int)height) {                             \
+    shared[(LOCAL_X) + (LOCAL_Y) * shared_width] =                             \
+        load_point(settings.geo_ref, make_uint2(GLOBAL_X, GLOBAL_Y),           \
+                   (GLOBAL_X) + (GLOBAL_Y) * width, speed_max, azimuth_max,    \
+                   eccentricity, time, refs_x, refs_y);                        \
+  } else {                                                                     \
+    shared[(LOCAL_X) + (LOCAL_Y) * shared_width] = Point_NULL;                 \
+  }
+
 __device__ inline bool is_point_null(const Point &p) {
   return !(p.time < MAX_TIME);
 }
 
 __device__ inline bool is_fire_null(const volatile FireSimpleCuda &f) {
   return f.speed_max == 0.0;
-}
-
-__device__ inline volatile Point
-load_point(const GeoReference &geo_ref, uint2 pos, size_t idx,
-           const float *speed_max, const float *azimuth_max,
-           const float *eccentricity, volatile float *time,
-           volatile unsigned short *ref_x, volatile unsigned short *ref_y) {
-  float p_time = time[idx];
-  const FireSimpleCuda fire = load_fire(idx, speed_max, azimuth_max, eccentricity);
-  const PointRef ref;
-
-  if (p_time < MAX_TIME) {
-    ushort2 ref_pos = make_ushort2(ref_x[idx], ref_y[idx]);
-    ASSERT(!(ref_pos.x == USHRT_MAX || ref_pos.y == USHRT_MAX));
-    ASSERT(ref_pos.x < geo_ref.width || ref_pos.y < geo_ref.height);
-    if (ref_pos.x == pos.x && ref_pos.y == pos.y) {
-      return Point(p_time, fire, PointRef(p_time, ref_pos, fire));
-    }
-    size_t ref_ix = ref_pos.x + ref_pos.y * geo_ref.width;
-    float ref_time = time[ref_ix];
-    ASSERT(ref_time != MAX_TIME);
-    const FireSimpleCuda ref_fire = load_fire(ref_ix, speed_max, azimuth_max, eccentricity);
-    ASSERT(!is_fire_null(ref_fire));
-    return Point(p_time, fire, PointRef(ref_time, ref_pos, ref_fire));
-  };
-  return Point_NULL;
 }
 
 __device__ inline bool similar_fires_(const volatile FireSimpleCuda &a,
@@ -228,7 +193,6 @@ __device__ inline float time_to(const GeoReference &geo_ref,
   float dx = (from.pos.x - to.x) * geo_ref.transform.gt.dx;
   float dy = (from.pos.y - to.y) * geo_ref.transform.gt.dy;
   float distance = sqrt(dx * dx + dy * dy);
-  ASSERT(distance>0);
 
   float speed = from.fire.speed_max * factor;
   if (speed > 1e-6) {
@@ -237,5 +201,6 @@ __device__ inline float time_to(const GeoReference &geo_ref,
     return MAX_TIME;
   }
 }
+
 
 #endif

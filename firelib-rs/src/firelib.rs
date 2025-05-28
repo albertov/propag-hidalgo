@@ -484,15 +484,19 @@ impl ParticleDef {
             _ => false,
         }
     }
-    const fn area_weight<'a, const N: usize>(&self, particles: &[ParticleDef;N]) -> f64 {
+    const fn area_weight<'a, const N: usize>(&self, particles: &[ParticleDef; N]) -> f64 {
         const fn fun(p: &ParticleDef, life: Life) -> f64 {
-            if p.same_life(life) { p.surface_area() } else { 0.0 }
+            if p.same_life(life) {
+                p.surface_area()
+            } else {
+                0.0
+            }
         }
         let life = self.life();
         let total = accum_particles!(particles, fun, life);
         safe_div(self.surface_area(), total)
     }
-    const fn size_class_weight<'a, const N: usize>(&self, particles: &[ParticleDef;N]) -> f64 {
+    const fn size_class_weight<'a, const N: usize>(&self, particles: &[ParticleDef; N]) -> f64 {
         const fn fun<const N: usize>(
             p: &ParticleDef,
             life: Life,
@@ -600,47 +604,59 @@ impl FuelDef {
     }
     const fn life_area_weight(&self, life: Life) -> f64 {
         const fn fun(p: &Particle, life: Life, total_area: f64) -> f64 {
-            if p.same_life(life) { p.surface_area / total_area } else { 0.0}
+            if p.same_life(life) {
+                p.surface_area / total_area
+            } else {
+                0.0
+            }
         }
         let total_area = self.total_area();
         accum_particles!(self.particles, fun, life, total_area)
     }
     const fn life_fine_load(&self, life: Life) -> f64 {
         const fn fun(p: &Particle, life: Life) -> f64 {
-            if !p.same_life(life) {return 0.0};
+            if !p.same_life(life) {
+                return 0.0;
+            };
             match life {
-                Life::Alive =>
-                    p.load * SoftF64(-500.0).div(SoftF64(p.savr)).exp().to_f64(),
-                Life::Dead => p.load * p.sigma_factor
-
+                Life::Alive => p.load * SoftF64(-500.0).div(SoftF64(p.savr)).exp().to_f64(),
+                Life::Dead => p.load * p.sigma_factor,
             }
         }
         accum_particles!(self.particles, fun, life)
     }
     const fn life_load(&self, life: Life) -> f64 {
         const fn fun(p: &Particle, life: Life) -> f64 {
-            if !p.same_life(life) {return 0.0};
+            if !p.same_life(life) {
+                return 0.0;
+            };
             p.size_class_weight * p.load * (1.0 - p.si_total)
         }
         accum_particles!(self.particles, fun, life)
     }
     const fn life_savr(&self, life: Life) -> f64 {
         const fn fun(p: &Particle, life: Life) -> f64 {
-            if !p.same_life(life) {return 0.0};
+            if !p.same_life(life) {
+                return 0.0;
+            };
             p.area_weight * p.savr
         }
         accum_particles!(self.particles, fun, life)
     }
     const fn life_heat(&self, life: Life) -> f64 {
         const fn fun(p: &Particle, life: Life) -> f64 {
-            if !p.same_life(life) {return 0.0};
+            if !p.same_life(life) {
+                return 0.0;
+            };
             p.area_weight * p.heat
         }
         accum_particles!(self.particles, fun, life)
     }
     const fn life_seff(&self, life: Life) -> f64 {
         const fn fun(p: &Particle, life: Life) -> f64 {
-            if !p.same_life(life) {return 0.0};
+            if !p.same_life(life) {
+                return 0.0;
+            };
             p.area_weight * p.si_effective
         }
         accum_particles!(self.particles, fun, life)
@@ -758,7 +774,7 @@ impl Fuel {
                         sorted_particles[n_dead_particles] = Particle::make(p, &particles);
                         n_dead_particles += 1;
                     }
-                    _ => ()
+                    _ => (),
                 };
                 i += 1
             } else {
@@ -774,8 +790,8 @@ impl Fuel {
                     Life::Alive => {
                         sorted_particles[j] = Particle::make(p, &particles);
                         j += 1;
-                    },
-                    _ => ()
+                    }
+                    _ => (),
                 };
                 i += 1;
             } else {
@@ -828,7 +844,7 @@ impl Fuel {
                 while i < MAX_PARTICLES {
                     let p = &fuel.particles[i];
                     if p.is_sentinel() || p.same_life(Life::Alive) {
-                        break
+                        break;
                     }
                     i += 1
                 }
@@ -880,8 +896,43 @@ impl Fuel {
         iter_particles(&self.particles)
     }
     fn rx_int(&self, terrain: &Terrain) -> f64 {
-        self.life_rx_factor_alive * self.life_eta_m(Life::Alive, terrain)
-            + self.life_rx_factor_dead * self.life_eta_m(Life::Dead, terrain)
+        let mut wfmd = 0.0;
+        let mut alive_moist = 0.0;
+        let mut dead_moist = 0.0;
+        for p in self.particles.iter() {
+            let m = p.moisture(terrain);
+            match p.life {
+                Life::Alive => alive_moist += p.area_weight * m,
+                Life::Dead => {
+                    dead_moist += p.area_weight * m;
+                    wfmd += m * p.sigma_factor * p.load
+                }
+            }
+        }
+        let eta_m = |life, life_moist| {
+            let life_mext = match life {
+                Life::Alive => {
+                    if self.has_live_particles() {
+                        let fdmois = safe_div(wfmd, self.fine_dead_factor);
+                        let live_mext = self.live_ext_factor * (1.0 - fdmois / self.mext) - 0.226;
+                        live_mext.max(self.mext)
+                    } else {
+                        0.0
+                    }
+                }
+                Life::Dead => self.mext,
+            };
+            if life_moist >= life_mext {
+                0.0
+            } else if life_mext > SMIDGEN {
+                let rt = life_moist / life_mext;
+                1.0 - 2.59 * rt + 5.11 * rt * rt - 3.52 * rt * rt * rt
+            } else {
+                0.0
+            }
+        };
+        self.life_rx_factor_alive * eta_m(Life::Alive, alive_moist)
+            + self.life_rx_factor_dead * eta_m(Life::Dead, dead_moist)
     }
     fn calculate_wind_dependent_vars(
         &self,
@@ -1009,45 +1060,6 @@ impl Fuel {
         } else {
             0.0
         }
-    }
-    fn life_moisture(&self, life: Life, terrain: &Terrain) -> f64 {
-        self.particles.iter()
-            .map(|p| if p.same_life(life) {p.area_weight * p.moisture(terrain)} else {0.0})
-            .sum()
-    }
-
-    fn life_mext(&self, life: Life, terrain: &Terrain) -> f64 {
-        match life {
-            Life::Alive => {
-                if self.has_live_particles() {
-                    let fdmois = safe_div(self.wfmd(terrain), self.fine_dead_factor);
-                    let live_mext = self.live_ext_factor * (1.0 - fdmois / self.mext) - 0.226;
-                    live_mext.max(self.mext)
-                } else {
-                    0.0
-                }
-            }
-            Life::Dead => self.mext,
-        }
-    }
-
-    fn life_eta_m(&self, life: Life, terrain: &Terrain) -> f64 {
-        let life_mext = self.life_mext(life, terrain);
-        let life_moist = self.life_moisture(life, terrain);
-        if life_moist >= life_mext {
-            0.0
-        } else if life_mext > SMIDGEN {
-            let rt = life_moist / life_mext;
-            1.0 - 2.59 * rt + 5.11 * rt * rt - 3.52 * rt * rt * rt
-        } else {
-            0.0
-        }
-    }
-
-    fn wfmd(&self, terrain: &Terrain) -> f64 {
-        self.particles.iter()
-            .map(|p| if p.same_life(Life::Dead) {p.moisture(terrain) * p.sigma_factor * p.load} else {0.0})
-            .sum()
     }
 
     fn phi_slope(&self, terrain: &Terrain) -> f64 {

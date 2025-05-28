@@ -8,7 +8,6 @@ pub mod areal_mass_density {
     }
 }
 
-
 // HeatOfCombustion es uom::si::available_energy
 
 // ByramsIntensity es uom::si::linear_power_density

@@ -484,12 +484,12 @@ EXTERN int Fire_FlameLengthTable (
 ) ;
 
 EXTERN FuelCatalogPtr Fire_FuelCatalogCreate (
-    char  *name,                /* FuelCatalogData instance name              */
+    const char  *const name,                /* FuelCatalogData instance name              */
     size_t maxModels            /* maximum modelId allowed in this catalog    */
 ) ;
 
 EXTERN FuelCatalogPtr Fire_FuelCatalogCreateStandard (
-    char  *name,                /* FuelCatalogData instance name              */
+    const char  *const name,                /* FuelCatalogData instance name              */
     size_t maxModels            /* maximum modelId allowed in this catalog    */
 ) ;
 

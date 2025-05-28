@@ -46,10 +46,10 @@ public:
         local_x_(threadIdx.x + HALO_RADIUS),
         local_y_(threadIdx.y + HALO_RADIUS),
         shared_width_(blockDim.x + HALO_RADIUS * 2),
-        local_ix_(local_x_ + local_y_ * shared_width_), speed_max_(speed_max),
-        azimuth_max_(azimuth_max), eccentricity_(eccentricity), time_(time),
-        refs_x_(refs_x), refs_y_(refs_y), refs_change_(ref_change),
-        shared_(shared) {
+        local_ix_(local_x_ + local_y_ * shared_width_),
+        speed_max_(speed_max), azimuth_max_(azimuth_max),
+        eccentricity_(eccentricity), time_(time), refs_x_(refs_x),
+        refs_y_(refs_y), refs_change_(ref_change), shared_(shared) {
     ASSERT(block_ix_ < gridDim.x * gridDim.y);
     ASSERT(!(settings_.geo_ref.width < 1 || settings_.geo_ref.height < 1));
   };
@@ -219,19 +219,57 @@ private:
   __device__ inline bool update_point(Point p) {
     Point &me = shared_[local_ix_];
     if (p.time < me.time && p.time < settings_.max_time) {
-      // printf("best time %f\n", best.time);
-      refs_x_[global_ix_] = p.reference.pos.x;
-      refs_y_[global_ix_] = p.reference.pos.y;
-      // Time must be writen last and after a grid-level memory
-      // fence because the time being set denotes the Point being
-      // comitted
-      __threadfence();
-      time_[global_ix_] = p.time;
       shared_[local_ix_] = p;
+      commit_point();
       return true;
     }
     return false;
   }
+  __device__ inline void commit_point() {
+    Point &me = shared_[local_ix_];
+    // printf("best time %f\n", best.time);
+    refs_x_[global_ix_] = me.reference.pos.x;
+    refs_y_[global_ix_] = me.reference.pos.y;
+    // Time must be writen last and after a grid-level memory
+    // fence because the time being set denotes the Point being
+    // comitted
+    __threadfence();
+    time_[global_ix_] = me.time;
+  }
+
+  __device__ inline Point load_point(int2 ipos) const {
+    if (ipos.x >= 0 && ipos.x < settings_.geo_ref.width && ipos.y >= 0 &&
+        ipos.y < settings_.geo_ref.height) {
+      uint2 pos = make_uint2(ipos.x, ipos.y);
+      size_t idx = ipos.x + ipos.y * settings_.geo_ref.width;
+      Point p = Point(time_[idx],
+                      load_fire(idx, speed_max_, azimuth_max_, eccentricity_),
+                      PointRef());
+
+      if (p.time < FLT_MAX) {
+        // This grid-level memory fence is to ensure that reading
+        // the time happens before reading the reference to ensure
+        // that the Pont has been fully comitted to global memory
+        __threadfence();
+        p.reference.pos = make_ushort2(refs_x_[idx], refs_y_[idx]);
+        ASSERT(p.reference.is_valid(settings_.geo_ref));
+        size_t ref_ix =
+            p.reference.pos.x + p.reference.pos.y * settings_.geo_ref.width;
+
+        if (p.reference.pos.x == pos.x && p.reference.pos.y == pos.y) {
+          p.reference.fire = p.fire;
+          p.reference.time = p.time;
+        } else {
+          p.reference.time = time_[ref_ix];
+          p.reference.fire =
+              load_fire(ref_ix, speed_max_, azimuth_max_, eccentricity_);
+        };
+        ASSERT(p.reference.time != FLT_MAX);
+      };
+      return p;
+    };
+    return Point_NULL;
+  };
 
   __device__ inline void load_points_into_shared_memory(bool first_iteration) {
     if (in_bounds_) {
@@ -268,38 +306,7 @@ private:
   __device__ inline void load_point_at_offset(const int2 offset) {
     int2 local = make_int2(local_x_ + offset.x, local_y_ + offset.y);
     int2 global = make_int2(idx_2d_.x + offset.x, idx_2d_.y + offset.y);
-    if (global.x >= 0 && global.x < settings_.geo_ref.width && global.y >= 0 &&
-        global.y < settings_.geo_ref.height) {
-      uint2 pos = make_uint2(global.x, global.y);
-      size_t idx = global.x + global.y * settings_.geo_ref.width;
-      Point p = Point(time_[idx],
-                      load_fire(idx, speed_max_, azimuth_max_, eccentricity_),
-                      PointRef());
-
-      if (p.time < FLT_MAX) {
-        // This grid-level memory fence is to ensure that reading
-        // the time happens before reading the reference to ensure
-        // that the Pont has been fully comitted to global memory
-        __threadfence();
-        p.reference.pos = make_ushort2(refs_x_[idx], refs_y_[idx]);
-        ASSERT(p.reference.is_valid(settings_.geo_ref));
-        size_t ref_ix =
-            p.reference.pos.x + p.reference.pos.y * settings_.geo_ref.width;
-
-        if (p.reference.pos.x == pos.x && p.reference.pos.y == pos.y) {
-          p.reference.fire = p.fire;
-          p.reference.time = p.time;
-        } else {
-          p.reference.time = time_[ref_ix];
-          p.reference.fire =
-              load_fire(ref_ix, speed_max_, azimuth_max_, eccentricity_);
-        };
-        ASSERT(p.reference.time != FLT_MAX);
-      };
-      shared_[local.x + local.y * shared_width_] = p;
-    } else {
-      shared_[local.x + local.y * shared_width_] = Point_NULL;
-    }
+    shared_[local.x + local.y * shared_width_] = load_point(global);
   }
 
   __device__ inline float time_from_ref(const PointRef &from) const {

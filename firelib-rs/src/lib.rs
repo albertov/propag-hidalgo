@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(test)]
 
 #[cfg(feature = "std")]
 extern crate std;

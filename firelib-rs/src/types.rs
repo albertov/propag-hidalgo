@@ -91,14 +91,6 @@ pub const MAX_FUELS: usize = 20;
 
 pub type ParticleDefs = [ParticleDef; MAX_PARTICLES];
 
-#[inline]
-pub fn iter_arr<const N: usize, T>(particles: &[Option<T>; N]) -> impl Iterator<Item = &T> {
-    particles
-        .iter()
-        .take_while(|p| p.is_some())
-        .map(|p| p.as_ref().unwrap())
-}
-
 #[derive(Clone, Copy)]
 pub struct Fuel {
     pub name: [u8; 16],

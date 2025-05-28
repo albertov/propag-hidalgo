@@ -920,6 +920,8 @@ mod tests {
     extern crate quickcheck;
 
     use quickcheck::{Arbitrary, Gen};
+    extern crate test;
+    use test::Bencher;
 
     quickcheck::quickcheck! {
         fn we_produce_the_same_output_as_firelib_c(terrain: Terrain, model: ValidModel, azimuth: ValidAzimuth) -> bool {
@@ -928,6 +930,52 @@ mod tests {
             let (c_sp, c_sp_az) = firelib_c_spread(model.0, &terrain, az);
             Spread::almost_eq(&firelib_sp, &c_sp) && SpreadAtAzimuth::almost_eq(&firelib_sp_az, &c_sp_az)
         }
+    }
+    fn bench_spread_fn(
+        b: &mut Bencher,
+        f: impl Fn(usize, &Terrain, Angle) -> (Spread, SpreadAtAzimuth),
+    ) {
+        use rand::prelude::*;
+        let rng = &mut rand::rng();
+        let mut mkratio = { || Ratio::new::<ratio>(rng.random_range(0..10000) as f64 / 10000.0) };
+        let rng = &mut rand::rng();
+        let mut azimuth = { || Angle::new::<degree>(rng.random_range(0..36000) as f64 / 100.0) };
+        let rng = &mut rand::rng();
+        let args: Vec<(usize, Terrain, Angle)> = (0..1000)
+            .map(|_n| {
+                let model = rng.random_range(0..14);
+                let wind_speed =
+                    Velocity::new::<meter_per_second>(rng.random_range(0..10000) as f64 / 1000.0);
+                let terrain = Terrain {
+                    d1hr: mkratio(),
+                    d10hr: mkratio(),
+                    d100hr: mkratio(),
+                    herb: mkratio(),
+                    wood: mkratio(),
+                    wind_speed,
+                    wind_azimuth: azimuth(),
+                    slope: mkratio(),
+                    aspect: azimuth(),
+                };
+                (model, terrain, azimuth())
+            })
+            .collect();
+        b.iter(|| {
+            args.iter()
+                .map(|(model, terrain, az)| {
+                    f(*model, terrain, *az).1.speed.get::<meter_per_second>()
+                })
+                .sum::<f64>()
+        })
+    }
+    #[bench]
+    fn bench_firelib_rs(b: &mut Bencher) {
+        bench_spread_fn(b, firelib_rs_spread)
+    }
+
+    #[bench]
+    fn bench_firelib_c(b: &mut Bencher) {
+        bench_spread_fn(b, firelib_c_spread)
     }
 
     fn firelib_rs_spread(

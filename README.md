@@ -1,5 +1,6 @@
 # propag25
 
+[![.github/workflows/test.yml](https://github.com/albertov/propag25/actions/workflows/test.yml/badge.svg)](https://github.com/albertov/propag25/actions/workflows/test.yml)
 
 # Development (Linux)
 

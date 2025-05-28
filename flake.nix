@@ -54,6 +54,35 @@
             program = nixpkgs.lib.getExe drv;
             inherit (drv) version;
           };
+        toBareDEB =
+          let
+            pkgs = self.legacyPackages.x86_64-linux;
+          in
+          drv:
+          let
+            deps = drv.ubuntuDeps or [ ];
+            depends = pkgs.lib.concatMapStringsSep " " (x: "--deb-pre-depends ${x}") deps;
+            pkg = pkgs.ubuntize drv;
+          in
+          pkgs.runCommand "toBareDEB"
+            {
+              nativeBuildInputs = with pkgs; [
+                fpm
+                binutils
+              ];
+            }
+            ''
+              mkdir -p ./bin
+              cp -r ${pkg}/bin/* ./bin/
+              chmod -R a+rwx ./bin
+              fpm -s dir -t deb \
+                --name ${drv.pname} \
+                -v ${drv.version or "0.1"} \
+                ${depends} \
+                bin
+              mkdir -p $out
+              cp -r *.deb $out
+            '';
         toDockerImage =
           { ... }@drv:
           let
@@ -110,8 +139,8 @@
               name = "make_deb";
               runtimeInputs = [ pkgs.nix ];
               text = ''
-                nix bundle --bundler .#toDEB .# -o bundle
-                echo Produced DEB package at bundle/*
+                nix bundle --bundler .#toBareDEB .# -o bundle
+                echo Produced DEB package for Ubuntu noble at bundle/*
               '';
             };
           };

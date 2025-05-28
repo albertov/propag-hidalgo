@@ -77,17 +77,18 @@
   xz,
   zlib,
   zstd,
+  ...
 }:
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "gdal" + lib.optionalString useMinimalFeatures "-minimal";
-  version = "3.9.3";
+  version = "3.8.4"; # same version as ubuntu noble
 
   src = fetchFromGitHub {
     owner = "OSGeo";
     repo = "gdal";
     rev = "v${finalAttrs.version}";
-    hash = "sha256-8LY63s5vOVK0V37jQ60qFsaW/2D/13Xuy9/2OPLyTso=";
+    hash = "sha256-R9VLof13OXPbWGHOG1Q4WZWSPoF739C6WuNWxoIwKTw=";
   };
 
   patches = [

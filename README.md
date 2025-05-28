@@ -54,7 +54,10 @@ $ docker run --device nvidia.com/gpu=all -it --rm -v $(readlink -f bundle):/bund
 Inside the container, install the `*.deb` package in `/package` and run `propag`
 
 ```console
-# dpkg -i /bundle/*.deb
+# apt update
+(....)
+# apt install /bundle/*.deb
+(....)
 # propag
 Calculating with GPU Propag
 fire_pos=USizeVec2(500, 500)

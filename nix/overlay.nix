@@ -46,6 +46,9 @@ let
   };
 in
 {
+  fpm =
+    builtins.head
+      (inputs.nix-utils.rpmDebUtils.${system}.buildFakeSingleDeb null null).buildInputs;
 
   propag = final.callPackage ./pkgs/propag.nix {
     # Otherwise deb package is huge
@@ -93,10 +96,14 @@ in
 
   gdal-small = final.callPackage ./gdal.nix { };
 
-  gdal = prev.gdal.override {
-    useMinimalFeatures = true;
-    usePostgres = true;
-  };
+  gdal = final.gdal-small;
+
+  /*
+    gdal = prev.gdal.override {
+      useMinimalFeatures = true;
+      usePostgres = true;
+    };
+  */
 
   cudaPackages = prev.cudaPackages_12;
 
@@ -146,5 +153,18 @@ in
       clippy.packageOverrides.cargo = final.myRustToolchain;
     };
   };
+
+  ubuntize =
+    drv:
+    final.runCommandLocal "ubuntize" { nativeBuildInputs = [ final.patchelf ]; } ''
+      mkdir -p $out/bin
+      for f in ${drv}/bin/*; do
+        cp $f $out/bin
+        exe="$out/bin/$(basename $f)"
+        chmod +w $exe
+        patchelf --remove-rpath $exe
+        patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 $exe
+      done
+    '';
 
 }

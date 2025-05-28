@@ -19,7 +19,7 @@ use uom::si::velocity::meter_per_second;
 extern crate timeit;
 
 mod loader;
-const THREAD_BLOCK_AXIS_LENGTH: u32 = 16;
+const THREAD_BLOCK_AXIS_LENGTH: u32 = 24;
 
 static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
 static PTX_C: &str = include_str!("../../target/cuda/propag_c.ptx");
@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "Calculating with GPU Propag {}",
         std::mem::size_of::<Point>()
     );
-    let max_time: f32 = 60.0 * 60.0 * 5.0;
+    let max_time: f32 = 60.0 * 60.0 * 10.0;
     let geo_ref: GeoReference = GeoReference::south_up(
         (
             Vec2 { x: 0.0, y: 0.0 },

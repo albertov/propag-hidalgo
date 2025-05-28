@@ -91,3 +91,57 @@ impl From<FireSimpleCudaRef<'_>> for FireSimple {
         From::<FireSimpleCuda>::from(f.into())
     }
 }
+
+pub trait TerrainLoader {
+    fn load_extent(&self, geo_ref: &geometry::GeoReference) -> Option<TerrainCudaVec>;
+}
+
+#[repr(C)]
+struct FFITerrain {
+    d1hr: *mut float::T,
+    d10hr: *mut float::T,
+    d100hr: *mut float::T,
+    herb: *mut float::T,
+    wood: *mut float::T,
+    wind_speed: *mut float::T,
+    wind_azimuth: *mut float::T,
+    slope: *mut float::T,
+    aspect: *mut float::T,
+}
+
+#[repr(C)]
+struct FFITerrainLoader {
+    load: LoadFn,
+    context: *mut core::ffi::c_void,
+}
+
+type LoadFn = unsafe extern "C" fn(*mut core::ffi::c_void, &GeoReference, &mut FFITerrain) -> bool;
+
+impl FFITerrainLoader {
+    #[unsafe(no_mangle)]
+    pub extern "C" fn create_loader(load: LoadFn, context: *mut core::ffi::c_void) -> Self {
+        Self { load, context }
+    }
+}
+
+impl TerrainLoader for FFITerrainLoader {
+    fn load_extent(&self, geo_ref: &geometry::GeoReference) -> Option<TerrainCudaVec> {
+        let mut ret = TerrainCudaVec::with_capacity(geo_ref.len() as _);
+        let mut chunk = FFITerrain {
+            d1hr: ret.d1hr.as_mut_ptr(),
+            d10hr: ret.d10hr.as_mut_ptr(),
+            d100hr: ret.d100hr.as_mut_ptr(),
+            herb: ret.herb.as_mut_ptr(),
+            wood: ret.wood.as_mut_ptr(),
+            wind_speed: ret.wind_speed.as_mut_ptr(),
+            wind_azimuth: ret.wind_azimuth.as_mut_ptr(),
+            slope: ret.slope.as_mut_ptr(),
+            aspect: ret.aspect.as_mut_ptr(),
+        };
+        if unsafe { (self.load)(self.context, geo_ref, &mut chunk) } {
+            Some(ret)
+        } else {
+            None
+        }
+    }
+}

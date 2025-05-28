@@ -7,6 +7,8 @@ use firelib_rs::float::Angle;
 use firelib_rs::*;
 use geometry::{Coord, CoordFloat, GeoReference};
 use uom::si::angle::{degree, radian};
+use uom::si::velocity::meter_per_second;
+use uom::si::ratio::ratio;
 
 const BLOCK_WIDTH: usize = 16;
 const BLOCK_HEIGHT: usize = 16;
@@ -233,8 +235,11 @@ pub unsafe fn propag(
     }
 }
 
+// TODO: Fine-tune these constants and make them configurable
 fn similar_fires(a: &FireSimple, b: &FireSimple) -> bool {
-    todo!()
+    (a.speed_max - b.speed_max).abs().get::<meter_per_second>() < 0.5
+    && (a.azimuth_max - b.azimuth_max).abs().get::<degree>() < 5.0
+    && (a.eccentricity - b.eccentricity).abs().get::<ratio>() < 0.1
 }
 
 #[derive(Copy, Clone)]

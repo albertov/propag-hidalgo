@@ -20,8 +20,8 @@ let
   LLVM_LINK_SHARED = "1";
 
   workspaceArgs = {
-    src = final.lib.cleanSource ./.;
-    cargoLock.lockFile = ./Cargo.lock;
+    src = final.lib.cleanSource ../crates;
+    cargoLock.lockFile = ../crates/Cargo.lock;
     cargoLock.outputHashes = {
       "const_soft_float-0.1.4" = "sha256-fm2e3np+q4yZjAafkwbxTqUZBgVDrQ/l4hxMD+l7kMA=";
       "cuda_builder-0.3.0" = rust_cuda_sha256;
@@ -42,7 +42,7 @@ in
   firelib = final.myRustPlatform.buildRustPackage (
     workspaceArgs
     // {
-      inherit ((cargo ./firelib/Cargo.toml).package) version;
+      inherit ((cargo ../crates/firelib/Cargo.toml).package) version;
       pname = "firelib";
       buildAndTestSubdir = "firelib";
     }
@@ -68,7 +68,7 @@ in
   propag = final.myRustPlatform.buildRustPackage (
     workspaceArgs
     // {
-      inherit ((cargo ./propag/Cargo.toml).package) version;
+      inherit ((cargo ../crates/propag/Cargo.toml).package) version;
       pname = "propag";
       buildAndTestSubdir = "propag";
       buildInputs =
@@ -117,7 +117,7 @@ in
       }
     );
 
-  myRustToolchain = final.buildPackages.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+  myRustToolchain = final.buildPackages.rust-bin.fromRustupToolchainFile ../crates/rust-toolchain.toml;
 
   myRustPlatform = final.buildPackages.makeRustPlatform {
     stdenv = final.cudaPackages.backendStdenv;

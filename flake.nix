@@ -80,7 +80,7 @@
             inherit system;
             overlays = [
               rust-overlay.overlays.default
-              (import ./overlay.nix inputs)
+              (import ./nix/overlay.nix inputs)
               /*
                 (_:_: {
                   pkgs_2311 = import inputs.nixpkgs_old {
@@ -91,7 +91,7 @@
             ];
             config.allowUnfree = true;
           };
-          treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
+          treefmtEval = treefmt-nix.lib.evalModule pkgs ./nix/treefmt.nix;
         in
         {
           legacyPackages = pkgs;

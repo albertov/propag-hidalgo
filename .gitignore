@@ -6,3 +6,4 @@ rustc-ice*
 *.tif
 *.log
 bundle
+propag.docker

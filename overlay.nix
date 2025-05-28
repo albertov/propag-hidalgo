@@ -54,6 +54,7 @@ in
       cudaPackages.cuda_cudart.stubs
       cudaPackages.cuda_nvprof
       cudaPackages.cuda_cccl
+      cudaPackages.cuda_cccl.dev
       cudaPackages.cuda_nvcc
       cudaPackages.cuda_profiler_api.dev
       cudaPackages.cuda_cupti

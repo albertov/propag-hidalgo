@@ -50,6 +50,8 @@ typedef float T;
         .args([
             "-arch",
             "compute_62",
+            "-O3",
+            //"--restrict",
             //"--expt-relaxed-constexpr",
             "-ptx",
             "-I",

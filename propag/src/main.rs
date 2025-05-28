@@ -16,6 +16,7 @@ use uom::si::velocity::meter_per_second;
 #[macro_use]
 extern crate timeit;
 
+
 mod loader;
 const THREAD_BLOCK_AXIS_LENGTH: u32 = 16;
 
@@ -43,16 +44,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Generating input data");
     type OptionalVec<T> = Vec<Option<T>>;
-    let model: Vec<usize> = (0..len).map(|_n| 1).collect();
+    let mut model: Vec<usize> = (0..len).map(|_n| 1).collect();
     let d1hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
     let d10hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
     let d100hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
     let herb: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
     let wood: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
     let wind_speed: Vec<float::T> = (0..len).map(|_n| 5.0).collect();
-    let wind_azimuth: Vec<float::T> = (0..len).map(|_n| 1.0).collect();
-    let aspect: Vec<float::T> = (0..len).map(|_n| 0.0).collect();
-    let slope: Vec<float::T> = (0..len).map(|_n| PI).collect();
+    let wind_azimuth: Vec<float::T> = (0..len).map(|_n| 0.0).collect();
+    let aspect: Vec<float::T> = (0..len).map(|_n| PI).collect();
+    let slope: Vec<float::T> = (0..len).map(|_n| 0.0).collect();
 
     // initialize CUDA, this will pick the first available device and will
     // make a CUDA context from it.
@@ -93,10 +94,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let shmem_bytes = shmem_size * 64; //std::mem::size_of::<Point>() as u32;
                                        //assert_eq!(std::mem::size_of::<Point>(), 64);
 
+    let fire_pos = USizeVec2 { x: 500, y: 100 };
     println!(
-        "using grid_size={:?} blocks_size={:?} linear_grid_size={} for {} elems",
-        grid_size, block_size, linear_grid_size, len
+        "using geo_ref={:?} grid_size={:?} blocks_size={:?} linear_grid_size={} for {} elems",
+        geo_ref, grid_size, block_size, linear_grid_size, len
     );
+    //model[fire_pos.x + (fire_pos.y-50) * geo_ref.width as usize] = 4;
     // allocate the GPU memory needed to house our numbers and copy them over.
     let model_gpu = model.as_slice().as_dbuf()?;
     let d1hr_gpu = d1hr.as_slice().as_dbuf()?;
@@ -114,9 +117,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut refs_x: Vec<usize> = std::iter::repeat(Max::MAX).take(model.len()).collect();
     let mut refs_y: Vec<usize> = std::iter::repeat(Max::MAX).take(model.len()).collect();
     let max_time: f32 = 60.0 * 60.0 * 50.0;
-    let fire_pos = USizeVec2 { x: 500, y: 100 };
 
-    ({
+    timeit!({
         let mut speed_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
         let mut azimuth_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
         let mut eccentricity: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
@@ -158,12 +160,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                 )
             )?;
             stream.synchronize()?;
+            /*
             azimuth_max_buf.copy_to(&mut azimuth_max)?;
             assert!(azimuth_max.iter().all(|t| *t != 0.0));
             eccentricity_buf.copy_to(&mut eccentricity)?;
             assert!(eccentricity.iter().all(|t| *t != 0.0));
             speed_max_buf.copy_to(&mut speed_max)?;
             assert!(speed_max.iter().all(|t| *t != 0.0));
+            */
             //println!("loop");
             let mut no_progress_iters = 0;
             loop {
@@ -203,32 +207,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                     refs_x.iter().filter(|x| *x < &Max::MAX).count(),
                     refs_y.iter().filter(|x| *x < &Max::MAX).count(),
                 );
-                /*
-                let num_times_after = time.iter().filter(|t| t.is_some()).count();
-                assert_eq!(
-                    num_times_after,
-                    refs_x.iter().filter(|x|x.is_some()).count(),
-                );
-                if num_times_after == num_times {
-                    break;
-                };
-                println!("config_max_time={}", max_time);
-                println!(
-                    "max_time={:?}",
-                    time.iter()
-                        .filter_map(|x| *x)
-                        .max()
-                );
-                */
                 progress_buf.copy_to(&mut progress)?;
+                /*
                 println!(
                     "progress={:?}",
                     progress.as_slice().iter().filter(|p| **p > 0).count(),
                 );
+                */
                 if progress.iter().all(|x| *x == 0) {
                     break;
                 }
-                //break;
             }
         };
         time_buf.copy_to(&mut time)?;

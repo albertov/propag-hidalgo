@@ -2,7 +2,7 @@
 use ::geometry::*;
 use cust::function::{BlockSize, GridSize};
 use cust::prelude::*;
-use firelib_cuda::{Settings,Point, HALO_RADIUS};
+use firelib_cuda::{Point, Settings, HALO_RADIUS};
 use firelib_rs::float;
 use firelib_rs::float::*;
 use firelib_rs::*;
@@ -70,8 +70,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let pre_burn = module.get_function("standard_simple_burn")?;
 
     let grid_size = GridSize {
-        x: geo_ref.size[0].div_ceil(THREAD_BLOCK_AXIS_LENGTH),
-        y: geo_ref.size[1].div_ceil(THREAD_BLOCK_AXIS_LENGTH),
+        x: geo_ref.width.div_ceil(THREAD_BLOCK_AXIS_LENGTH),
+        y: geo_ref.height.div_ceil(THREAD_BLOCK_AXIS_LENGTH),
         z: 1,
     };
     let linear_grid_size: usize = (grid_size.x * grid_size.y * grid_size.z) as usize;
@@ -83,8 +83,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let linear_block_size = block_size.x * block_size.y * block_size.z;
     let radius = HALO_RADIUS as u32;
-    let shmem_size = ((block_size.x + radius * 2)
-                   * (block_size.y + radius * 2));
+    let shmem_size = ((block_size.x + radius * 2) * (block_size.y + radius * 2));
     let shmem_bytes = shmem_size * std::mem::size_of::<Point>() as u32;
 
     println!(
@@ -122,9 +121,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         time.fill(Max::MAX);
         refs_x.fill(Max::MAX);
         refs_y.fill(Max::MAX);
-        time[(fire_pos.x + fire_pos.y * geo_ref.size[0] as usize)] = 0.0;
-        refs_x[(fire_pos.x + fire_pos.y * geo_ref.size[0] as usize)] = fire_pos.x;
-        refs_y[(fire_pos.x + fire_pos.y * geo_ref.size[0] as usize)] = fire_pos.y;
+        time[(fire_pos.x + fire_pos.y * geo_ref.width as usize)] = 0.0;
+        refs_x[(fire_pos.x + fire_pos.y * geo_ref.width as usize)] = fire_pos.x;
+        refs_y[(fire_pos.x + fire_pos.y * geo_ref.width as usize)] = fire_pos.y;
 
         let mut speed_max_buf = speed_max.as_slice().as_dbuf()?;
         let mut azimuth_max_buf = azimuth_max.as_slice().as_dbuf()?;
@@ -163,7 +162,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                     eccentricity_buf.as_device_ptr(),
                 )
             )?;
-            let width = geo_ref.size[0];
             stream.synchronize()?;
             //println!("loop");
             let mut no_progress_iters = 0;

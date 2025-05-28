@@ -151,14 +151,16 @@ impl GeoTransform {
 #[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
 #[repr(C)]
 pub struct GeoReference {
-    pub size: [u32; 2],
+    pub width: u32,
+    pub height: u32,
     pub epsg: u32,
     pub transform: GeoTransform,
 }
 
 impl GeoReference {
-    pub fn len(&self) -> u32 {
-        self.size[0] * self.size[1]
+    #[unsafe(no_mangle)]
+    pub extern "C" fn len(&self) -> u32 {
+        self.width * self.height
     }
 
     pub fn forward(&self, p: Vec2) -> USizeVec2 {
@@ -171,13 +173,12 @@ impl GeoReference {
         let Vec2 { x: dx, y: dy } = pixel_size;
         let (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }) = bbox;
         let transform = GeoTransform::new([x0, dx, 0.0, y0, 0.0, dy])?;
-        let size = [
-            NumCast::from((x1 - x0) / dx)?,
-            NumCast::from((y1 - y0) / dy)?,
-        ];
+        let width = NumCast::from((x1 - x0) / dx)?;
+        let height = NumCast::from((y1 - y0) / dy)?;
         Some(GeoReference {
             transform,
-            size,
+            width,
+            height,
             epsg,
         })
     }
@@ -185,31 +186,31 @@ impl GeoReference {
         let Vec2 { x: dx, y: dy } = pixel_size;
         let (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }) = bbox;
         let transform = GeoTransform::new([x0, dx, 0.0, y1, 0.0, -dy])?;
-        let size = [
-            NumCast::from((x1 - x0) / dx)?,
-            NumCast::from((y1 - y0) / dy)?,
-        ];
+        let width = NumCast::from((x1 - x0) / dx)?;
+        let height = NumCast::from((y1 - y0) / dy)?;
         Some(GeoReference {
             transform,
-            size,
+            width,
+            height,
             epsg,
         })
     }
     pub fn bbox(&self) -> (Vec2, Vec2) {
         let Self {
-            transform, size, ..
+            transform,
+            width,
+            height,
+            ..
         } = self;
-        let size = [
-            <f32 as NumCast>::from(size[0]).expect("T from u32 failed"),
-            <f32 as NumCast>::from(size[1]).expect("T from u32 failed"),
-        ];
+        let width = <f32 as NumCast>::from(*width).expect("T from u32 failed");
+        let height = <f32 as NumCast>::from(*height).expect("T from u32 failed");
         //assert!(dx > 0.0 && dy > 0.0 && rx == 0.0 && ry == 0.0);
         let origin = transform.origin();
         (
             origin,
             Vec2 {
-                x: transform.dx() * size[0],
-                y: transform.dy() * size[1],
+                x: transform.dx() * width,
+                y: transform.dy() * height,
             },
         )
     }

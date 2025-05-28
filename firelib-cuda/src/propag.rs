@@ -17,7 +17,7 @@ use uom::si::angle::{degree, radian};
 use uom::si::ratio::ratio;
 use uom::si::velocity::meter_per_second;
 
-pub const HALO_RADIUS: usize = 2;
+pub const HALO_RADIUS: usize = 4;
 
 #[kernel]
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
@@ -36,10 +36,8 @@ pub unsafe fn propag(
     let Settings { geo_ref, max_time } = settings;
     let when_lt_max_time = |p: Point| if p.time < max_time { Some(p) } else { None };
 
-
     // Dimensions of the total area
-    let width = geo_ref.size[0] as u32;
-    let height = geo_ref.size[1] as u32;
+    let GeoReference { width, height, .. } = geo_ref;
     // Index of this thread into total area
     let idx_2d = thread::index_2d();
     // Our position in global pixel coords
@@ -64,7 +62,7 @@ pub unsafe fn propag(
             y: pos.y as _,
         };
         let pos = pos + IVec2 { x, y };
-        if pos.x >= 0 && pos.y >= 0 && pos.x < width as i32  && pos.y < height as i32 {
+        if pos.x >= 0 && pos.y >= 0 && pos.x < width as i32 && pos.y < height as i32 {
             let pos = USizeVec2 {
                 x: pos.x as _,
                 y: pos.y as _,
@@ -103,11 +101,11 @@ pub unsafe fn propag(
                     refs_x,
                     refs_y,
                 );
-                *shared.add(shared_off) = p.unwrap_or(Point::NULL);
+                write_shared(shared.add(shared_off), p.unwrap_or(Point::NULL));
                 p
             }
             (Some(shared_off), None) => {
-                *shared.add(shared_off) = Point::NULL;
+                write_shared(shared.add(shared_off), Point::NULL);
                 None
             }
             (None, Some(_)) => {
@@ -155,6 +153,7 @@ pub unsafe fn propag(
 
     ////////////////////////////////////////////////////////////////////////
     // Begin neighbor analysys
+    ////////////////////////////////////////////////////////////////////////
     let mut best_fire: Option<Point> = None;
     let improved = if is_new && in_bounds {
         for neighbor in iter_neighbors(&geo_ref, shared) {
@@ -175,14 +174,14 @@ pub unsafe fn propag(
                     x: candidate.pos().x as _,
                     y: candidate.pos().y as _,
                 };
-                let possible_blockage_pos = neighbor_in_direction(pos, candidate_pos);
-                if possible_blockage_pos != pos  {
+                let possible_blockage_pos = geometry::neighbor_in_direction(pos, candidate_pos);
+                if possible_blockage_pos != pos {
                     let possible_blockage_pos = USizeVec2 {
                         x: possible_blockage_pos.x as _,
                         y: possible_blockage_pos.y as _,
                     };
                     let shared_blockage_ix = compute_shared_ix(&possible_blockage_pos);
-                    let possible_blockage = *shared.add(shared_blockage_ix);
+                    let possible_blockage = read_shared(shared.add(shared_blockage_ix));
                     if possible_blockage != Point::NULL
                         && possible_blockage.fire != FireSimpleCuda::NULL
                         && similar_fires(possible_blockage.fire, candidate.fire)
@@ -265,11 +264,7 @@ pub unsafe fn propag(
             },
             */
             Some(best_fire) => {
-                /*
-                if Some(ix) = compute_shared_ix(&pos) {
-                    *shared.add(ix) = best_fire;
-                };
-                */
+                write_shared(shared.add(compute_shared_ix(&pos)), best_fire);
                 best_fire.save(global_ix, time, refs_x, refs_y);
                 1
             }
@@ -392,7 +387,7 @@ impl Point {
                     panic!();
                 };
                 let ref_pos = USizeVec2 { x: ref_x, y: ref_y };
-                let ref_ix: usize = ref_pos.x + ref_pos.y * geo_ref.size[0] as usize;
+                let ref_ix: usize = ref_pos.x + ref_pos.y * geo_ref.width as usize;
                 let fire =
                     load_fire(ref_ix, speed_max, azimuth_max, eccentricity).expect("can't be NULL");
                 let r_time = read_volatile(time.add(ref_ix));
@@ -472,7 +467,14 @@ impl Neighbor {
 #[repr(C)]
 pub struct Settings {
     pub geo_ref: GeoReference,
-    pub max_time: f32
+    pub max_time: f32,
+}
+
+impl Settings {
+    #[unsafe(no_mangle)]
+    pub extern "C" fn create(geo_ref: GeoReference, max_time: f32) -> Self {
+        Self { geo_ref, max_time }
+    }
 }
 
 unsafe fn iter_neighbors(
@@ -480,8 +482,7 @@ unsafe fn iter_neighbors(
     shared: *const Point,
 ) -> impl Iterator<Item = Neighbor> {
     // Dimensions of the total area
-    let width = geo_ref.size[0] as u32;
-    let height = geo_ref.size[1] as u32;
+    let GeoReference { width, height, .. } = *geo_ref;
     // Index of this thread into total area
     let idx_2d = thread::index_2d();
     (-1..2)
@@ -502,7 +503,7 @@ unsafe fn iter_neighbors(
                     y: pos.y as usize,
                 };
                 let shared_mem_ix = compute_shared_ix(&pos);
-                let point = *shared.add(shared_mem_ix);
+                let point = read_shared(shared.add(shared_mem_ix));
                 Some(Neighbor { pos, point })
             }
         })
@@ -568,25 +569,13 @@ unsafe fn write_volatile<T: Copy>(p: *mut T, v: T) {
     *p = v
     //core::intrinsics::volatile_store(p, v)
 }
-fn neighbor_in_direction(from: IVec2, to: IVec2) -> IVec2 {
-    if from == to {
-        from
-    } else {
-        let IVec2 { x, y } = from;
-        let step = (to - from).signum();
-        let t_max = (to - from).abs();
-        if t_max.x == t_max.y {
-            IVec2 {
-                x: x + step.x,
-                y: y + step.y,
-            }
-        } else if t_max.x > t_max.y {
-            IVec2 {
-                x: step.x + x,
-                y: y,
-            }
-        } else {
-            IVec2 { x, y: step.y + y }
-        }
-    }
+#[inline(always)]
+unsafe fn read_shared<T: Copy>(p: *const T) -> T {
+    *p
+    //core::ptr::read_volatile(p)
+}
+#[inline(always)]
+unsafe fn write_shared<T: Copy>(p: *mut T, v: T) {
+    *p = v
+    //core::ptr::write_volatile(p, v)
 }

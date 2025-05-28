@@ -43,8 +43,8 @@ impl WarpedDataset {
             let mut gt = geo_ref.transform.as_array_64();
             let dst_ds = GDALCreateWarpedVRT(
                 src.c_dataset(),
-                geo_ref.size[0] as i32,
-                geo_ref.size[1] as i32,
+                geo_ref.width as i32,
+                geo_ref.height as i32,
                 gt.as_mut_ptr(),
                 opts,
             );
@@ -83,7 +83,7 @@ mod tests {
             )
             .unwrap();
             let d = DriverManager::get_driver_by_name("MEM")?;
-            let mut ds = d.create("in-memory", geo_ref.size[0] as _, geo_ref.size[1] as _, 3)?;
+            let mut ds = d.create("in-memory", geo_ref.width as _, geo_ref.height as _, 3)?;
             ds.set_spatial_ref(&to_spatial_ref(geo_ref.epsg.clone())?)?;
             ds.set_geo_transform(&geo_ref.transform.as_array_64())?;
             assert_eq!(ds.raster_count(), 3);

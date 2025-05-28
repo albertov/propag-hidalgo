@@ -8,9 +8,6 @@ use propag::propag::Settings;
 use propag::propag::{propagate, Propagation, TimeFeature};
 use std::error::Error;
 
-#[macro_use]
-extern crate timeit;
-
 fn main() -> Result<(), Box<dyn Error>> {
     let max_time: f32 = 60.0 * 60.0 * 10.0;
     let px = Vec2 { x: 5.0, y: 5.0 };
@@ -58,7 +55,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }),
     };
 
-    timeit!({
+    ({
         let result = propagate(&propag)?;
         let good_times: Vec<f32> = result
             .time

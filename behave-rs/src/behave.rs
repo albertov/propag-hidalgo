@@ -29,6 +29,27 @@ impl Terrain {
     }
 }
 
+impl SpreadAtAzimuth {
+    fn almost_eq(&self, other: &SpreadAtAzimuth) -> bool {
+        fn cmp(msg: &str, a: f64, b: f64) -> bool {
+            let r = (a - b).abs() < SMIDGEN;
+            if !r {
+                println!("{}: {} /= {}", msg, a, b);
+            }
+            r
+        }
+        cmp(
+            "speed",
+            self.speed.get::<foot_per_minute>(),
+            other.speed.get::<foot_per_minute>(),
+        ) && cmp(
+            "byrams",
+            self.byrams.get::<btu_foot_sec>(),
+            other.byrams.get::<btu_foot_sec>(),
+        ) && cmp("flame", self.flame.get::<foot>(), other.flame.get::<foot>())
+    }
+}
+
 impl Spread {
     pub fn no_spread() -> Spread {
         Spread {
@@ -45,8 +66,30 @@ impl Spread {
     }
 
     pub fn at_azimuth(&self, azimuth: Angle) -> SpreadAtAzimuth {
-        // TODO
-        SpreadAtAzimuth::no_spread()
+        let azimuth = azimuth.get::<radian>();
+        let azimuth_max = self.azimuth_max.get::<radian>();
+        let angle = {
+            let ret = (azimuth - azimuth_max).abs();
+            if ret > PI {
+                2.0 * PI - ret
+            } else {
+                ret
+            }
+        };
+        let ecc = self.eccentricity.get::<ratio>();
+        let factor = if (azimuth - azimuth_max).abs() < SMIDGEN {
+            1.0
+        } else {
+            safe_div(1.0 - ecc, 1.0 - ecc * angle.cos())
+        };
+        let byrams = self.byrams_max.get::<btu_foot_sec>() * factor;
+        SpreadAtAzimuth {
+            speed: Velocity::new::<foot_per_minute>(
+                self.speed_max.get::<foot_per_minute>() * factor,
+            ),
+            byrams: LinearPowerDensity::new::<btu_foot_sec>(byrams),
+            flame: Length::new::<foot>(flame_length(byrams)),
+        }
     }
 
     fn almost_eq(&self, other: &Spread) -> bool {
@@ -626,28 +669,33 @@ mod tests {
 
     quickcheck::quickcheck! {
         fn behave_rs_produces_same_output_as_firelib(terrain: Terrain, model: ValidModel, azimuth: ValidAzimuth) -> bool {
-            let (behave_sp, _behave_sp_az) = behave_rs_spread(model.0, &terrain, azimuth.0);
-            let (firelib_sp, _firelib_sp_az) = firelib_spread(model.0, &terrain, azimuth.0);
-            Spread::almost_eq(&behave_sp, &firelib_sp)
+            let az = Angle::new::<degree>(azimuth.0);
+            let (behave_sp, behave_sp_az) = behave_rs_spread(model.0, &terrain, az);
+            let (firelib_sp, firelib_sp_az) = firelib_spread(model.0, &terrain, az);
+            Spread::almost_eq(&behave_sp, &firelib_sp) && SpreadAtAzimuth::almost_eq(&behave_sp_az, &firelib_sp_az)
         }
     }
 
     fn behave_rs_spread(
         model: usize,
         terrain: &Terrain,
-        azimuth: f64,
+        azimuth: Angle,
     ) -> (Spread, SpreadAtAzimuth) {
         match STANDARD_CATALOG.get(model) {
             Some(fuel) => {
                 let spread = fuel.combustion().spread(terrain);
-                let spread_az = spread.at_azimuth(Angle::new::<degree>(azimuth));
+                let spread_az = spread.at_azimuth(azimuth);
                 (spread, spread_az)
             }
             None => (Spread::no_spread(), SpreadAtAzimuth::no_spread()),
         }
     }
 
-    fn firelib_spread(model: usize, terrain: &Terrain, azimuth: f64) -> (Spread, SpreadAtAzimuth) {
+    fn firelib_spread(
+        model: usize,
+        terrain: &Terrain,
+        azimuth: Angle,
+    ) -> (Spread, SpreadAtAzimuth) {
         unsafe {
             let name = CString::new("standard").unwrap();
             let catalog = Fire_FuelCatalogCreateStandard(name.as_ptr(), 20);
@@ -690,9 +738,10 @@ mod tests {
             Fire_SpreadAtAzimuth(
                 catalog,
                 model,
-                azimuth,
+                azimuth.get::<degree>(),
                 (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
             );
+            let f = *fuel;
             let spread_az = SpreadAtAzimuth {
                 speed: Velocity::new::<foot_per_minute>(f.spreadAny),
                 byrams: LinearPowerDensity::new::<btu_foot_sec>(f.byrams),

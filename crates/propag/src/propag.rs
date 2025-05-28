@@ -1,8 +1,18 @@
 use ::firelib::float;
 use ::firelib::float::*;
 use ::firelib::*;
+use core::ffi::c_char;
+use gdal::errors::GdalError::CplError;
+use gdal::raster::Buffer;
+use gdal::raster::RasterCreationOptions;
+use gdal::spatial_ref::SpatialRef;
+use gdal::DriverManager;
+use gdal_sys::CPLErr::CE_None;
+use gdal_sys::OGRGeometryH;
 use geometry::GeoReference;
+use min_max_traits::Max;
 use soa_derive::StructOfArray;
+use std::ffi::CStr;
 
 //FIXME: Use the C version as source of truth with bindgen
 pub const HALO_RADIUS: i32 = 1;
@@ -32,11 +42,8 @@ impl Settings {
 }
 
 pub struct Propagation {
-    pub max_time: f32,
-    pub find_ref_change: bool,
-    pub epsg: u32,
-    pub res_x: f32,
-    pub res_y: f32,
+    pub settings: Settings,
+    pub output_path: String,
     pub initial_ignited_elements: Vec<TimeFeature>,
     pub terrain_loader: Box<dyn TerrainLoader>,
 }
@@ -125,11 +132,8 @@ impl TryFrom<&FFITimeFeature> for TimeFeature {
 
 #[repr(C)]
 pub struct FFIPropagation {
-    max_time: f32,
-    find_ref_change: bool,
-    epsg: u32,
-    res_x: f32,
-    res_y: f32,
+    settings: Settings,
+    output_path: *const c_char,
     initial_ignited_elements: *const FFITimeFeature,
     initial_ignited_elements_len: usize,
     terrain_loader: FFITerrainLoader,
@@ -144,12 +148,11 @@ impl From<FFIPropagation> for Propagation {
             .iter()
             .filter_map(|x| TimeFeature::try_from(x).ok())
             .collect();
+        let output_path = unsafe { CStr::from_ptr(p.output_path) };
+        let output_path = String::from_utf8_lossy(output_path.to_bytes()).to_string();
         Propagation {
-            max_time: p.max_time,
-            find_ref_change: p.find_ref_change,
-            epsg: p.epsg,
-            res_x: p.res_x,
-            res_y: p.res_y,
+            settings: p.settings,
+            output_path,
             initial_ignited_elements,
             terrain_loader: Box::new(p.terrain_loader),
         }
@@ -157,8 +160,38 @@ impl From<FFIPropagation> for Propagation {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ffi_run_propagation(propag: &FFIPropagation) {
-    todo!()
+pub extern "C" fn ffi_run_propagation(propag: FFIPropagation) {
+    let propag: Propagation = propag.into();
+    let geo_ref = propag.settings.geo_ref;
+    if let Ok(times) = rasterize_times(&propag.initial_ignited_elements, &geo_ref) {
+        let _ = write_times(times, &geo_ref, propag.output_path);
+    }
+}
+
+fn write_times(
+    times: Vec<f32>,
+    geo_ref: &GeoReference,
+    output_path: String,
+) -> gdal::errors::Result<()> {
+    let gtiff = DriverManager::get_driver_by_name("GTIFF")?;
+    let options =
+        RasterCreationOptions::from_iter(["TILED=YES", "BLOCKXSIZE=256", "BLOCKYSIZE=256"]);
+    let mut ds = gtiff.create_with_band_type_with_options::<f32, _>(
+        output_path,
+        geo_ref.width as usize,
+        geo_ref.height as usize,
+        1,
+        &options,
+    )?;
+    let srs = SpatialRef::from_epsg(geo_ref.epsg)?;
+    ds.set_spatial_ref(&srs)?;
+    ds.set_geo_transform(&geo_ref.transform.as_array_64())?;
+    let mut band = ds.rasterband(1)?;
+    let no_data: f32 = Max::MAX;
+    band.set_no_data_value(Some(no_data as f64))?;
+    let mut buf = Buffer::new(band.size(), times);
+    band.write((0, 0), band.size(), &mut buf)?;
+    Ok(())
 }
 
 pub trait TerrainLoader {
@@ -207,5 +240,48 @@ impl TerrainLoader for FFITerrainLoader {
         } else {
             None
         }
+    }
+}
+
+pub fn rasterize_times(
+    times: &Vec<TimeFeature>,
+    geo_ref: &GeoReference,
+) -> gdal::errors::Result<Vec<f32>> {
+    let d = DriverManager::get_driver_by_name("MEM")?;
+    let mut ds = d.create("in-memory", geo_ref.width as _, geo_ref.height as _, 1)?;
+    ds.set_spatial_ref(&SpatialRef::from_epsg(geo_ref.epsg.clone())?)?;
+    ds.set_geo_transform(&geo_ref.transform.as_array_64())?;
+    let mut b = ds.rasterband(1)?;
+    let no_data: f32 = Max::MAX;
+    b.set_no_data_value(Some(no_data as f64))?;
+    b.fill(no_data as f64, None)?;
+    let time_values: Vec<f64> = times.iter().map(|f| f.time as f64).collect();
+    let ret = unsafe {
+        let geoms: Vec<OGRGeometryH> = times.iter().map(|f| f.geom.c_geometry()).collect();
+        gdal_sys::GDALRasterizeGeometries(
+            ds.c_dataset(),
+            1,
+            [1i32].as_ptr(),
+            geoms.len() as _,
+            geoms.as_ptr(),
+            None,
+            core::ptr::null_mut(),
+            time_values.as_ptr(),
+            core::ptr::null_mut(),
+            None,
+            core::ptr::null_mut(),
+        )
+    };
+    if ret == CE_None {
+        ds.flush_cache()?;
+        let b = ds.rasterband(1)?;
+        let buf = b.read_band_as()?;
+        Ok(buf.into_shape_and_vec().1)
+    } else {
+        Err(CplError {
+            class: ret,
+            number: -1,
+            msg: "GDALRasterizeGeometries".to_string(),
+        })
     }
 }

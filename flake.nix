@@ -110,7 +110,7 @@
       systems = [
         # systems for which you want to build the `perSystem` attributes
         "x86_64-linux"
-        "aarch64-darwin"
+        #"aarch64-darwin"
         # ...
       ];
       perSystem =

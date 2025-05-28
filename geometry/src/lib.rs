@@ -171,10 +171,7 @@ where
     pub fn is_north_up(&self) -> bool {
         self.transform.is_north_up()
     }
-    /*
-    azimuth (Coord x0 y0) (Coord x1 y1)
-          = atan2 (x1-x0) (y1-y0)
-    */
+
     // Azimuth (radian)
     pub fn bearing(&self, a: Coord<T>, b: Coord<T>) -> T {
         if self.is_north_up() {
@@ -182,6 +179,12 @@ where
         } else {
             Float::atan2(b.x - a.x, b.y - a.y)
         }
+    }
+    pub fn distance(&self, a: Coord<T>, b: Coord<T>) -> T {
+        Float::sqrt(
+            ((a.x - b.x) * self.transform.dx()).powi(2)
+                + ((a.y - b.y) * self.transform.dy()).powi(2),
+        )
     }
 }
 

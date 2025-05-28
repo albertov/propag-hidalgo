@@ -1,5 +1,6 @@
 use core::ops::Div;
 use cuda_std::prelude::*;
+use uom::num_traits::{NumCast};
 use cuda_std::thread::*;
 use cuda_std::*;
 use firelib_rs::float;
@@ -7,8 +8,8 @@ use firelib_rs::float::Angle;
 use firelib_rs::*;
 use geometry::{Coord, CoordFloat, GeoReference};
 use uom::si::angle::{degree, radian};
-use uom::si::velocity::meter_per_second;
 use uom::si::ratio::ratio;
+use uom::si::velocity::meter_per_second;
 
 const BLOCK_WIDTH: usize = 16;
 const BLOCK_HEIGHT: usize = 16;
@@ -88,134 +89,94 @@ pub unsafe fn propag(
         // Begin neighbor analysys
         ////////////////////////////////////////////////////////////////////////
         let mut best_fire: Option<Point<float::T>> = None;
-        for neighbor in iter_neighbors(&geo_ref) {
-            if let Some(neigh) = *shared.wrapping_add(neighbor.shared_mem_ix()) {
-                // neighbor has fire
-                let fire: Option<FireSimple> = (*shared.wrapping_add(shared_ix)).map_or(
+        for neighbor in iter_neighbors(&geo_ref, shared) {
+            // neighbor has fire
+            let fire: Option<FireSimple> = (*shared.wrapping_add(shared_ix)).map_or(
+                {
+                    let terrain = TerrainCuda {
+                        d1hr: d1hr[idx],
+                        d10hr: d10hr[idx],
+                        d100hr: d100hr[idx],
+                        herb: herb[idx],
+                        wood: wood[idx],
+                        wind_speed: wind_speed[idx],
+                        wind_azimuth: wind_azimuth[idx],
+                        slope: slope[idx],
+                        aspect: aspect[idx],
+                    };
+                    Catalog::STANDARD.burn_simple(model[idx], &terrain.into())
+                },
+                |p| p.fire,
+            );
+            let reference = (|| {
+                let neigh_ref = neighbor.point.effective_ref(pos)?;
+                let pos = Coord {
+                    x: pos.x as float::T,
+                    y: pos.y as float::T,
+                };
+                let other = Coord {
+                    x: neigh_ref.pos.x as float::T,
+                    y: neigh_ref.pos.y as float::T,
+                };
+                let possible_blockage_pos = geometry::line_to(pos, other).nth(1)?;
+                let shared_blockage_ix = {
+                    if possible_blockage_pos.x >= 0.0
+                        && possible_blockage_pos.x < BLOCK_WIDTH as float::T
+                        && possible_blockage_pos.y >= 0.0
+                        && possible_blockage_pos.y < BLOCK_HEIGHT as float::T
                     {
-                        let terrain = TerrainCuda {
-                            d1hr: d1hr[idx],
-                            d10hr: d10hr[idx],
-                            d100hr: d100hr[idx],
-                            herb: herb[idx],
-                            wood: wood[idx],
-                            wind_speed: wind_speed[idx],
-                            wind_azimuth: wind_azimuth[idx],
-                            slope: slope[idx],
-                            aspect: aspect[idx],
-                        };
-                        Catalog::STANDARD.burn_simple(model[idx], &terrain.into())
-                    },
-                    |p| p.fire,
-                );
-                let reference = (|| {
-                    let neigh_ref = neigh.effective_ref(pos)?;
-                    let pos = Coord {
-                        x: pos.x as float::T,
-                        y: pos.y as float::T,
-                    };
-                    let other = Coord {
-                        x: neigh_ref.pos.x as float::T,
-                        y: neigh_ref.pos.y as float::T,
-                    };
-                    let possible_blockage_pos = geometry::line_to(pos, other).nth(1)?;
-                    let shared_blockage_ix = {
-                        if possible_blockage_pos.x >= 0.0
-                            && possible_blockage_pos.x < BLOCK_WIDTH as float::T
-                            && possible_blockage_pos.y >= 0.0
-                            && possible_blockage_pos.y < BLOCK_HEIGHT as float::T
-                        {
-                            Some(
-                                possible_blockage_pos.x as usize
-                                    + possible_blockage_pos.y as usize * BLOCK_WIDTH,
-                            )
-                        } else {
-                            None
-                        }
-                    }?;
-                    let possible_blockage = (*shared.wrapping_add(shared_blockage_ix))?;
-                    let blockage_fire = possible_blockage.fire?;
-                    if similar_fires(&blockage_fire, &neigh.fire?) {
-                        Some(neigh_ref)
+                        Some(
+                            possible_blockage_pos.x as usize
+                                + possible_blockage_pos.y as usize * BLOCK_WIDTH,
+                        )
                     } else {
                         None
                     }
-                })();
-                let point = match (fire, reference) {
-                    (Some(fire), Some(reference)) => {
-                        if similar_fires(&fire, &reference.fire) {
-                            let bearing = Angle::new::<radian>(geo_ref.bearing(
-                                Coord {
-                                    x: reference.pos.x as _,
-                                    y: reference.pos.y as _,
-                                },
-                                Coord {
-                                    x: pos.x as _,
-                                    y: pos.y as _,
-                                },
-                            ) as _);
-                            let speed = reference.fire.spread(bearing);
-                            let time = 0.0;
-                            Some(Point {
-                                time,
-                                fire: Some(fire),
-                                reference: Some(reference),
-                            })
-                        } else {
-                            let bearing = Angle::new::<radian>(geo_ref.bearing(
-                                Coord {
-                                    x: neighbor.global_pos.x as _,
-                                    y: neighbor.global_pos.y as _,
-                                },
-                                Coord {
-                                    x: pos.x as _,
-                                    y: pos.y as _,
-                                },
-                            ) as _);
-                            match neigh.fire {
-                                Some(neigh_fire) => {
-                                    let speed = neigh_fire.spread(bearing);
-                                    let time = 0.0;
-                                    Some(Point {
-                                        time,
-                                        fire: Some(fire),
-                                        reference: None,
-                                    })
-                                }
-                                None => None,
-                            }
-                        }
-                    }
-                    (Some(fire), None) => {
-                        todo!()
-                    }
-                    (None, Some(reference)) => {
-                        let bearing = Angle::new::<radian>(geo_ref.bearing(
-                            Coord {
-                                x: reference.pos.x as _,
-                                y: reference.pos.y as _,
-                            },
-                            Coord {
-                                x: pos.x as _,
-                                y: pos.y as _,
-                            },
-                        ) as _);
-                        let speed = reference.fire.spread(bearing).speed();
-                        let time = 0.0;
+                }?;
+                let possible_blockage = (*shared.wrapping_add(shared_blockage_ix))?;
+                let blockage_fire = possible_blockage.fire?;
+                if similar_fires(&blockage_fire, &neighbor.point.fire?) {
+                    Some(neigh_ref)
+                } else {
+                    None
+                }
+            })();
+            let point = match (fire, reference) {
+                (Some(fire), Some(reference)) => {
+                    if similar_fires(&fire, &reference.fire) {
+                        let time = reference.access_time(&geo_ref, pos);
                         Some(Point {
                             time,
-                            fire: None,
+                            fire: Some(fire),
                             reference: Some(reference),
                         })
+                    } else {
+                        match neighbor.as_reference() {
+                            Some(reference) => {
+                                let time = reference.access_time(&geo_ref, pos);
+                                Some(Point {
+                                    time,
+                                    fire: Some(fire),
+                                    reference: Some(reference),
+                                })
+                            }
+                            None => None,
+                        }
                     }
-                    (None, None) => None,
-                };
-                best_fire = match (point, best_fire) {
-                    (Some(point), Some(best_fire)) if point.time < best_fire.time => {
-                        Some(point)
-                    }
-                    _ => best_fire,
-                };
+                }
+                (None, Some(reference)) => {
+                    let time = reference.access_time(&geo_ref, pos);
+                    Some(Point {
+                        time,
+                        fire: None,
+                        reference: Some(reference),
+                    })
+                }
+                (_, None) => None,
+            };
+            best_fire = match (point, best_fire) {
+                (Some(point), Some(best_fire)) if point.time < best_fire.time => Some(point),
+                _ => best_fire,
             };
         }
         ///////////////////////////////////////////////////
@@ -238,8 +199,30 @@ pub unsafe fn propag(
 // TODO: Fine-tune these constants and make them configurable
 fn similar_fires(a: &FireSimple, b: &FireSimple) -> bool {
     (a.speed_max - b.speed_max).abs().get::<meter_per_second>() < 0.5
-    && (a.azimuth_max - b.azimuth_max).abs().get::<degree>() < 5.0
-    && (a.eccentricity - b.eccentricity).abs().get::<ratio>() < 0.1
+        && (a.azimuth_max - b.azimuth_max).abs().get::<degree>() < 5.0
+        && (a.eccentricity - b.eccentricity).abs().get::<ratio>() < 0.1
+}
+
+impl<T:CoordFloat> PointRef<T> {
+    fn access_time(
+        &self,
+        geo_ref: &GeoReference<f64>,
+        to: Coord<usize>,
+    ) -> float::T {
+        let from_pos = Coord {
+            x: self.pos.x as _,
+            y: self.pos.y as _,
+        };
+        let to = Coord {
+            x: to.x as _,
+            y: to.y as _,
+        };
+        let bearing = Angle::new::<radian>(geo_ref.bearing(from_pos, to) as _);
+        let speed = self.fire.spread(bearing).speed().get::<meter_per_second>();
+        let distance: float::T  = NumCast::from(geo_ref.distance(from_pos, to)).expect("conversion failed");
+        <float::T as NumCast>::from(self.time).expect("conversion failed")
+            + (distance / speed)
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -349,15 +332,23 @@ impl Point<float::T> {
 struct Neighbor {
     global_pos: Coord<usize>,
     local_pos: Coord<usize>,
+    point: Point<float::T>,
 }
 
 impl Neighbor {
-    fn shared_mem_ix(&self) -> usize {
-        self.local_pos.x + self.local_pos.y * BLOCK_WIDTH
+    fn as_reference(&self) -> Option<PointRef<float::T>> {
+        Some(PointRef {
+            time: self.point.time,
+            pos: self.global_pos,
+            fire: self.point.fire?,
+        })
     }
 }
 
-fn iter_neighbors(geo_ref: &GeoReference<f64>) -> impl Iterator<Item = Neighbor> {
+unsafe fn iter_neighbors(
+    geo_ref: &GeoReference<f64>,
+    shared: *const Option<Point<float::T>>,
+) -> impl Iterator<Item = Neighbor> {
     // Dimensions of the total area
     let width = geo_ref.size[0] as u32;
     let height = geo_ref.size[1] as u32;
@@ -398,9 +389,12 @@ fn iter_neighbors(geo_ref: &GeoReference<f64>) -> impl Iterator<Item = Neighbor>
                     x: global_pos.x as usize,
                     y: global_pos.y as usize,
                 };
+                let shared_mem_ix = local_pos.x + local_pos.y * BLOCK_WIDTH;
+                let point = (*shared.wrapping_add(shared_mem_ix))?;
                 Some(Neighbor {
                     local_pos,
                     global_pos,
+                    point,
                 })
             }
         })

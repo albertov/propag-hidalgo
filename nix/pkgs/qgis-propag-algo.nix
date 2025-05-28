@@ -24,6 +24,9 @@ let
       geometry
       qt5.full
     ];
+    postFixup = ''
+      patchelf --add-rpath $out/lib $out/lib/qgis/plugins/libpropagplugin.so
+    '';
   };
 in
 self

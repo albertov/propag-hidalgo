@@ -65,6 +65,10 @@ void QgsPropagAlgorithm::initAlgorithm(const QVariantMap &) {
   addParameter(new QgsProcessingParameterVectorDestination(
       QStringLiteral("REFERENCES"), QObject::tr("References output layer"),
       Qgis::ProcessingSourceType::VectorLine, QVariant(), true, false));
+  addParameter(new QgsProcessingParameterVectorDestination(
+      QStringLiteral("BLOCK_BOUNDARIES"),
+      QObject::tr("Block boundaries output layer"),
+      Qgis::ProcessingSourceType::VectorPolygon, QVariant(), true, false));
 }
 
 QVariantMap

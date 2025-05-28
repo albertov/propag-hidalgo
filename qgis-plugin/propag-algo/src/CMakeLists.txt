@@ -15,6 +15,10 @@ target_link_libraries(propagplugin
   ${LIBS}
 )
 target_link_libraries(propagalgoplugin
+  ${QGIS_CORE_LIBRARY}
+  ${PROPAG_LIBRARY}
+  ${GEOMETRY_LIBRARY}
+  ${QGIS_ANALYSIS_LIBRARY}
   ${LIBS}
 )
 
@@ -27,7 +31,7 @@ target_include_directories(propagalgoplugin PUBLIC
 
 install(TARGETS propagalgoplugin
         LIBRARY
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/lib
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 install(TARGETS propagplugin
         LIBRARY

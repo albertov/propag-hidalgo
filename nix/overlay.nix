@@ -62,6 +62,13 @@ in
         qtconsole
       ];
   };
+
+  qgis-debug = prev.qgis.unwrapped.overrideAttrs (old: {
+    cmakeFlags = [ "-DCMAKE_BUILD_TYPE=Debug" ] ++ old.cmakeFlags;
+    meta = old.meta // {
+      mainProgram = "qgis";
+    };
+  });
   propag = final.callPackage ./pkgs/propag.nix {
     # Otherwise deb package is huge
     # gdal = final.gdal-small;

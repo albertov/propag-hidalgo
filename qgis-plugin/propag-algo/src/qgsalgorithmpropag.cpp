@@ -48,25 +48,25 @@ QgsPropagAlgorithm *QgsPropagAlgorithm::createInstance() const
 
 void QgsPropagAlgorithm::initAlgorithm( const QVariantMap & )
 {
-  addParameter( new QgsProcessingParameterVectorLayer( QStringLiteral( "IGNITED_ELEMENTS" ), QObject::tr( "Initial ignited elements layer" ) ) );
+  addParameter( new QgsProcessingParameterFeatureSource( QStringLiteral( "IGNITED_ELEMENTS" ), QObject::tr( "Initial ignited elements layer" ) ) );
+  addParameter( new QgsProcessingParameterString( QStringLiteral( "IGNITED_ELEMENT_TIME_FIELD" ), QObject::tr( "The name of the field of the ignited element feature that holds the access time" ) ) );
   addParameter( new QgsProcessingParameterBoolean( QStringLiteral( "GENERATE_REFS" ), QObject::tr( "Generate references vector layer" ), false ) );
-  addParameter( new QgsProcessingParameterNumber( QStringLiteral( "MAX_SIMULATION_MINUTES" ), QObject::tr( "Maximum simulation minutes" ), Qgis::ProcessingNumberParameterType::Double, QVariant(), true, 1e-9 ) );
-  addParameter( new QgsProcessingParameterNumber( QStringLiteral( "CELL_SIZE_X" ), QObject::tr( "Override reference cell size X" ), Qgis::ProcessingNumberParameterType::Double, QVariant(), true, 1e-9 ) );
-  addParameter( new QgsProcessingParameterNumber( QStringLiteral( "CELL_SIZE_Y" ), QObject::tr( "Override reference cell size Y" ), Qgis::ProcessingNumberParameterType::Double, QVariant(), true, 1e-9 ) );
-  addParameter( new QgsProcessingParameterExtent( QStringLiteral( "EXTENT" ), QObject::tr( "Clip to extent" ), QVariant(), true ) );
+  addParameter( new QgsProcessingParameterNumber( QStringLiteral( "MAX_SIMULATION_MINUTES" ), QObject::tr( "Maximum simulation minutes" ), Qgis::ProcessingNumberParameterType::Double, QVariant(), false, 1e-9 ) );
+  addParameter( new QgsProcessingParameterNumber( QStringLiteral( "CELL_SIZE_X" ), QObject::tr( "Override reference cell size X" ), Qgis::ProcessingNumberParameterType::Double, QVariant(), false, 1e-9 ) );
+  addParameter( new QgsProcessingParameterNumber( QStringLiteral( "CELL_SIZE_Y" ), QObject::tr( "Override reference cell size Y" ), Qgis::ProcessingNumberParameterType::Double, QVariant(), false, 1e-9 ) );
+  addParameter( new QgsProcessingParameterExtent( QStringLiteral( "EXTENT" ), QObject::tr( "Clip to extent" ), QVariant(), false ) );
   addParameter( new QgsProcessingParameterRasterDestination( QStringLiteral( "TIMES" ), QObject::tr( "Access time output raster" ) ) );
 }
 
-static bool load_terrain(void *self, const GeoReference *geo_ref, FFITerrain *output) {
-  return static_cast<QgsPropagLoader*>(self)->load_terrain(geo_ref, output);
-};
 
 QVariantMap QgsPropagAlgorithm::processAlgorithm( const QVariantMap &parameters, QgsProcessingContext &context, QgsProcessingFeedback *feedback )
 {
   const QString outputFile = parameterAsOutputLayer( parameters, QStringLiteral( "TIMES" ), context );
-  QgsVectorLayer *ignitedElementsLayer = parameterAsVectorLayer( parameters, QStringLiteral( "IGNITED_ELEMENTS" ), context );
-  if ( !ignitedElementsLayer )
-    throw QgsProcessingException( invalidSourceError( parameters, QStringLiteral( "IGNITED_ELEMENTS" ) ) );
+
+  QgsFeatureSource *ignitedElements = parameterAsSource( parameters, "IGNITED_ELEMENTS", context );
+  if ( !ignitedElements ) {
+    throw QgsProcessingException( "Invalid source layer" );
+  }
 
   const bool find_ref_change = parameterAsBoolean( parameters, QStringLiteral( "GENERATE_REFS" ), context );
 
@@ -111,8 +111,17 @@ QVariantMap QgsPropagAlgorithm::processAlgorithm( const QVariantMap &parameters,
     throw QgsProcessingException( QObject::tr( "MAX_SIMULATION_MINUTES must be > 0" ) );
   }
 
+  QString ignited_element_time_field;
+  if ( parameters.value( QStringLiteral( "IGNITED_ELEMENT_TIME_FIELD" ) ).isValid() )
+  {
+    ignited_element_time_field = parameterAsString( parameters, QStringLiteral( "IGNITED_ELEMENT_TIME_FIELD" ), context );
+  } else {
+    throw QgsProcessingException( QObject::tr( "Invalid IGNITED_ELEMENT_TIME_FIELD" ) );
+  }
+
   GeoReference geo_ref;
-  if (!GeoReference_south_up(extent.xMinimum(), extent.yMinimum(), extent.xMaximum(), extent.yMaximum(), xSize, ySize, 9999, &geo_ref)) {
+  long epsg = ignitedElements->sourceCrs().srsid();
+  if (!GeoReference_south_up(extent.xMinimum(), extent.yMinimum(), extent.xMaximum(), extent.yMaximum(), xSize, ySize, epsg, &geo_ref)) {
     throw QgsProcessingException( QObject::tr( "Could not create a valid GeoReference with given CELL_SIZE_? and EXTENT" ) );
   }
 
@@ -121,12 +130,27 @@ QVariantMap QgsPropagAlgorithm::processAlgorithm( const QVariantMap &parameters,
   QByteArray outputFile_ba = outputFile.toLocal8Bit();
   const char *output_path = outputFile_ba.data();
 
-  FFITimeFeature *initial_ignited_elements = NULL;
-  size_t initial_ignited_elements_len = 0;
   QgsPropagLoader loader;
   FFITerrainLoader terrain_loader(&load_terrain, &loader);
 
-  FFIPropagation propagation(settings, output_path, initial_ignited_elements, initial_ignited_elements_len, terrain_loader);
+  std::vector<QByteArray> wkbs;
+  std::vector<FFITimeFeature> features;
+  QgsFeatureIterator it = ignitedElements->getFeatures();
+  QgsFeature feature;
+  int timeIdx = ignitedElements->fields().indexOf(ignited_element_time_field);
+  if (timeIdx == -1) {
+    throw QgsProcessingException( QObject::tr( "IGNITED_ELEMENTS source does not have a IGNITED_ELEMENT_TIME_FIELD" ) );
+  }
+  while ( it.nextFeature( feature ) ) {
+    QgsGeometry geom = feature.geometry();
+    QByteArray wkb = geom.asWkb();
+    wkbs.push_back(wkb);
+    QVariant timeValue = feature.attribute( timeIdx );
+    FFITimeFeature time_feature(timeValue.toDouble()*60.0, (const uint8_t*)wkb.constData(), wkb.size());
+    features.push_back(time_feature);
+  };
+
+  FFIPropagation propagation(settings, output_path, features.data(), features.size(), terrain_loader);
 
   FFIPropagation_run(propagation);
 

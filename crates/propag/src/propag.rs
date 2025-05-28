@@ -162,6 +162,7 @@ impl From<FFIPropagation> for Propagation {
 #[unsafe(no_mangle)]
 pub extern "C" fn FFIPropagation_run(propag: FFIPropagation) {
     let propag: Propagation = propag.into();
+    println!("settings={:?}", propag.settings);
     let geo_ref = propag.settings.geo_ref;
     if let Ok(times) = rasterize_times(&propag.initial_ignited_elements, &geo_ref) {
         let _ = write_times(times, &geo_ref, propag.output_path);

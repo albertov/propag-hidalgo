@@ -17,8 +17,8 @@ let
       "-DPROPAG_PREFIX_PATH=${propag}"
     ];
     buildInputs = [
-      propag
       qgis
+      propag
       qt5.full
     ];
   };

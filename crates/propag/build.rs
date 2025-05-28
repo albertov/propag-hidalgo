@@ -19,7 +19,6 @@ fn main() {
     println!("cargo::rerun-if-changed={}", dest);
     cbindgen::Builder::new()
         .with_crate(".")
-        //.with_language(cbindgen::Language::C)
         .with_after_include(
             "
 #include \"geometry.h\"
@@ -36,7 +35,6 @@ typedef float T;
     println!("cargo::rerun-if-changed={}", dest);
     cbindgen::Builder::new()
         .with_crate("../geometry")
-        .with_language(cbindgen::Language::C)
         .with_parse_deps(true)
         .with_include_guard("GEOMETRY_H")
         .generate()

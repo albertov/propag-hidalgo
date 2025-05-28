@@ -43,7 +43,8 @@ let
     meta.mainProgram = "propag";
 
     postInstall = ''
-      cp -a target/cuda/include $out
+      cp -a target/cuda/include $out/
+      cp -a target/release/libgeometry.so $out/lib/
     '';
   };
 in

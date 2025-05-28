@@ -20,6 +20,42 @@ const PI: f64 = 3.141592653589793;
 const MAX_PARTICLES: usize = 5;
 const MAX_FUELS: usize = 20;
 
+macro_rules! accum_particles {
+    ($particles:expr, $fun:expr) => ({
+        match(&$particles, &$fun) {
+            (particles, fun) => {
+                let mut r = 0.0;
+                let mut i = 0;
+                while i < particles.len() {
+                    let p = &particles[i];
+                    if p.is_sentinel() {
+                        break;
+                    }
+                    r += fun(p);
+                    i += 1
+                }
+                r
+            }
+        }
+    });
+    ($particles:expr, $fun:expr, $( $args:expr ),*) => ({
+        match(&$particles, &$fun) {
+            (particles, fun) => {
+                let mut r = 0.0;
+                let mut i = 0;
+                while i < particles.len() {
+                    let p = &particles[i];
+                    if p.is_sentinel() {
+                        break;
+                    }
+                    r += fun(p, $( $args ),*);
+                    i += 1
+                }
+                r
+            }
+        }
+    });
+}
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Life {
@@ -340,50 +376,41 @@ impl ParticleDef {
         }
     }
     const fn area_weight<'a>(&self, particles: &ParticleDefs) -> f64 {
-        let mut total = 0.0;
-        let mut i = 0;
-        while i < MAX_PARTICLES {
-            let p = &particles[i];
-            if !p.is_sentinel() {
-                match (p.life(), self.life()) {
-                    (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead) => {
-                        total += p.surface_area()
-                    }
-                    _ => (),
-                }
-                i += 1;
-            } else {
-                break;
+        const fn fun(p: &ParticleDef, life: &Life) -> f64 {
+            match (p.life(), life) {
+                (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead) => p.surface_area(),
+                _ => 0.0,
             }
         }
+        let life = &self.life();
+        let total = accum_particles!(particles, fun, life);
         safe_div(self.surface_area(), total)
     }
     const fn size_class_weight(&self, particles: &ParticleDefs) -> f64 {
-        let mut total = 0.0;
-        let mut i = 0;
-        while i < MAX_PARTICLES {
-            let p = &particles[i];
-            if !p.is_sentinel() {
-                match (p.life(), self.life()) {
-                    (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead) => {
-                        match (p.size_class(), self.size_class()) {
-                            (SizeClass::SC0, SizeClass::SC0)
-                            | (SizeClass::SC1, SizeClass::SC1)
-                            | (SizeClass::SC2, SizeClass::SC2)
-                            | (SizeClass::SC3, SizeClass::SC3)
-                            | (SizeClass::SC4, SizeClass::SC4)
-                            | (SizeClass::SC5, SizeClass::SC5) => total += p.area_weight(particles),
-                            _ => (),
-                        }
+        const fn fun(
+            p: &ParticleDef,
+            life: Life,
+            sz_class: SizeClass,
+            particles: &ParticleDefs,
+        ) -> f64 {
+            match (p.life(), life) {
+                (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead) => {
+                    match (p.size_class(), sz_class) {
+                        (SizeClass::SC0, SizeClass::SC0)
+                        | (SizeClass::SC1, SizeClass::SC1)
+                        | (SizeClass::SC2, SizeClass::SC2)
+                        | (SizeClass::SC3, SizeClass::SC3)
+                        | (SizeClass::SC4, SizeClass::SC4)
+                        | (SizeClass::SC5, SizeClass::SC5) => p.area_weight(particles),
+                        _ => 0.0,
                     }
-                    _ => (),
                 }
-                i += 1;
-            } else {
-                break;
+                _ => 0.0,
             }
         }
-        total
+        let life = self.life();
+        let size_class = self.size_class();
+        accum_particles!(particles, fun, life, size_class, particles)
     }
     const fn surface_area(&self) -> f64 {
         let load = load_to_imperial(&self.load);
@@ -466,116 +493,54 @@ impl FuelDef {
         }
     }
     const fn total_area(&self) -> f64 {
-        let mut r = 0.0;
-        let mut i = 0;
-        let particles = self.life_particles(Life::Alive);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += p.surface_area;
-            i += 1
+        const fn fun(p: &Particle) -> f64 {
+            p.surface_area
         }
-        i = 0;
-        let particles = self.life_particles(Life::Dead);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += p.surface_area;
-            i += 1
-        }
-        r
+        accum_particles!(self.life_particles(Life::Alive), fun)
+            + accum_particles!(self.life_particles(Life::Dead), fun)
     }
     const fn life_area_weight(&self, life: Life) -> f64 {
-        let mut r = 0.0;
-        let mut i = 0;
-        let particles = self.life_particles(life);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += p.surface_area / self.total_area();
-            i += 1
+        const fn fun(p: &Particle, total_area: f64) -> f64 {
+            p.surface_area / total_area
         }
-        r
+        let total_area = self.total_area();
+        accum_particles!(self.life_particles(life), fun, total_area)
     }
     const fn life_fine_load(&self, life: Life) -> f64 {
-        let mut r = 0.0;
-        let mut i = 0;
-        let particles = self.life_particles(life);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += p.load
-                * match life {
-                    Life::Alive => SoftF64(-500.0).div(SoftF64(p.savr)).exp().to_f64(),
-                    Life::Dead => p.sigma_factor,
-                };
-            i += 1
+        const fn fun_alive(p: &Particle) -> f64 {
+            p.load * SoftF64(-500.0).div(SoftF64(p.savr)).exp().to_f64()
         }
-        r
+        const fn fun_dead(p: &Particle) -> f64 {
+            p.load * p.sigma_factor
+        }
+        match life {
+            Life::Alive => accum_particles!(self.life_particles(life), fun_alive),
+            Life::Dead => accum_particles!(self.life_particles(life), fun_dead),
+        }
     }
     const fn life_load(&self, life: Life) -> f64 {
-        let mut r = 0.0;
-        let mut i = 0;
-        let particles = self.life_particles(life);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += p.size_class_weight * p.load * (1.0 - p.si_total);
-            i += 1
+        const fn fun(p: &Particle) -> f64 {
+            p.size_class_weight * p.load * (1.0 - p.si_total)
         }
-        r
+        accum_particles!(self.life_particles(life), fun)
     }
     const fn life_savr(&self, life: Life) -> f64 {
-        let mut r = 0.0;
-        let mut i = 0;
-        let particles = self.life_particles(life);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += p.area_weight * p.savr;
-            i += 1
+        const fn fun(p: &Particle) -> f64 {
+            p.area_weight * p.savr
         }
-        r
+        accum_particles!(self.life_particles(life), fun)
     }
     const fn life_heat(&self, life: Life) -> f64 {
-        let mut r = 0.0;
-        let mut i = 0;
-        let particles = self.life_particles(life);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += p.area_weight * p.heat;
-            i += 1
+        const fn fun(p: &Particle) -> f64 {
+            p.area_weight * p.heat
         }
-        r
+        accum_particles!(self.life_particles(life), fun)
     }
     const fn life_seff(&self, life: Life) -> f64 {
-        let mut r = 0.0;
-        let mut i = 0;
-        let particles = self.life_particles(life);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += p.area_weight * p.si_effective;
-            i += 1
+        const fn fun(p: &Particle) -> f64 {
+            p.area_weight * p.si_effective
         }
-        r
+        accum_particles!(self.life_particles(life), fun)
     }
     const fn life_eta_s(&self, life: Life) -> f64 {
         let seff: f64 = self.life_seff(life);
@@ -605,27 +570,11 @@ impl FuelDef {
             / (192.0 + 0.2595 * sigma)
     }
     const fn beta(&self) -> f64 {
-        let mut r = 0.0;
-        let mut i = 0;
-        let particles = self.life_particles(Life::Alive);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += safe_div(p.load, p.density);
-            i += 1
+        const fn fun(p: &Particle) -> f64 {
+            safe_div(p.load, p.density)
         }
-        let mut i = 0;
-        let particles = self.life_particles(Life::Dead);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += safe_div(p.load, p.density);
-            i += 1
-        }
+        let r = accum_particles!(self.life_particles(Life::Alive), fun)
+            + accum_particles!(self.life_particles(Life::Dead), fun);
         safe_div(r, length_to_imperial(&self.depth))
     }
     const fn gamma(&self, sigma: f64, beta: f64) -> f64 {
@@ -654,28 +603,12 @@ impl FuelDef {
     }
 
     const fn bulk_density(&self) -> f64 {
-        let mut r = 0.0;
-        let mut i = 0;
-        let particles = self.life_particles(Life::Alive);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += safe_div(p.load, length_to_imperial(&self.depth));
-            i += 1
+        const fn fun(p: &Particle, depth: f64) -> f64 {
+            safe_div(p.load, depth)
         }
-        let mut i = 0;
-        let particles = self.life_particles(Life::Dead);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += safe_div(p.load, length_to_imperial(&self.depth));
-            i += 1
-        }
-        r
+        let depth = length_to_imperial(&self.depth);
+        accum_particles!(self.life_particles(Life::Alive), fun, depth)
+            + accum_particles!(self.life_particles(Life::Dead), fun, depth)
     }
 
     const fn residence_time(&self, sigma: f64) -> f64 {
@@ -804,7 +737,7 @@ impl Fuel {
     }
     #[inline]
     const fn life_area_weight(&self, life: Life) -> f64 {
-        match  life {
+        match life {
             Life::Alive => self.live_area_weight,
             Life::Dead => self.dead_area_weight,
         }
@@ -969,7 +902,6 @@ impl Fuel {
             .map(|p| p.area_weight * p.moisture(terrain))
             .sum()
     }
-
 
     fn life_mext(&self, life: Life, terrain: &Terrain) -> f64 {
         match life {

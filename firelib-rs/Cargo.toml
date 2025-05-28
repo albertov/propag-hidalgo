@@ -8,11 +8,11 @@ const_soft_float = { git = "https://github.com/albertov/const_soft_float.git", f
 uom = { version = "0.36.0", default-features = false, features=["f64", "si", "serde"] }
 
 [target.'cfg(target_os = "cuda")'.dependencies]
-cuda_std = { git = "https://github.com/albertov/Rust-CUDA/" }
+cuda_std = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }
 
 [target.'cfg(not(target_os = "cuda"))'.dependencies]
 rand = "0.9.0"
-cust = { git = "https://github.com/albertov/Rust-CUDA/" }
+cust = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }
 
 [dev-dependencies]
 quickcheck = "1.0.3"

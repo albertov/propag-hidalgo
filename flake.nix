@@ -72,6 +72,8 @@
               pkgs.propag
             ];
             env = {
+              # FIXME
+              LD_LIBRARY_PATH = "${pkgs.linuxPackages.nvidia_x11}/lib";
               inherit (pkgs.firelib-rs)
                 BINDGEN_EXTRA_CLANG_ARGS
                 LIBCLANG_PATH
@@ -87,8 +89,6 @@
               git
               cargo-watch
               rustup
-              cudatoolkit_11
-              cudatoolkit_11.lib
             ];
           };
           # for `nix fmt`

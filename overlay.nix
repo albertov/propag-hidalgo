@@ -1,5 +1,6 @@
-inputs: final: _prev:
+inputs: final: prev:
 let
+  rust_cuda_sha256 = "sha256-PZtc4Iyr5OwiClDJMQ4iGz8y8VjnrbJMf5R09+TUCkY=";
   inherit (final) lib buildPackages stdenv;
   libclang = buildPackages.llvmPackages.libclang.lib;
   clangMajorVer = builtins.head (lib.splitString "." (lib.getVersion buildPackages.clang));
@@ -11,8 +12,8 @@ let
     ${builtins.readFile "${stdenv.cc}/nix-support/libcxx-cxxflags"}
   '';
   LIBCLANG_PATH = "${libclang}/lib";
-  CUDA_ROOT=final.cudatoolkit_11;
-  CUDA_PATH=final.cudatoolkit_11;
+  CUDA_ROOT=final.cudatoolkit;
+  CUDA_PATH=final.cudatoolkit;
   LLVM_CONFIG = "${final.llvmPackages_7.llvm.dev}/bin/llvm-config";
   LLVM_LINK_SHARED="1";
 
@@ -22,8 +23,8 @@ let
     cargoLock.lockFile = ./Cargo.lock;
     cargoLock.outputHashes = {
       "const_soft_float-0.1.4" = "sha256-fm2e3np+q4yZjAafkwbxTqUZBgVDrQ/l4hxMD+l7kMA=";
-      "cuda_builder-0.3.0" = "sha256-eQTs1elUPovKjWJHyWQuYduupI/8KK0VkmBiojojQ3Q=";
-      "cuda_std-0.2.2" = "sha256-eQTs1elUPovKjWJHyWQuYduupI/8KK0VkmBiojojQ3Q=";
+      "cuda_builder-0.3.0" = rust_cuda_sha256;
+      "cuda_std-0.2.2" = rust_cuda_sha256;
     };
     inherit BINDGEN_EXTRA_CLANG_ARGS LIBCLANG_PATH CUDA_PATH LLVM_CONFIG
     CUDA_ROOT;
@@ -35,23 +36,33 @@ in
     buildAndTestSubdir = "firelib-rs";
   });
 
+  cudaPackages = prev.cudaPackages_12;
+
   propag = final.myRustPlatform.buildRustPackage (workspaceArgs // {
     pname = "propag";
     buildAndTestSubdir = "propag";
     buildInputs = with final; with final.myRustToolchain.availableComponents; [
-      cudatoolkit_11
-      cudatoolkit_11.lib
+      cudatoolkit
+      cudatoolkit.lib
       openssl
     ];
     LLVM_LINK_SHARED = 1;
     nativeBuildInputs = with final; [
-      cudatoolkit_11
+      makeWrapper
+      cudatoolkit
+      #linuxPackages.nvidia_x11
+      #linuxPackages.nvidia_x11.bin
       pkg-config
       myRustToolchain
       llvmPackages_7.llvm
       ncurses # nvmm backend needs it
       which
     ];
+
+    postInstall = with final; ''
+      wrapProgram $out/bin/propag \
+        --prefix LD_LIBRARY_PATH : ${linuxPackages.nvidia_x11}/lib
+      '';
 
   });
 

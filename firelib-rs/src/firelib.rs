@@ -140,7 +140,7 @@ impl From<Terrain> for TerrainCuda {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Fire {
     pub rx_int: HeatFluxDensity,
     pub speed0: Velocity,

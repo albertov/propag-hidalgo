@@ -9,15 +9,15 @@ use uom::si::time::minute;
 use uom::si::velocity::foot_per_minute;
 use uom::si::velocity::meter_per_second;
 
-/// How many numbers to generate and add together.
-const NUMBERS_LEN: usize = 100_000;
+#[macro_use]
+extern crate timeit;
+
+/// How many elems to generate
+const NUMBERS_LEN: usize = 1_000_000;
 
 static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let num_devices = Device::num_devices()?;
-    println!("Number of devices: {}", num_devices);
-
     // generate our random vectors.
     use rand::prelude::*;
     let rng = &mut rand::rng();
@@ -45,6 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let models: Vec<usize> = (0..NUMBERS_LEN)
         .map(|_n| rng.random_range(0..14))
         .collect();
+    let mut fires : Vec<FireCuda> = vec![Fire::null().into(); NUMBERS_LEN];
 
     // initialize CUDA, this will pick the first available device and will
     // make a CUDA context from it.
@@ -52,6 +53,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Gertting ctx");
     let _ctx = cust::quick_init()?;
     println!("Got ctx");
+
+    let num_devices = Device::num_devices()?;
+    println!("Number of devices: {}", num_devices);
+
 
     // Make the CUDA module, modules just house the GPU code for the kernels we created.
     // they can be made from PTX code, cubins, or fatbins.
@@ -61,15 +66,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     // make a CUDA stream to issue calls to. You can think of this as an OS thread but for dispatching
     // GPU calls.
     let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
-
-    // allocate the GPU memory needed to house our numbers and copy them over.
-    let models_gpu = models.as_slice().as_dbuf()?;
-    let terrains_gpu = terrains.as_slice().as_dbuf()?;
-
-    // allocate our output buffer. You could also use DeviceBuffer::uninitialized() to avoid the
-    // cost of the copy, but you need to be careful not to read from the buffer.
-    let mut fires : Vec<FireCuda> = vec![Fire::null().into(); NUMBERS_LEN];
-    let fires_buf = fires.as_slice().as_dbuf()?;
 
     // retrieve the add kernel from the module so we can calculate the right launch config.
     let func = module.get_function("standard_burn")?;
@@ -86,27 +82,57 @@ fn main() -> Result<(), Box<dyn Error>> {
         grid_size, block_size
     );
 
-    // Actually launch the GPU kernel. This will queue up the launch on the stream, it will
-    // not block the thread until the kernel is finished.
-    unsafe {
-        launch!(
-            // slices are passed as two parameters, the pointer and the length.
-            func<<<grid_size, block_size, 0, stream>>>(
-                models_gpu.as_device_ptr(),
-                models_gpu.len(),
-                terrains_gpu.as_device_ptr(),
-                terrains_gpu.len(),
-                fires_buf.as_device_ptr(),
-            )
-        )?;
-    }
 
-    stream.synchronize()?;
+    println!("Calculating with GPU");
+    timeit!({
 
-    // copy back the data from the GPU.
-    fires_buf.copy_to(&mut fires)?;
+        // allocate the GPU memory needed to house our numbers and copy them over.
+        let models_gpu = models.as_slice().as_dbuf()?;
+        let terrains_gpu = terrains.as_slice().as_dbuf()?;
 
-    println!("model={:?}\nterrain={:?}\nfire={:?}", models[0], terrains[0], fires[0]);
+        // allocate our output buffer. You could also use DeviceBuffer::uninitialized() to avoid the
+        // cost of the copy, but you need to be careful not to read from the buffer.
+        let fires_buf = fires.as_slice().as_dbuf()?;
+
+        // Actually launch the GPU kernel. This will queue up the launch on the stream, it will
+        // not block the thread until the kernel is finished.
+        unsafe {
+            launch!(
+                // slices are passed as two parameters, the pointer and the length.
+                func<<<grid_size, block_size, 0, stream>>>(
+                    models_gpu.as_device_ptr(),
+                    models_gpu.len(),
+                    terrains_gpu.as_device_ptr(),
+                    terrains_gpu.len(),
+                    fires_buf.as_device_ptr(),
+                )
+            )?;
+        }
+
+        stream.synchronize()?;
+
+        // copy back the data from the GPU.
+        fires_buf.copy_to(&mut fires)?;
+    });
+
+    let terrains : Vec<Terrain> = terrains.iter().map(|t| (*t).into()).collect();
+    let mut fires_rs : Vec<Fire> = vec![Fire::null(); NUMBERS_LEN];
+
+    println!("Calculating with CPU");
+    timeit!({
+        fires_rs = models.iter().zip(terrains.iter()).map(|(m,t)|
+            firelib_rs::Catalog::STANDARD.get(*m)
+                .and_then(|f| f.burn(t)).unwrap_or(Fire::null())
+        ).collect()
+    });
+    assert!(fires.iter().zip(fires_rs.iter()).all(|(f_gpu, f_cpu)| {
+        let f_gpu : Fire = (*f_gpu).into();
+        f_gpu.almost_eq(f_cpu)
+    }));
+
+
+
+
 
     Ok(())
 }

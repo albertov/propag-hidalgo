@@ -17,17 +17,59 @@ use crate::units::heat_flux_density::btu_sq_foot_min;
 use crate::units::linear_power_density::btu_foot_sec;
 use crate::units::radiant_exposure::btu_sq_foot;
 use crate::units::*;
-use const_soft_float::soft_f64::SoftF64;
 use uom::si::angle::radian;
-use uom::si::f64::*;
 use uom::si::length::foot;
 use uom::si::ratio::ratio;
 use uom::si::time::minute;
 use uom::si::velocity::foot_per_minute;
 use uom::si::velocity::meter_per_second;
 
-pub(crate) const SMIDGEN: f64 = 1e-6;
-const PI: f64 = 3.141592653589793;
+
+pub mod float {
+    pub type T = f64;
+    pub const PI: T = 3.141592653589793;
+    pub use uom::si::f64::*;
+    pub use const_soft_float::soft_f64::SoftF64;
+    #[derive(Copy, Clone)]
+    pub struct _SoftFloat(SoftF64);
+    pub const fn SoftFloat(v: T) -> _SoftFloat {
+        _SoftFloat(SoftF64(v))
+    }
+    impl _SoftFloat {
+        pub const fn to_float(&self) -> T {
+            self.0.to_f64()
+        }
+        pub const fn sqrt(&self) -> Self {
+            _SoftFloat(self.0.sqrt())
+        }
+        pub const fn exp(&self) -> Self {
+            _SoftFloat(self.0.exp())
+        }
+        pub const fn powi(&self, other: i32) -> Self {
+            _SoftFloat(self.0.powi(other))
+        }
+        pub const fn powf(&self, other: Self) -> Self {
+            _SoftFloat(self.0.powf(other.0))
+        }
+        pub const fn mul(&self, other: Self) -> Self {
+            _SoftFloat(self.0.mul(other.0))
+        }
+        pub const fn div(&self, other: Self) -> Self {
+            _SoftFloat(self.0.div(other.0))
+        }
+        pub const fn sub(&self, other: Self) -> Self {
+            _SoftFloat(self.0.sub(other.0))
+        }
+        pub const fn add(&self, other: Self) -> Self {
+            _SoftFloat(self.0.add(other.0))
+        }
+    }
+}
+
+use float::*;
+    
+
+pub(crate) const SMIDGEN: float::T = 1e-6;
 const MAX_PARTICLES: usize = 5;
 const MAX_FUELS: usize = 20;
 
@@ -59,16 +101,16 @@ pub struct ParticleDef {
 #[derive(Clone, Copy)]
 pub struct Particle {
     pub type_: ParticleType,
-    pub load: f64,
-    pub savr: f64,
-    pub density: f64,
-    pub heat: f64,
-    pub si_total: f64,
-    pub si_effective: f64,
-    pub area_weight: f64,
-    pub surface_area: f64,
-    pub sigma_factor: f64,
-    pub size_class_weight: f64,
+    pub load: float::T,
+    pub savr: float::T,
+    pub density: float::T,
+    pub heat: float::T,
+    pub si_total: float::T,
+    pub si_effective: float::T,
+    pub area_weight: float::T,
+    pub surface_area: float::T,
+    pub sigma_factor: float::T,
+    pub size_class_weight: float::T,
     pub size_class: SizeClass,
     pub life: Life,
 }
@@ -93,15 +135,15 @@ pub struct Terrain {
     soa_derive(Debug)
 )]
 pub struct TerrainCuda {
-    pub d1hr: f64,
-    pub d10hr: f64,
-    pub d100hr: f64,
-    pub herb: f64,
-    pub wood: f64,
-    pub wind_speed: f64,
-    pub wind_azimuth: f64,
-    pub slope: f64,
-    pub aspect: f64,
+    pub d1hr: float::T,
+    pub d10hr: float::T,
+    pub d100hr: float::T,
+    pub herb: float::T,
+    pub wood: float::T,
+    pub wind_speed: float::T,
+    pub wind_azimuth: float::T,
+    pub slope: float::T,
+    pub aspect: float::T,
 }
 
 macro_rules! to_quantity {
@@ -117,7 +159,7 @@ macro_rules! to_quantity {
 macro_rules! from_quantity {
     ($quant:ident, $val:expr) => {{
         let $quant { value, .. } = $val;
-        value
+        *value
     }};
 }
 impl From<TerrainCuda> for Terrain {
@@ -138,15 +180,15 @@ impl From<TerrainCuda> for Terrain {
 impl From<Terrain> for TerrainCuda {
     fn from(f: Terrain) -> Self {
         Self {
-            d1hr: from_quantity!(Ratio, f.d1hr),
-            d10hr: from_quantity!(Ratio, f.d10hr),
-            d100hr: from_quantity!(Ratio, f.d100hr),
-            herb: from_quantity!(Ratio, f.herb),
-            wood: from_quantity!(Ratio, f.wood),
-            wind_speed: from_quantity!(Velocity, f.wind_speed),
-            wind_azimuth: from_quantity!(Angle, f.wind_azimuth),
-            slope: from_quantity!(Ratio, f.slope),
-            aspect: from_quantity!(Angle, f.aspect),
+            d1hr: from_quantity!(Ratio, &f.d1hr),
+            d10hr: from_quantity!(Ratio, &f.d10hr),
+            d100hr: from_quantity!(Ratio, &f.d100hr),
+            herb: from_quantity!(Ratio, &f.herb),
+            wood: from_quantity!(Ratio, &f.wood),
+            wind_speed: from_quantity!(Velocity, &f.wind_speed),
+            wind_azimuth: from_quantity!(Angle, &f.wind_azimuth),
+            slope: from_quantity!(Ratio, &f.slope),
+            aspect: from_quantity!(Angle, &f.aspect),
         }
     }
 }
@@ -174,14 +216,14 @@ pub struct Fire {
     soa_derive(Debug)
 )]
 pub struct FireCuda {
-    pub rx_int: f64,
-    pub speed0: f64,
-    pub hpua: f64,
-    pub phi_eff_wind: f64,
-    pub speed_max: f64,
-    pub azimuth_max: f64,
-    pub eccentricity: f64,
-    pub residence_time: f64,
+    pub rx_int: float::T,
+    pub speed0: float::T,
+    pub hpua: float::T,
+    pub phi_eff_wind: float::T,
+    pub speed_max: float::T,
+    pub azimuth_max: float::T,
+    pub eccentricity: float::T,
+    pub residence_time: float::T,
 }
 
 impl From<FireCuda> for Fire {
@@ -201,14 +243,14 @@ impl From<FireCuda> for Fire {
 impl From<Fire> for FireCuda {
     fn from(f: Fire) -> Self {
         Self {
-            rx_int: from_quantity!(HeatFluxDensity, f.rx_int),
-            speed0: from_quantity!(Velocity, f.speed0),
-            hpua: from_quantity!(RadiantExposure, f.hpua),
-            phi_eff_wind: from_quantity!(Ratio, f.phi_eff_wind),
-            speed_max: from_quantity!(Velocity, f.speed_max),
-            azimuth_max: from_quantity!(Angle, f.azimuth_max),
-            eccentricity: from_quantity!(Ratio, f.eccentricity),
-            residence_time: from_quantity!(Time, f.residence_time),
+            rx_int: from_quantity!(HeatFluxDensity, &f.rx_int),
+            speed0: from_quantity!(Velocity, &f.speed0),
+            hpua: from_quantity!(RadiantExposure, &f.hpua),
+            phi_eff_wind: from_quantity!(Ratio, &f.phi_eff_wind),
+            speed_max: from_quantity!(Velocity, &f.speed_max),
+            azimuth_max: from_quantity!(Angle, &f.azimuth_max),
+            eccentricity: from_quantity!(Ratio, &f.eccentricity),
+            residence_time: from_quantity!(Time, &f.residence_time),
         }
     }
 }
@@ -238,9 +280,9 @@ pub struct FireSimple {
     soa_derive(Debug)
 )]
 pub struct FireSimpleCuda {
-    pub speed_max: f64,
-    pub azimuth_max: f64,
-    pub eccentricity: f64,
+    pub speed_max: float::T,
+    pub azimuth_max: float::T,
+    pub eccentricity: float::T,
 }
 
 impl From<FireSimpleCuda> for FireSimple {
@@ -255,9 +297,9 @@ impl From<FireSimpleCuda> for FireSimple {
 impl From<FireSimple> for FireSimpleCuda {
     fn from(f: FireSimple) -> Self {
         Self {
-            speed_max: from_quantity!(Velocity, f.speed_max),
-            azimuth_max: from_quantity!(Angle, f.azimuth_max),
-            eccentricity: from_quantity!(Ratio, f.eccentricity),
+            speed_max: from_quantity!(Velocity, &f.speed_max),
+            azimuth_max: from_quantity!(Angle, &f.azimuth_max),
+            eccentricity: from_quantity!(Ratio, &f.eccentricity),
         }
     }
 }
@@ -325,31 +367,31 @@ pub type ParticleDefs = [ParticleDef; MAX_PARTICLES];
 pub struct Fuel {
     pub name: [u8; 16],
     pub desc: [u8; 64],
-    pub depth: f64,
-    pub mext: f64,
-    pub inv_mext: f64,
-    pub adjust: f64,
+    pub depth: float::T,
+    pub mext: float::T,
+    pub inv_mext: float::T,
+    pub adjust: float::T,
     pub n_dead_particles: usize,
     pub particles: Particles,
-    pub live_area_weight: f64,
-    pub live_rx_factor: f64,
-    pub dead_area_weight: f64,
-    pub dead_rx_factor: f64,
-    pub fine_dead_factor: f64,
-    pub live_ext_factor: f64,
-    pub fuel_bed_bulk_dens: f64,
-    pub residence_time: f64,
-    pub flux_ratio: f64,
-    pub slope_k: f64,
-    pub wind_b: f64,
-    pub wind_b_inv: f64,
-    pub wind_e: f64,
-    pub wind_k: f64,
-    pub sigma: f64,
-    pub beta: f64,
-    pub life_rx_factor_alive: f64,
-    pub life_rx_factor_dead: f64,
-    pub total_area: f64,
+    pub live_area_weight: float::T,
+    pub live_rx_factor: float::T,
+    pub dead_area_weight: float::T,
+    pub dead_rx_factor: float::T,
+    pub fine_dead_factor: float::T,
+    pub live_ext_factor: float::T,
+    pub fuel_bed_bulk_dens: float::T,
+    pub residence_time: float::T,
+    pub flux_ratio: float::T,
+    pub slope_k: float::T,
+    pub wind_b: float::T,
+    pub wind_b_inv: float::T,
+    pub wind_e: float::T,
+    pub wind_k: float::T,
+    pub sigma: float::T,
+    pub beta: float::T,
+    pub life_rx_factor_alive: float::T,
+    pub life_rx_factor_dead: float::T,
+    pub total_area: float::T,
 }
 
 pub type Particles = [Particle; MAX_PARTICLES];
@@ -414,7 +456,7 @@ impl Catalog {
 }
 
 impl Terrain {
-    fn upslope(&self) -> f64 {
+    fn upslope(&self) -> float::T {
         let aspect = self.aspect.get::<radian>();
         if aspect >= PI {
             aspect - PI
@@ -437,7 +479,7 @@ impl<'a> Fire {
             residence_time: to_quantity!(Time, 0.0),
         }
     };
-    fn flame_length(byrams: f64) -> f64 {
+    fn flame_length(byrams: float::T) -> float::T {
         if byrams > SMIDGEN {
             0.45 * byrams.powf(0.46)
         } else {
@@ -458,7 +500,7 @@ impl<'a> Fire {
 
     pub fn almost_eq(&self, other: &Self) -> bool {
         #[allow(unused)]
-        fn cmp(msg: &str, a: f64, b: f64) -> bool {
+        fn cmp(msg: &str, a: float::T, b: float::T) -> bool {
             let r = (a - b).abs() < SMIDGEN;
             #[cfg(feature = "std")]
             #[cfg(test)]
@@ -516,7 +558,7 @@ impl FireSimple {
     };
     pub fn almost_eq(&self, other: &Self) -> bool {
         #[allow(unused)]
-        fn cmp(msg: &str, a: f64, b: f64) -> bool {
+        fn cmp(msg: &str, a: float::T, b: float::T) -> bool {
             let r = (a - b).abs() < SMIDGEN;
             #[cfg(feature = "std")]
             #[cfg(test)]
@@ -571,13 +613,13 @@ impl<'a> Spread<'a, Fire> {
 impl ParticleDef {
     const SENTINEL: Self = ParticleDef::standard(ParticleType::NoParticle, 0.0, 0.0);
 
-    pub const fn standard(type_: ParticleType, p_load: f64, p_savr: f64) -> ParticleDef {
+    pub const fn standard(type_: ParticleType, p_load: float::T, p_savr: float::T) -> ParticleDef {
         let load = load_from_imperial(p_load);
         let savr = savr_from_imperial(p_savr);
         let density = density_from_imperial(32.0);
         let heat = heat_from_imperial(8000.0);
-        let si_total = mk_ratio(0.0555);
-        let si_effective = mk_ratio(0.01);
+        let si_total = to_quantity!(Ratio, 0.0555);
+        let si_effective = to_quantity!(Ratio, 0.01);
         ParticleDef {
             type_,
             load,
@@ -622,8 +664,8 @@ impl ParticleDef {
             _ => false,
         }
     }
-    const fn area_weight<'a, const N: usize>(&self, particles: &[ParticleDef; N]) -> f64 {
-        const fn fun(p: &ParticleDef, life: Life) -> f64 {
+    const fn area_weight<'a, const N: usize>(&self, particles: &[ParticleDef; N]) -> float::T {
+        const fn fun(p: &ParticleDef, life: Life) -> float::T {
             if p.same_life(life) {
                 p.surface_area()
             } else {
@@ -634,13 +676,13 @@ impl ParticleDef {
         let total = accum_particles!(particles, fun, life);
         safe_div(self.surface_area(), total)
     }
-    const fn size_class_weight<'a, const N: usize>(&self, particles: &[ParticleDef; N]) -> f64 {
+    const fn size_class_weight<'a, const N: usize>(&self, particles: &[ParticleDef; N]) -> float::T {
         const fn fun<const N: usize>(
             p: &ParticleDef,
             life: Life,
             sz_class: SizeClass,
             particles: &[ParticleDef; N],
-        ) -> f64 {
+        ) -> float::T {
             match (p.life(), life) {
                 (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead) => {
                     match (p.size_class(), sz_class) {
@@ -660,15 +702,15 @@ impl ParticleDef {
         let size_class = self.size_class();
         accum_particles!(particles, fun, life, size_class, particles)
     }
-    const fn surface_area(&self) -> f64 {
+    const fn surface_area(&self) -> float::T {
         let load = load_to_imperial(&self.load);
         let savr = savr_to_imperial(&self.savr);
         let density = density_to_imperial(&self.density);
         safe_div(load * savr, density)
     }
-    const fn sigma_factor(&self) -> f64 {
+    const fn sigma_factor(&self) -> float::T {
         let savr = savr_to_imperial(&self.savr);
-        SoftF64(safe_div(-138.0, savr)).exp().to_f64()
+        SoftFloat(safe_div(-138.0, savr)).exp().to_float()
     }
 }
 
@@ -689,8 +731,8 @@ impl Particle {
         let savr = savr_to_imperial(savr);
         let density = density_to_imperial(density);
         let heat = heat_to_imperial(heat);
-        let si_total = extract_ratio(si_total);
-        let si_effective = extract_ratio(si_effective);
+        let si_total = from_quantity!(Ratio, si_total);
+        let si_effective = from_quantity!(Ratio, si_effective);
         Particle {
             type_: *type_,
             life: def.life(),
@@ -719,9 +761,9 @@ impl Particle {
             _ => false,
         }
     }
-    const fn moisture(&self, terrain: &Terrain) -> f64 {
-        extract_ratio(&match self.type_ {
-            ParticleType::NoParticle => mk_ratio(9.0E100),
+    const fn moisture(&self, terrain: &Terrain) -> float::T {
+        from_quantity!(Ratio, &match self.type_ {
+            ParticleType::NoParticle => to_quantity!(Ratio, 9.0E100),
             ParticleType::Herb => terrain.herb,
             ParticleType::Wood => terrain.wood,
             ParticleType::Dead => match self.size_class {
@@ -734,14 +776,14 @@ impl Particle {
 }
 
 impl FuelDef {
-    const fn total_area(&self) -> f64 {
-        const fn fun(p: &Particle) -> f64 {
+    const fn total_area(&self) -> float::T {
+        const fn fun(p: &Particle) -> float::T {
             p.surface_area
         }
         accum_particles!(self.particles, fun)
     }
-    const fn life_area_weight(&self, life: Life) -> f64 {
-        const fn fun(p: &Particle, life: Life, total_area: f64) -> f64 {
+    const fn life_area_weight(&self, life: Life) -> float::T {
+        const fn fun(p: &Particle, life: Life, total_area: float::T) -> float::T {
             if p.same_life(life) {
                 p.surface_area / total_area
             } else {
@@ -751,20 +793,20 @@ impl FuelDef {
         let total_area = self.total_area();
         accum_particles!(self.particles, fun, life, total_area)
     }
-    const fn life_fine_load(&self, life: Life) -> f64 {
-        const fn fun(p: &Particle, life: Life) -> f64 {
+    const fn life_fine_load(&self, life: Life) -> float::T {
+        const fn fun(p: &Particle, life: Life) -> float::T {
             if !p.same_life(life) {
                 return 0.0;
             };
             match life {
-                Life::Alive => p.load * SoftF64(-500.0).div(SoftF64(p.savr)).exp().to_f64(),
+                Life::Alive => p.load * SoftFloat(-500.0).div(SoftFloat(p.savr)).exp().to_float(),
                 Life::Dead => p.load * p.sigma_factor,
             }
         }
         accum_particles!(self.particles, fun, life)
     }
-    const fn life_load(&self, life: Life) -> f64 {
-        const fn fun(p: &Particle, life: Life) -> f64 {
+    const fn life_load(&self, life: Life) -> float::T {
+        const fn fun(p: &Particle, life: Life) -> float::T {
             if !p.same_life(life) {
                 return 0.0;
             };
@@ -772,8 +814,8 @@ impl FuelDef {
         }
         accum_particles!(self.particles, fun, life)
     }
-    const fn life_savr(&self, life: Life) -> f64 {
-        const fn fun(p: &Particle, life: Life) -> f64 {
+    const fn life_savr(&self, life: Life) -> float::T {
+        const fn fun(p: &Particle, life: Life) -> float::T {
             if !p.same_life(life) {
                 return 0.0;
             };
@@ -781,8 +823,8 @@ impl FuelDef {
         }
         accum_particles!(self.particles, fun, life)
     }
-    const fn life_heat(&self, life: Life) -> f64 {
-        const fn fun(p: &Particle, life: Life) -> f64 {
+    const fn life_heat(&self, life: Life) -> float::T {
+        const fn fun(p: &Particle, life: Life) -> float::T {
             if !p.same_life(life) {
                 return 0.0;
             };
@@ -790,8 +832,8 @@ impl FuelDef {
         }
         accum_particles!(self.particles, fun, life)
     }
-    const fn life_seff(&self, life: Life) -> f64 {
-        const fn fun(p: &Particle, life: Life) -> f64 {
+    const fn life_seff(&self, life: Life) -> float::T {
+        const fn fun(p: &Particle, life: Life) -> float::T {
             if !p.same_life(life) {
                 return 0.0;
             };
@@ -799,10 +841,10 @@ impl FuelDef {
         }
         accum_particles!(self.particles, fun, life)
     }
-    const fn life_eta_s(&self, life: Life) -> f64 {
-        let seff: f64 = self.life_seff(life);
+    const fn life_eta_s(&self, life: Life) -> float::T {
+        let seff: float::T = self.life_seff(life);
         if seff > SMIDGEN {
-            let eta = 0.174 / SoftF64(seff).powf(SoftF64(0.19)).to_f64();
+            let eta = 0.174 / SoftFloat(seff).powf(SoftFloat(0.19)).to_float();
             if eta < 1.0 {
                 eta
             } else {
@@ -812,77 +854,77 @@ impl FuelDef {
             1.0
         }
     }
-    const fn sigma(&self) -> f64 {
+    const fn sigma(&self) -> float::T {
         self.life_area_weight(Life::Alive) * self.life_savr(Life::Alive)
             + self.life_area_weight(Life::Dead) * self.life_savr(Life::Dead)
     }
-    const fn ratio(&self, sigma: f64, beta: f64) -> f64 {
-        beta / (3.348 / SoftF64(sigma).powf(SoftF64(0.8189)).to_f64())
+    const fn ratio(&self, sigma: float::T, beta: float::T) -> float::T {
+        beta / (3.348 / SoftFloat(sigma).powf(SoftFloat(0.8189)).to_float())
     }
-    const fn flux_ratio(&self, sigma: f64, beta: f64) -> f64 {
-        ((SoftF64(0.792).add(SoftF64(0.681).mul(SoftF64(sigma).sqrt())))
-            .mul(SoftF64(beta).add(SoftF64(0.1))))
+    const fn flux_ratio(&self, sigma: float::T, beta: float::T) -> float::T {
+        ((SoftFloat(0.792).add(SoftFloat(0.681).mul(SoftFloat(sigma).sqrt())))
+            .mul(SoftFloat(beta).add(SoftFloat(0.1))))
         .exp()
-        .to_f64()
+        .to_float()
             / (192.0 + 0.2595 * sigma)
     }
-    const fn beta(&self) -> f64 {
-        const fn fun(p: &Particle) -> f64 {
+    const fn beta(&self) -> float::T {
+        const fn fun(p: &Particle) -> float::T {
             p.load / p.density
         }
         accum_particles!(self.particles, fun) / length_to_imperial(&self.depth)
     }
-    const fn gamma(&self, sigma: f64, beta: f64) -> f64 {
-        let rt = SoftF64(self.ratio(sigma, beta));
-        let sigma15 = SoftF64(sigma).powf(SoftF64(1.5));
-        let gamma_max = sigma15.div(SoftF64(495.0).add(SoftF64(0.0594).mul(sigma15)));
-        let aa = SoftF64(133.0).div(SoftF64(sigma).powf(SoftF64(0.7913)));
+    const fn gamma(&self, sigma: float::T, beta: float::T) -> float::T {
+        let rt = SoftFloat(self.ratio(sigma, beta));
+        let sigma15 = SoftFloat(sigma).powf(SoftFloat(1.5));
+        let gamma_max = sigma15.div(SoftFloat(495.0).add(SoftFloat(0.0594).mul(sigma15)));
+        let aa = SoftFloat(133.0).div(SoftFloat(sigma).powf(SoftFloat(0.7913)));
         gamma_max
             .mul(rt.powf(aa))
-            .mul(aa.mul(SoftF64(1.0).sub(rt)).exp())
-            .to_f64()
+            .mul(aa.mul(SoftFloat(1.0).sub(rt)).exp())
+            .to_float()
     }
 
-    const fn life_rx_factor(&self, life: Life, sigma: f64, beta: f64) -> f64 {
+    const fn life_rx_factor(&self, life: Life, sigma: float::T, beta: float::T) -> float::T {
         self.life_load(life)
             * self.life_heat(life)
             * self.life_eta_s(life)
             * self.gamma(sigma, beta)
     }
 
-    const fn live_ext_factor(&self) -> f64 {
+    const fn live_ext_factor(&self) -> float::T {
         2.9 * safe_div(
             self.life_fine_load(Life::Dead),
             self.life_fine_load(Life::Alive),
         )
     }
 
-    const fn bulk_density(&self) -> f64 {
-        const fn fun(p: &Particle, depth: f64) -> f64 {
+    const fn bulk_density(&self) -> float::T {
+        const fn fun(p: &Particle, depth: float::T) -> float::T {
             p.load / depth
         }
         let depth = length_to_imperial(&self.depth);
         accum_particles!(self.particles, fun, depth)
     }
 
-    const fn residence_time(&self, sigma: f64) -> f64 {
+    const fn residence_time(&self, sigma: float::T) -> float::T {
         384.0 / sigma
     }
 
-    const fn slope_k(&self, beta: f64) -> f64 {
-        5.275 * SoftF64(beta).powf(SoftF64(-0.3)).to_f64()
+    const fn slope_k(&self, beta: float::T) -> float::T {
+        5.275 * SoftFloat(beta).powf(SoftFloat(-0.3)).to_float()
     }
 
-    const fn wind_bke(&self, sigma: f64, beta: f64) -> (f64, f64, f64) {
-        let wind_b = 0.02526 * SoftF64(sigma).powf(SoftF64(0.54)).to_f64();
+    const fn wind_bke(&self, sigma: float::T, beta: float::T) -> (float::T, float::T, float::T) {
+        let wind_b = 0.02526 * SoftFloat(sigma).powf(SoftFloat(0.54)).to_float();
         let r = self.ratio(sigma, beta);
         let c = 7.47
-            * (SoftF64(-0.133).mul(SoftF64(sigma).powf(SoftF64(0.55))))
+            * (SoftFloat(-0.133).mul(SoftFloat(sigma).powf(SoftFloat(0.55))))
                 .exp()
-                .to_f64();
-        let e = 0.715 * SoftF64((-0.000359) * sigma).exp().to_f64();
-        let wind_k = c * SoftF64(r).powf(SoftF64(-e)).to_f64();
-        let wind_e = SoftF64(r).powf(SoftF64(e)).to_f64() / c;
+                .to_float();
+        let e = 0.715 * SoftFloat((-0.000359) * sigma).exp().to_float();
+        let wind_k = c * SoftFloat(r).powf(SoftFloat(-e)).to_float();
+        let wind_e = SoftFloat(r).powf(SoftFloat(e)).to_float() / c;
         (wind_b, wind_k, wind_e)
     }
 }
@@ -893,8 +935,8 @@ impl Fuel {
     pub const fn standard<const N: usize, const M: usize, const F: usize>(
         name: &[u8; N],
         desc: &[u8; M],
-        depth: f64,
-        mext: f64,
+        depth: float::T,
+        mext: float::T,
         particles: [ParticleDef; F],
     ) -> Self {
         if MAX_PARTICLES < particles.len() {
@@ -939,16 +981,16 @@ impl Fuel {
             name: init_arr(0, *name),
             desc: init_arr(0, *desc),
             depth: length_from_imperial(depth),
-            mext: mk_ratio(mext),
-            adjust: mk_ratio(1.0),
+            mext: to_quantity!(Ratio, mext),
+            adjust: to_quantity!(Ratio, 1.0),
             particles: sorted_particles,
         })
     }
 
     pub const fn make(fuel: FuelDef) -> Fuel {
         let depth = length_to_imperial(&fuel.depth);
-        let mext = extract_ratio(&fuel.mext);
-        let adjust = extract_ratio(&fuel.adjust);
+        let mext = from_quantity!(Ratio, &fuel.mext);
+        let adjust = from_quantity!(Ratio, &fuel.adjust);
         let sigma = fuel.sigma();
         let beta = fuel.beta();
         let (wind_b, wind_k, wind_e) = fuel.wind_bke(sigma, beta);
@@ -1004,7 +1046,7 @@ impl Fuel {
     const fn has_dead_particles(&self) -> bool {
         !self.particles[0].is_sentinel()
     }
-    const fn life_area_weight(&self, life: Life) -> f64 {
+    const fn life_area_weight(&self, life: Life) -> float::T {
         match life {
             Life::Alive => self.live_area_weight,
             Life::Dead => self.dead_area_weight,
@@ -1046,7 +1088,7 @@ impl Fuel {
             })
         }
     }
-    fn rx_int_rbqig(&self, terrain: &Terrain) -> (f64, f64) {
+    fn rx_int_rbqig(&self, terrain: &Terrain) -> (float::T, float::T) {
         let mut wfmd = 0.0;
         let mut alive_moist = 0.0;
         let mut dead_moist = 0.0;
@@ -1075,7 +1117,7 @@ impl Fuel {
         )
     }
     #[inline]
-    const fn eta_m(&self, life: Life, life_moist: f64, wfmd: f64) -> f64 {
+    const fn eta_m(&self, life: Life, life_moist: float::T, wfmd: float::T) -> float::T {
         let life_mext = match (self.has_live_particles(), life) {
             (_, Life::Dead) => self.mext,
             (true, Life::Alive) => {
@@ -1096,17 +1138,17 @@ impl Fuel {
     fn calculate_wind_dependent_vars(
         &self,
         terrain: &Terrain,
-        speed0: f64,
-        rx_int: f64,
-    ) -> (f64, f64, f64, f64) {
+        speed0: float::T,
+        rx_int: float::T,
+    ) -> (float::T, float::T, float::T, float::T) {
         let phi_ew = self.phi_ew(terrain);
         let speed_max1 = speed0 * (1.0 + phi_ew);
         let upslope = terrain.upslope();
         let wind_speed = terrain.wind_speed.get::<foot_per_minute>();
         let wind_az = terrain.wind_azimuth.get::<radian>();
-        let ew_from_phi_ew = |p: f64| (p * self.wind_e).powf(self.wind_b_inv);
+        let ew_from_phi_ew = |p: float::T| (p * self.wind_e).powf(self.wind_b_inv);
         let max_wind = 0.9 * rx_int;
-        let check_wind_limit = |pew: f64, ew: f64, s: f64, a: f64| {
+        let check_wind_limit = |pew: float::T, ew: float::T, s: float::T, a: float::T| {
             if ew > max_wind {
                 let phi_ew_max_wind =
                     self.wind_k * max_wind.powf(self.wind_b);
@@ -1164,8 +1206,8 @@ impl Fuel {
     }
     fn wind_slope_situation(
         terrain: &Terrain,
-        speed0: f64,
-        phi_ew: f64,
+        speed0: float::T,
+        phi_ew: float::T,
     ) -> WindSlopeSituation {
         let wind_az = terrain.wind_azimuth.get::<radian>();
 
@@ -1184,30 +1226,30 @@ impl Fuel {
             CrossSlope
         }
     }
-    fn hpua(&self, rx_int: f64) -> f64 {
+    fn hpua(&self, rx_int: float::T) -> float::T {
         rx_int * self.residence_time
     }
-    fn eccentricity(eff_wind: f64) -> f64 {
+    fn eccentricity(eff_wind: float::T) -> float::T {
         let lw_ratio = 1.0 + 0.002840909 * eff_wind;
         (lw_ratio * lw_ratio - 1.0).sqrt() / lw_ratio
     }
 
-    fn phi_slope(&self, terrain: &Terrain) -> f64 {
+    fn phi_slope(&self, terrain: &Terrain) -> float::T {
         let s = terrain.slope.get::<ratio>();
         self.slope_k * s * s
     }
 
-    fn phi_wind(&self, terrain: &Terrain) -> f64 {
+    fn phi_wind(&self, terrain: &Terrain) -> float::T {
         let ws = terrain.wind_speed.get::<foot_per_minute>();
         self.wind_k * ws.powf(self.wind_b)
     }
 
-    fn phi_ew(&self, terrain: &Terrain) -> f64 {
+    fn phi_ew(&self, terrain: &Terrain) -> float::T {
         self.phi_slope(terrain) + self.phi_wind(terrain)
     }
 }
 
-const fn safe_div(a: f64, b: f64) -> f64 {
+const fn safe_div(a: float::T, b: float::T) -> float::T {
     if b > SMIDGEN {
         a / b
     } else {

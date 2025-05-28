@@ -23,23 +23,23 @@ pub mod linear_power_density {
     }
 }
 
-pub const FOOT_TO_M: f64 = 3.048_E-1;
-pub const POUND_TO_KG: f64 = 4.535_924_E-1;
-pub const BTU: f64 = 1.054_350_E3;
-use const_soft_float::soft_f64::SoftF64;
+use crate::firelib::float;
+use crate::firelib::float::*;
+pub const FOOT_TO_M: float::T = 3.048_E-1;
+pub const POUND_TO_KG: float::T = 4.535_924_E-1;
+pub const BTU: float::T = 1.054_350_E3;
 use uom::lib::marker::PhantomData;
-use uom::si::f64::*;
 
-pub const fn load_to_imperial(x: &ArealMassDensity) -> f64 {
+pub const fn load_to_imperial(x: &ArealMassDensity) -> float::T {
     let ArealMassDensity { value, .. } = x;
-    SoftF64(*value)
-        .div(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(2)))
-        .to_f64()
+    SoftFloat(*value)
+        .div(SoftFloat(POUND_TO_KG).div(SoftFloat(FOOT_TO_M).powi(2)))
+        .to_float()
 }
-pub const fn load_from_imperial(x: f64) -> ArealMassDensity {
-    let value = SoftF64(x)
-        .mul(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(2)))
-        .to_f64();
+pub const fn load_from_imperial(x: float::T) -> ArealMassDensity {
+    let value = SoftFloat(x)
+        .mul(SoftFloat(POUND_TO_KG).div(SoftFloat(FOOT_TO_M).powi(2)))
+        .to_float();
     ArealMassDensity {
         value,
         units: PhantomData,
@@ -47,17 +47,17 @@ pub const fn load_from_imperial(x: f64) -> ArealMassDensity {
     }
 }
 
-pub const fn density_to_imperial(x: &MassDensity) -> f64 {
+pub const fn density_to_imperial(x: &MassDensity) -> float::T {
     let MassDensity { value, .. } = x;
-    SoftF64(*value)
-        .div(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(3)))
-        .to_f64()
+    SoftFloat(*value)
+        .div(SoftFloat(POUND_TO_KG).div(SoftFloat(FOOT_TO_M).powi(3)))
+        .to_float()
 }
 
-pub const fn density_from_imperial(x: f64) -> MassDensity {
-    let value = SoftF64(x)
-        .mul(SoftF64(POUND_TO_KG).div(SoftF64(FOOT_TO_M).powi(3)))
-        .to_f64();
+pub const fn density_from_imperial(x: float::T) -> MassDensity {
+    let value = SoftFloat(x)
+        .mul(SoftFloat(POUND_TO_KG).div(SoftFloat(FOOT_TO_M).powi(3)))
+        .to_float();
     MassDensity {
         value,
         units: PhantomData,
@@ -65,17 +65,17 @@ pub const fn density_from_imperial(x: f64) -> MassDensity {
     }
 }
 
-pub const fn savr_to_imperial(x: &ReciprocalLength) -> f64 {
+pub const fn savr_to_imperial(x: &ReciprocalLength) -> float::T {
     let ReciprocalLength { value, .. } = x;
-    SoftF64(*value)
-        .div(SoftF64(1.0).div(SoftF64(FOOT_TO_M)))
-        .to_f64()
+    SoftFloat(*value)
+        .div(SoftFloat(1.0).div(SoftFloat(FOOT_TO_M)))
+        .to_float()
 }
 
-pub const fn savr_from_imperial(x: f64) -> ReciprocalLength {
-    let value = SoftF64(x)
-        .mul(SoftF64(1.0).div(SoftF64(FOOT_TO_M)))
-        .to_f64();
+pub const fn savr_from_imperial(x: float::T) -> ReciprocalLength {
+    let value = SoftFloat(x)
+        .mul(SoftFloat(1.0).div(SoftFloat(FOOT_TO_M)))
+        .to_float();
     ReciprocalLength {
         value,
         units: PhantomData,
@@ -83,17 +83,17 @@ pub const fn savr_from_imperial(x: f64) -> ReciprocalLength {
     }
 }
 
-pub const fn heat_to_imperial(x: &AvailableEnergy) -> f64 {
+pub const fn heat_to_imperial(x: &AvailableEnergy) -> float::T {
     let AvailableEnergy { value, .. } = x;
-    SoftF64(*value)
-        .div(SoftF64(BTU).div(SoftF64(POUND_TO_KG)))
-        .to_f64()
+    SoftFloat(*value)
+        .div(SoftFloat(BTU).div(SoftFloat(POUND_TO_KG)))
+        .to_float()
 }
 
-pub const fn heat_from_imperial(x: f64) -> AvailableEnergy {
-    let value = SoftF64(x)
-        .mul(SoftF64(BTU).div(SoftF64(POUND_TO_KG)))
-        .to_f64();
+pub const fn heat_from_imperial(x: float::T) -> AvailableEnergy {
+    let value = SoftFloat(x)
+        .mul(SoftFloat(BTU).div(SoftFloat(POUND_TO_KG)))
+        .to_float();
     AvailableEnergy {
         value,
         units: PhantomData,
@@ -101,30 +101,17 @@ pub const fn heat_from_imperial(x: f64) -> AvailableEnergy {
     }
 }
 
-pub const fn extract_ratio(x: &Ratio) -> f64 {
-    let Ratio { value, .. } = x;
-    *value
-}
-
-pub const fn mk_ratio(x: f64) -> Ratio {
-    Ratio {
-        units: PhantomData,
-        dimension: PhantomData,
-        value: x,
-    }
-}
-
-pub const fn length_from_imperial(x: f64) -> Length {
+pub const fn length_from_imperial(x: float::T) -> Length {
     Length {
         units: PhantomData,
         dimension: PhantomData,
-        value: SoftF64(x).mul(SoftF64(FOOT_TO_M)).to_f64(),
+        value: SoftFloat(x).mul(SoftFloat(FOOT_TO_M)).to_float(),
     }
 }
 
-pub const fn length_to_imperial(x: &Length) -> f64 {
+pub const fn length_to_imperial(x: &Length) -> float::T {
     let Length { value, .. } = x;
-    SoftF64(*value).div(SoftF64(FOOT_TO_M)).to_f64()
+    SoftFloat(*value).div(SoftFloat(FOOT_TO_M)).to_float()
 }
 
 // ReactionIntensity es uom::si::heat_flux_density

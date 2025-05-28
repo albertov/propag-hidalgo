@@ -22,7 +22,7 @@ class Propagator {
   volatile float *__restrict__ time_;
   volatile unsigned short *__restrict__ refs_x_;
   volatile unsigned short *__restrict__ refs_y_;
-  const float *__restrict__ const refs_time_;
+  volatile float *__restrict__ __restrict__ refs_time_;
   volatile unsigned short *__restrict__ refs_change_;
 
   __shared__ Point *shared_;
@@ -36,7 +36,7 @@ public:
                         float volatile *__restrict__ time,
                         unsigned short volatile *__restrict__ refs_x,
                         unsigned short volatile *__restrict__ refs_y,
-                        const float *__restrict__ const refs_time,
+                        volatile float *__restrict__ refs_time,
                         unsigned short volatile *__restrict__ ref_change,
                         __shared__ Point *shared)
       : settings_(settings), gridIx_(make_uint2(grid_x, grid_y)),
@@ -112,9 +112,21 @@ public:
       __syncthreads();
       // Analysys ends when grid has not improved
     } while (grid_improved); // end grid loop
+  }
+  __device__ void fixup() {
+    if (in_bounds_) {
+      load_points_into_shared_memory(true);
+    }
+    __syncthreads();
     if (settings_.find_ref_change) {
       fill_ref_change();
-    }
+    };
+    if (in_bounds_) {
+      Point me = shared_[local_ix_];
+      if (fire_is_null(me.fire)) {
+        time_[global_ix_] = FLT_MAX;
+      };
+    };
   }
 
 private:
@@ -214,8 +226,10 @@ private:
   }
   __device__ inline void commit_point() {
     const Point &me = shared_[local_ix_];
+    ASSERT(me.reference.is_valid(settings_.geo_ref));
     refs_x_[global_ix_] = me.reference.pos.x;
     refs_y_[global_ix_] = me.reference.pos.y;
+    refs_time_[global_ix_] = me.reference.time;
     // Time must be writen last and after a grid-level memory
     // fence because the time being set denotes the Point being
     // comitted. load_point must take this into account and place
@@ -240,15 +254,7 @@ private:
         __threadfence();
         p.reference.pos = make_ushort2(refs_x_[idx], refs_y_[idx]);
         ASSERT(p.reference.is_valid(settings_.geo_ref));
-        if (pos_in_bounds(p.reference.pos)) {
-          size_t ref_ix =
-              p.reference.pos.x + p.reference.pos.y * settings_.geo_ref.width;
-          p.reference.time = time_[ref_ix];
-        } else {
-          // reference is outside of this super grid,
-          // load time from refs_time
-          p.reference.time = refs_time_[idx];
-        }
+        p.reference.time = refs_time_[idx];
         ASSERT(p.reference.time != FLT_MAX);
       };
       return p;
@@ -256,10 +262,10 @@ private:
     return Point_NULL;
   };
 
-  __device__ inline void load_points_into_shared_memory(bool first_iteration) {
+  __device__ inline void load_points_into_shared_memory(bool load_center) {
     if (in_bounds_) {
       // Load the central block data
-      if (first_iteration) {
+      if (load_center) {
         load_point_at_offset(make_int2(0, 0));
       }
 
@@ -314,6 +320,7 @@ private:
     float denom = (1.0 - fire.eccentricity * __cosf(angle));
     float factor = (1.0 - fire.eccentricity) * __frcp_rd(denom);
     float speed = fire.speed_max * factor;
+    ASSERT(speed >= 0.0);
     float dx = (from_pos.x - to_pos.x) * settings_.geo_ref.transform.gt.dx;
     float dy = (from_pos.y - to_pos.y) * settings_.geo_ref.transform.gt.dy;
     float distance = __fsqrt_rz(dx * dx + dy * dy);
@@ -418,7 +425,7 @@ __global__ void propag(const Settings settings, const unsigned grid_x,
                        float volatile *__restrict__ time,
                        unsigned short volatile *__restrict__ ref_x,
                        unsigned short volatile *__restrict__ ref_y,
-                       const float *__restrict__ const ref_time,
+                       volatile float *__restrict__ ref_time,
                        unsigned short volatile *__restrict__ ref_change,
                        unsigned *progress) {
   extern __shared__ Point shared[];
@@ -426,6 +433,23 @@ __global__ void propag(const Settings settings, const unsigned grid_x,
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
                  time, ref_x, ref_y, ref_time, ref_change, shared);
   sim.run(worked, progress);
+}
+
+__global__ void fixup(const Settings settings, const unsigned grid_x,
+                      const unsigned grid_y,
+                      const float *__restrict__ const speed_max,
+                      const float *__restrict__ const azimuth_max,
+                      const float *__restrict__ const eccentricity,
+                      float volatile *__restrict__ time,
+                      unsigned short volatile *__restrict__ ref_x,
+                      unsigned short volatile *__restrict__ ref_y,
+                      volatile float *__restrict__ ref_time,
+                      unsigned short volatile *__restrict__ ref_change) {
+  extern __shared__ Point shared[];
+
+  Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
+                 time, ref_x, ref_y, ref_time, ref_change, shared);
+  sim.fixup();
 }
 
 #ifdef __cplusplus

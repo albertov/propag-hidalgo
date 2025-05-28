@@ -27,7 +27,7 @@ use std::ffi::CStr;
 use std::fmt;
 
 //FIXME: Use the C version as source of truth with bindgen
-pub const HALO_RADIUS: i32 = 2;
+pub const HALO_RADIUS: i32 = 3;
 
 const THREAD_BLOCK_AXIS_LENGTH: u32 = 19;
 
@@ -260,6 +260,7 @@ unsafe fn spatial_ref_from_buf(buf: *const c_char) -> gdal::errors::Result<Spati
 pub enum PropagError {
     PropagGdalError(GdalError),
     PropagCudaError(CudaError),
+    PropagReadPTXError(String),
     PropagLoadExtentError,
 }
 
@@ -269,6 +270,7 @@ impl fmt::Display for PropagError {
         match self {
             PropagGdalError(err) => write!(f, "{}", err),
             PropagCudaError(err) => write!(f, "{}", err),
+            PropagReadPTXError(err) => write!(f, "{}", err),
             PropagLoadExtentError => write!(f, "load_extent_error"),
         }
     }
@@ -340,25 +342,30 @@ fn propagate(propag: &Propagation, mut time: Vec<f32>) -> Result<PropagResults, 
     let settings = propag.settings;
     let geo_ref = settings.geo_ref;
     let len = geo_ref.len() as usize;
+    use PropagError::*;
     let terrain = propag
         .terrain_loader
         .load_extent(&geo_ref)
         .map(Ok)
-        .unwrap_or(Err(PropagError::PropagLoadExtentError))?;
+        .unwrap_or(Err(PropagLoadExtentError))?;
+    cust::init(CudaFlags::empty()).map_err(PropagCudaError)?;
+    let device = Device::get_device(0).map_err(PropagCudaError)?;
+    let ctx = Context::new(device).map_err(PropagCudaError)?;
+    ctx.set_flags(ContextFlags::SCHED_AUTO)
+        .map_err(PropagCudaError)?;
+
+    let module_c = if let Ok(path) = std::env::var("PROPAG_PTX") {
+        let contents =
+            std::fs::read_to_string(path).map_err(|x| PropagReadPTXError(format!("{}", x)))?;
+        Module::from_ptx(contents, &[]).map_err(PropagCudaError)?
+    } else {
+        Module::from_ptx(PTX_C, &[]).map_err(PropagCudaError)?
+    };
 
     (|| {
-        // initialize CUDA, this will pick the first available device and will
-        // make a CUDA context from it.
-        // We don't need the context for anything but it must be kept alive.
-        cust::init(CudaFlags::empty())?;
-        let device = Device::get_device(0)?;
-        let ctx = Context::new(device)?;
-        ctx.set_flags(ContextFlags::SCHED_AUTO)?;
-
         // Make the CUDA module, modules just house the GPU code for the kernels we created.
         // they can be made from PTX code, cubins, or fatbins.
         let module = Module::from_ptx(PTX, &[])?;
-        let module_c = Module::from_ptx(PTX_C, &[])?;
 
         // make a CUDA stream to issue calls to. You can think of this as an OS thread but for dispatching
         // GPU calls.
@@ -366,6 +373,7 @@ fn propagate(propag: &Propagation, mut time: Vec<f32>) -> Result<PropagResults, 
 
         // retrieve the add kernel from the module so we can calculate the right launch config.
         let propag_c = module_c.get_function("propag")?;
+        let fixup = module_c.get_function("fixup")?;
         let pre_burn = module.get_function("cuda_standard_simple_burn")?;
 
         let block_size = BlockSize {
@@ -495,6 +503,25 @@ fn propagate(propag: &Propagation, mut time: Vec<f32>) -> Result<PropagResults, 
                 }
             }
             stream.synchronize()?;
+            for grid_x in 0..super_grid_size.x {
+                for grid_y in 0..super_grid_size.y {
+                    cust::launch!(
+                        fixup<<<grid_size, block_size, shmem_bytes, stream>>>(
+                            settings,
+                            grid_x,
+                            grid_y,
+                            speed_max_buf.as_device_ptr(),
+                            azimuth_max_buf.as_device_ptr(),
+                            eccentricity_buf.as_device_ptr(),
+                            time_buf.as_device_ptr(),
+                            refs_x_buf.as_device_ptr(),
+                            refs_y_buf.as_device_ptr(),
+                            refs_time_buf.as_device_ptr(),
+                            boundary_change_buf.as_device_ptr(),
+                        )
+                    )?;
+                }
+            }
         };
         time_buf.copy_to(&mut time)?;
         if propag.settings.find_ref_change {

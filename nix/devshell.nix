@@ -1,4 +1,7 @@
 pkgs:
+let
+  qgis = pkgs.qgis-orig;
+in
 pkgs.mkShell {
   inputsFrom = [
     pkgs.propag
@@ -13,7 +16,7 @@ pkgs.mkShell {
     # So we can link against CUDA runtime API while developing
     LD_LIBRARY_PATH = "${pkgs.linuxPackages.nvidia_x11}/lib";
 
-    QGIS_PREFIX_PATH = pkgs.qgis-orig;
+    QGIS_PREFIX_PATH = qgis;
 
     inherit (pkgs.propag)
       GDAL_DATA
@@ -36,7 +39,7 @@ pkgs.mkShell {
     valgrind
     rustup
     gdb
-    qgis-orig
+    qgis
     python3
     python3.pkgs.ipython
     python3.pkgs.gdal

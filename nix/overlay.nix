@@ -64,16 +64,16 @@ in
   };
 
   qgis = final.callPackage ./pkgs/qgis.nix {
-    qgis = final.qgis-orig;
-    extraPlugins = [ (final.qgis-propag-algo.override { qgis = prev.qgis; }) ];
+    qgis = final.qgis-orig.unwrapped;
+    extraPlugins = [ (final.qgis-propag-algo.override { qgis = final.qgis-orig; }) ];
   };
 
-  qgis-debug = final.qgis-orig.unwrapped.overrideAttrs (old: {
-    cmakeFlags = [ "-DCMAKE_BUILD_TYPE=Debug" ] ++ old.cmakeFlags;
-    meta = old.meta // {
-      mainProgram = "qgis";
-    };
-  });
+  qgis-debug = final.callPackage ./pkgs/qgis.nix {
+    qgis = final.qgis-orig.unwrapped.overrideAttrs (old: {
+      cmakeFlags = [ "-DCMAKE_BUILD_TYPE=Debug" ] ++ old.cmakeFlags;
+    });
+  };
+
   geometry = final.callPackage ./pkgs/geometry.nix { };
 
   propag = final.callPackage ./pkgs/propag.nix {

@@ -12,7 +12,7 @@
 
 }:
 let
-  qgis-unwrapped = qgis.unwrapped;
+  qgis-unwrapped = qgis;
 in
 symlinkJoin rec {
 

@@ -115,7 +115,7 @@ public:
     bool valid_y = (step_.y > 0 ? cur_.y <= to_.y : cur_.y >= to_.y);
     if (!(valid_x && valid_y))
       return false;
-    if (abs(tmax_.x - tmax_.y) < 1e-6) {
+    if (abs(tmax_.x - tmax_.y) < 1e-9) {
       cur_.x += step_.x;
       cur_.y += step_.y;
       tmax_.x += delta_.x;

@@ -1,4 +1,4 @@
-use behave_rs::types::*;
+use firelib_rs::types::*;
 use rand::prelude::*;
 use uom::si::angle::degree;
 use uom::si::f64::*;

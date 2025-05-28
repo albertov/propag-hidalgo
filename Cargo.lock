@@ -18,18 +18,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
-name = "behave-rs"
-version = "0.1.0"
-dependencies = [
- "firelib-sys",
- "heapless",
- "lazy_static",
- "quickcheck",
- "rand 0.9.0",
- "uom",
-]
-
-[[package]]
 name = "bindgen"
 version = "0.71.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -110,6 +98,18 @@ checksum = "a19187fea3ac7e84da7dacf48de0c45d63c6a76f9490dae389aead16c243fce3"
 dependencies = [
  "log",
  "regex",
+]
+
+[[package]]
+name = "firelib-rs"
+version = "0.1.0"
+dependencies = [
+ "firelib-sys",
+ "heapless",
+ "lazy_static",
+ "quickcheck",
+ "rand 0.9.0",
+ "uom",
 ]
 
 [[package]]

@@ -6,6 +6,6 @@ extern crate std;
 #[macro_use]
 extern crate uom;
 
-pub mod behave;
+pub mod firelib;
 pub mod types;
 pub mod units;

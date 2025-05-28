@@ -710,15 +710,15 @@ mod tests {
     use quickcheck::{Arbitrary, Gen};
 
     quickcheck::quickcheck! {
-        fn behave_rs_produces_same_output_as_firelib(terrain: Terrain, model: ValidModel, azimuth: ValidAzimuth) -> bool {
+        fn we_produce_the_same_output_as_firelib_C(terrain: Terrain, model: ValidModel, azimuth: ValidAzimuth) -> bool {
             let az = Angle::new::<degree>(azimuth.0);
-            let (behave_sp, behave_sp_az) = behave_rs_spread(model.0, &terrain, az);
-            let (firelib_sp, firelib_sp_az) = firelib_spread(model.0, &terrain, az);
-            Spread::almost_eq(&behave_sp, &firelib_sp) && SpreadAtAzimuth::almost_eq(&behave_sp_az, &firelib_sp_az)
+            let (firelib_sp, firelib_sp_az) = firelib_rs_spread(model.0, &terrain, az);
+            let (c_sp, c_sp_az) = firelib_c_spread(model.0, &terrain, az);
+            Spread::almost_eq(&firelib_sp, &c_sp) && SpreadAtAzimuth::almost_eq(&firelib_sp_az, &c_sp_az)
         }
     }
 
-    fn behave_rs_spread(
+    fn firelib_rs_spread(
         model: usize,
         terrain: &Terrain,
         azimuth: Angle,
@@ -733,7 +733,7 @@ mod tests {
         }
     }
 
-    fn firelib_spread(
+    fn firelib_c_spread(
         model: usize,
         terrain: &Terrain,
         azimuth: Angle,

@@ -40,7 +40,7 @@ pub struct Terrain {
 
 pub struct Spread {
     pub rx_int: HeatFluxDensity,
-    pub speed: Velocity,
+    pub speed0: Velocity,
     pub hpua: RadiantExposure,
     pub phi_eff_wind: Ratio,
     pub speed_max: Velocity,

@@ -22,7 +22,7 @@ impl Spread {
     pub fn no_spread() -> Spread {
         Spread {
             rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(0.0),
-            speed: Velocity::new::<foot_per_minute>(0.0),
+            speed0: Velocity::new::<foot_per_minute>(0.0),
             hpua: RadiantExposure::new::<btu_sq_foot>(0.0),
             phi_eff_wind: Ratio::new::<ratio>(0.0),
             speed_max: Velocity::new::<foot_per_minute>(0.0),
@@ -295,7 +295,7 @@ impl Combustion {
         } else {
             Spread {
                 rx_int: self.rx_int(terrain),
-                speed: self.speed(terrain),
+                speed0: self.speed0(terrain),
                 hpua: self.hpua(terrain),
                 phi_eff_wind: self.phi_eff_wind(terrain),
                 speed_max: self.speed_max(terrain),
@@ -310,7 +310,7 @@ impl Combustion {
         self.fuel.life_rx_factor(Life::Alive) * self.life_eta_m(Life::Alive, terrain)
             + self.fuel.life_rx_factor(Life::Dead) * self.life_eta_m(Life::Dead, terrain)
     }
-    fn speed(&self, terrain: &Terrain) -> Velocity {
+    fn speed0(&self, terrain: &Terrain) -> Velocity {
         (self.rx_int(terrain) * self.flux_ratio / self.rbqig(terrain))
             * Length::new::<meter>(1.0)
             * (Time::new::<second>(1.0) * Time::new::<second>(1.0))
@@ -323,7 +323,7 @@ impl Combustion {
         todo!()
     }
     fn speed_max(&self, terrain: &Terrain) -> Velocity {
-        self.speed(terrain) * (Ratio::new::<ratio>(1.0) + self.phi_ew(terrain))
+        self.speed0(terrain) * (Ratio::new::<ratio>(1.0) + self.phi_ew(terrain))
     }
     fn azimuth_max(&self, terrain: &Terrain) -> Angle {
         todo!()

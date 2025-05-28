@@ -53,10 +53,7 @@ public:
   __device__ void run(unsigned *worked, volatile unsigned *progress) {
     __shared__ bool grid_improved;
     bool first_iteration = true;
-    if (settings_.geo_ref.width < 1 || settings_.geo_ref.height < 1) {
-      print_info("bad settings");
-      assert(false);
-    }
+    ASSERT(!(settings_.geo_ref.width < 1 || settings_.geo_ref.height < 1));
     do { // Grid loop
       if (threadIdx.x == 0 && threadIdx.y == 0) {
         grid_improved = false;
@@ -83,9 +80,10 @@ public:
       cooperative_groups::grid_group grid = cooperative_groups::this_grid();
       grid.sync();
       if (threadIdx.x == 0 && threadIdx.y == 0) {
-        grid_improved = false;
-        for (int i = 0; i < gridDim.x * gridDim.y; i++) {
-          grid_improved |= progress[i];
+        grid_improved = block_improved;
+        int i=0;
+        while (!grid_improved && i<gridDim.x*gridDim.y) {
+          grid_improved |= progress[i++];
         }
         if (grid_improved && blockIdx.x == 0 && blockIdx.y == 0) {
           *worked = 1;

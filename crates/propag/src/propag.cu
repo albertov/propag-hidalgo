@@ -22,7 +22,7 @@ class ALIGN Propagator {
   volatile float *__restrict__ time_;
   volatile unsigned short *__restrict__ refs_x_;
   volatile unsigned short *__restrict__ refs_y_;
-  volatile float *__restrict__ refs_time_;
+  const float *__restrict__ const refs_time_;
   volatile unsigned short *__restrict__ refs_change_;
 
   __shared__ Point *shared_;
@@ -36,7 +36,7 @@ public:
                         float volatile *__restrict__ time,
                         unsigned short volatile *__restrict__ refs_x,
                         unsigned short volatile *__restrict__ refs_y,
-                        float volatile *__restrict__ refs_time,
+                        const float *__restrict__ const refs_time,
                         unsigned short volatile *__restrict__ ref_change,
                         __shared__ Point *shared)
       : settings_(settings), gridIx_(make_uint2(grid_x, grid_y)),
@@ -215,7 +215,6 @@ private:
     const Point &me = shared_[local_ix_];
     refs_x_[global_ix_] = me.reference.pos.x;
     refs_y_[global_ix_] = me.reference.pos.y;
-    refs_time_[global_ix_] = me.reference.time;
     // Time must be writen last and after a grid-level memory
     // fence because the time being set denotes the Point being
     // comitted. load_point must take this into account and place
@@ -238,9 +237,17 @@ private:
         // the time happens before reading the reference to ensure
         // that the Pont has been fully comitted to global memory
         __threadfence();
-        p.reference.time = refs_time_[idx];
         p.reference.pos = make_ushort2(refs_x_[idx], refs_y_[idx]);
         ASSERT(p.reference.is_valid(settings_.geo_ref));
+        if (pos_in_bounds(p.reference.pos)) {
+          size_t ref_ix =
+              p.reference.pos.x + p.reference.pos.y * settings_.geo_ref.width;
+          p.reference.time = time_[ref_ix];
+        } else {
+          // reference is outside of this super grid,
+          // load time from refs_time
+          p.reference.time = refs_time_[idx];
+        }
         ASSERT(p.reference.time != FLT_MAX);
       };
       return p;
@@ -323,6 +330,9 @@ private:
   __device__ inline bool pos_in_bounds(int2 pos) const {
     return pos.x >= 0 && pos.y >= 0 && pos.x < settings_.geo_ref.width &&
            pos.y < settings_.geo_ref.height;
+  }
+  __device__ inline bool pos_in_bounds(ushort2 pos) const {
+    return pos.x < settings_.geo_ref.width && pos.y < settings_.geo_ref.height;
   }
 
   __device__ void print_info(const char msg[]) const {
@@ -407,7 +417,7 @@ __global__ void propag(const Settings settings, const unsigned grid_x,
                        float volatile *__restrict__ time,
                        unsigned short volatile *__restrict__ ref_x,
                        unsigned short volatile *__restrict__ ref_y,
-                       float volatile *__restrict__ ref_time,
+                       const float *__restrict__ const ref_time,
                        unsigned short volatile *__restrict__ ref_change,
                        unsigned *progress) {
   extern __shared__ Point shared[];

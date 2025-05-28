@@ -139,6 +139,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut time: Vec<f32> = std::iter::repeat(Max::MAX).take(model.len()).collect();
     let mut refs_x: Vec<u16> = std::iter::repeat(Max::MAX).take(model.len()).collect();
     let mut refs_y: Vec<u16> = std::iter::repeat(Max::MAX).take(model.len()).collect();
+    let mut refs_time: Vec<f32> = std::iter::repeat(Max::MAX).take(model.len()).collect();
     let mut boundary_change: Vec<u16> = std::iter::repeat(0).take(model.len()).collect();
 
     timeit!({
@@ -149,6 +150,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         time.fill(Max::MAX);
         refs_x.fill(Max::MAX);
         refs_y.fill(Max::MAX);
+        refs_time.fill(Max::MAX);
         time[fire_pos.x + fire_pos.y * geo_ref.width as usize] = 0.0;
         refs_x[fire_pos.x + fire_pos.y * geo_ref.width as usize] = fire_pos.x as u16;
         refs_y[fire_pos.x + fire_pos.y * geo_ref.width as usize] = fire_pos.y as u16;
@@ -158,7 +160,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let eccentricity_buf = eccentricity.as_slice().as_dbuf()?;
         let refs_x_buf = refs_x.as_slice().as_dbuf()?;
         let refs_y_buf = refs_y.as_slice().as_dbuf()?;
-        let refs_time_buf = time.as_slice().as_dbuf()?;
+        let refs_time_buf = refs_time.as_slice().as_dbuf()?;
         let time_buf = time.as_slice().as_dbuf()?;
         let boundary_change_buf = boundary_change.as_slice().as_dbuf()?;
         let (_, pre_burn_block_size) = pre_burn.suggested_launch_configuration(0, 0.into())?;

@@ -53,7 +53,7 @@ public:
     __shared__ bool grid_improved;
     bool first_iteration = true;
     do { // Grid loop
-      bool any_improved = false;
+      bool repeat_block = false;
       // Initialize progress to no-progress
       mark_progress(progress, 0);
       if (threadIdx.x == 0 && threadIdx.y == 0) {
@@ -61,7 +61,7 @@ public:
       };
       do { // Block loop
         // First phase, load data from global to shared memory
-        load_points_into_shared_memory(first_iteration);
+        load_points_into_shared_memory(true);
         first_iteration = false;
 
         __syncthreads();
@@ -76,17 +76,16 @@ public:
         // Wait for other threads to end their analysis and
         // check if any has improved. Then if we're the first
         // thread of the block mark progress
-        any_improved = __syncthreads_or(improved);
+        repeat_block = __syncthreads_or(improved);
         if (improved) {
           update_shared_point(best);
         }
-        if (any_improved) {
+        if (repeat_block) {
           mark_progress(progress, 1);
         };
-        //__syncthreads();
-      } while (any_improved); // end block loop
+      } while (repeat_block); // end block loop
 
-      // Block has finished. true if others have too and set grid_improved.
+      // Block has finished. Check if others have too and set grid_improved.
       // Analysys ends when grid has not improved
       cooperative_groups::grid_group grid = cooperative_groups::this_grid();
       grid.sync();
@@ -110,9 +109,17 @@ private:
       progress[block_ix_] = v;
     }
   }
+  __device__ inline void mark_progress_or(volatile unsigned *progress,
+                                          unsigned v) const {
+    if (threadIdx.x == 0 && threadIdx.y == 0) {
+      progress[block_ix_] |= v;
+    }
+  }
 
   __device__ inline bool update_point(Point p) const {
-    if (in_bounds_ && p.time < MAX_TIME) {
+    Point me = shared_[local_ix_];
+    if (in_bounds_ && p.time < MAX_TIME &&
+        (is_point_null(me) || p.time < me.time)) {
       // printf("best time %f\n", best.time);
       time_[global_ix_] = p.time;
       refs_x_[global_ix_] = p.reference.pos.x;
@@ -204,23 +211,23 @@ private:
 
     Point best = Point_NULL;
 
-    if (in_bounds_ && is_new) {
+    if (is_new && in_bounds_) {
 #pragma unroll
       for (int j = -1; j < 2; j++) {
 #pragma unroll
         for (int i = -1; i < 2; i++) {
-          // Skip self and out-of-bounds neighbors
+          // Skip self
           if (i == 0 && j == 0)
             continue;
 
           int2 neighbor_pos = make_int2((int)idx_2d_.x + i, (int)idx_2d_.y + j);
 
+          // skip out-of-bounds neighbors
           if (!(neighbor_pos.x >= 0 && neighbor_pos.y >= 0 &&
                 neighbor_pos.x < settings_.geo_ref.width &&
                 neighbor_pos.y < settings_.geo_ref.height))
             continue;
 
-          // Good neighbor
           Point neighbor =
               shared_[(local_x_ + i) + (local_y_ + j) * shared_width_];
 
@@ -230,43 +237,38 @@ private:
           };
 
           PointRef reference = neighbor.reference;
+          if ((reference.pos.x == idx_2d_.x && reference.pos.y == idx_2d_.y)) {
+            continue;
+          }
           ASSERT((reference.time < MAX_TIME && reference.pos.x != USHRT_MAX &&
                   reference.pos.y != USHRT_MAX));
-          ASSERT(
-              !(reference.pos.x == idx_2d_.x && reference.pos.y == idx_2d_.y));
           ASSERT(!is_fire_null(reference.fire));
 
           // Check if neighbor's reference is usable
           int2 dir = neighbor_direction(
               idx_2d_, make_uint2(reference.pos.x, reference.pos.y));
-          if ((int)idx_2d_.x + dir.x >= 0 &&
-              (int)idx_2d_.x + dir.x < settings_.geo_ref.width &&
-              (int)idx_2d_.y + dir.y >= 0 &&
-              (int)idx_2d_.y + dir.y < settings_.geo_ref.height) {
-            Point possible_blockage =
-                shared_[(local_x_ + dir.x) +
-                        (local_y_ + dir.y) * shared_width_];
-            if (is_point_null(possible_blockage)) {
-              // If we haven't analyzed the blockage point yet then we can't
-              // use the reference in this iteration
-              // printf("cant analyze %d %d\n", global_x_+dir.x, global_y_ +
-              // dir.y);
-              // FIXME: Need to force another iteration
-              reference = PointRef_NULL;
-            } else {
-              if (!similar_fires_(possible_blockage.fire, reference.fire)) {
-                reference =
-                    PointRef(neighbor.time, neighbor_pos, neighbor.fire);
-              };
+          ASSERT(((int)idx_2d_.x + dir.x) >= 0 &&
+                 ((int)idx_2d_.x + dir.x) < settings_.geo_ref.width &&
+                 ((int)idx_2d_.y + dir.y) >= 0 &&
+                 ((int)idx_2d_.y + dir.y) < settings_.geo_ref.height);
+
+          Point possible_blockage =
+              shared_[(local_x_ + dir.x) + (local_y_ + dir.y) * shared_width_];
+
+          if (is_point_null(possible_blockage)) {
+            // If we haven't analyzed the blockage point yet then we can't
+            // use the reference in this iteration
+            reference = PointRef_NULL;
+          } else {
+            if (!similar_fires_(possible_blockage.fire, reference.fire)) {
+              reference = PointRef(neighbor.time, neighbor_pos, neighbor.fire);
             };
           };
 
-          Point candidate;
-          // Look for a new candidate for best time
+          Point candidate = Point_NULL;
           if (reference.time < MAX_TIME) {
-            // We are combustible
             float t = time_to(settings_.geo_ref, reference, idx_2d_);
-            if (t < settings_.max_time) {
+            if (t < settings_.max_time && (is_new || t < me.time)) {
               ASSERT(!(reference.pos.x == USHRT_MAX ||
                        reference.pos.y == USHRT_MAX));
               candidate = Point(t, fire, reference);

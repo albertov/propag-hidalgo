@@ -171,6 +171,7 @@ private:
                       PointRef());
 
       if (p.time < MAX_TIME) {
+        __threadfence();
         p.reference.pos = make_ushort2(refs_x_[idx], refs_y_[idx]);
         ASSERT(!(p.reference.pos.x == USHRT_MAX ||
                  p.reference.pos.y == USHRT_MAX));

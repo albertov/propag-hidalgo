@@ -146,19 +146,18 @@ __device__ inline float time_to(const GeoReference &geo_ref,
     // south-up geotransform
   };
   float angle = abs(azimuth - from.fire.azimuth_max);
-  float factor = (1.0 - from.fire.eccentricity) /
-                 (1.0 - from.fire.eccentricity * cos(angle));
-
-  float dx = (from.pos.x - to.x) * geo_ref.transform.gt.dx;
-  float dy = (from.pos.y - to.y) * geo_ref.transform.gt.dy;
-  float distance = sqrt(dx * dx + dy * dy);
-
-  float speed = from.fire.speed_max * factor;
-  if (speed > 1e-6) {
-    return from.time + (distance / speed);
+  float denom = (1.0 - from.fire.eccentricity * cos(angle));
+  float speed;
+  if (denom > 1e-6) {
+    float factor = (1.0 - from.fire.eccentricity) / denom;
+    speed = from.fire.speed_max * factor;
   } else {
-    return MAX_TIME;
+    speed = from.fire.speed_max; // FIXME should be speed0
   }
+  float dx = (from_pos.x - to_pos.x) * geo_ref.transform.gt.dx;
+  float dy = (from_pos.y - to_pos.y) * geo_ref.transform.gt.dy;
+  float distance = sqrt(dx * dx + dy * dy);
+  return from.time + (distance / speed);
 }
 
 #endif

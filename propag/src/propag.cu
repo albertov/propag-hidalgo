@@ -21,9 +21,9 @@ class ALIGN Propagator {
   const float *azimuth_max_;
   const float *eccentricity_;
 
-  float volatile *time_;
-  unsigned short volatile *refs_x_;
-  unsigned short volatile *refs_y_;
+  volatile float *time_;
+  volatile unsigned short *refs_x_;
+  volatile unsigned short *refs_y_;
 
   __shared__ Point *shared_;
 
@@ -55,8 +55,8 @@ public:
     do { // Grid loop
       bool any_improved = false;
       // Initialize progress to no-progress
+      mark_progress(progress, 0);
       if (threadIdx.x == 0 && threadIdx.y == 0) {
-        mark_progress(progress, 0);
         grid_improved = false;
       };
       do { // Block loop
@@ -80,13 +80,13 @@ public:
         if (improved) {
           update_shared_point(best);
         }
-        if (any_improved && threadIdx.x == 0 && threadIdx.y == 0) {
+        if (any_improved) {
           mark_progress(progress, 1);
         };
-        __syncthreads();
+        //__syncthreads();
       } while (any_improved); // end block loop
 
-      // Block has finished. Check if others have too and set grid_improved.
+      // Block has finished. true if others have too and set grid_improved.
       // Analysys ends when grid has not improved
       cooperative_groups::grid_group grid = cooperative_groups::this_grid();
       grid.sync();
@@ -106,7 +106,9 @@ public:
 private:
   __device__ inline void mark_progress(volatile unsigned *progress,
                                        unsigned v) const {
-    progress[block_ix_] = v;
+    if (threadIdx.x == 0 && threadIdx.y == 0) {
+      progress[block_ix_] = v;
+    }
   }
 
   __device__ inline bool update_point(Point p) const {
@@ -195,9 +197,6 @@ private:
 
   __device__ inline void
   find_neighbor_with_least_access_time(Point *result) const {
-    ////////////////////////////////////////////////////////////////////////
-    // Begin neighbor analysys
-    ////////////////////////////////////////////////////////////////////////
     Point me = shared_[local_ix_];
     FireSimpleCuda fire = me.fire;
     bool is_new = !(me.time < MAX_TIME);
@@ -214,6 +213,7 @@ private:
             continue;
 
           int2 neighbor_pos = make_int2((int)idx_2d_.x + i, (int)idx_2d_.y + j);
+
           if (!(neighbor_pos.x >= 0 && neighbor_pos.y >= 0 &&
                 neighbor_pos.x < settings_.geo_ref.width &&
                 neighbor_pos.y < settings_.geo_ref.height))
@@ -295,7 +295,6 @@ private:
               candidate.reference = reference;
             }
           }
-
           // If no candidate or candidate improves use it as best
           if (candidate.time < best.time) {
             best = candidate;

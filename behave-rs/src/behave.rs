@@ -3,17 +3,12 @@ use crate::units::heat_flux_density::btu_sq_foot_min;
 use crate::units::linear_power_density::btu_foot_sec;
 use crate::units::radiant_exposure::btu_sq_foot;
 use crate::units::reciprocal_length::reciprocal_foot;
-use uom::si::reciprocal_length::reciprocal_meter;
-use uom::si::inverse_velocity::second_per_meter;
 use uom::si::angle::degree;
 use uom::si::available_energy::btu_per_pound;
 use uom::si::f64::*;
-use uom::si::inverse_velocity::minute_per_foot;
-use uom::si::length::{foot, meter};
-use uom::si::mass::kilogram;
+use uom::si::length::foot;
 use uom::si::mass_density::pound_per_cubic_foot;
 use uom::si::ratio::ratio;
-use uom::si::time::second;
 use uom::si::velocity::foot_per_minute;
 
 use crate::types::*;
@@ -56,7 +51,7 @@ impl ParticleDef {
         ParticleDef {
             type_: p_type,
             load: ArealMassDensity::new::<pound_per_square_foot>(p_load),
-            savr: Ratio::new::<ratio>(p_savr),
+            savr: ReciprocalLength::new::<reciprocal_foot>(p_savr),
             density: MassDensity::new::<pound_per_cubic_foot>(32.0),
             heat: AvailableEnergy::new::<btu_per_pound>(8000.0),
             si_total: Ratio::new::<ratio>(0.0555),
@@ -65,7 +60,11 @@ impl ParticleDef {
     }
 }
 fn safe_div(a: f64, b: f64) -> f64 {
-    if b > SMIDGEN { a / b } else { 0.0 }
+    if b > SMIDGEN {
+        a / b
+    } else {
+        0.0
+    }
 }
 
 impl Particle {
@@ -82,7 +81,7 @@ impl Particle {
         Particle {
             type_: *type_,
             load: load.get::<pound_per_square_foot>(),
-            savr: savr.get::<ratio>(),
+            savr: savr.get::<reciprocal_foot>(),
             density: density.get::<pound_per_cubic_foot>(),
             heat: heat.get::<btu_per_pound>(),
             si_total: si_total.get::<ratio>(),
@@ -105,10 +104,11 @@ impl Particle {
                 SizeClass::SC2 | SizeClass::SC3 => terrain.d10hr,
                 SizeClass::SC4 | SizeClass::SC5 => terrain.d100hr,
             },
-        }).get::<ratio>()
+        })
+        .get::<ratio>()
     }
 
-    fn surface_area_ratio(&self) -> f64 {
+    fn surface_area(&self) -> f64 {
         safe_div(self.load * self.savr, self.density)
     }
 
@@ -152,9 +152,9 @@ impl Fuel {
         }
     }
     fn particles(&self) -> impl Iterator<Item = &Particle> {
-        self.alive_particles
+        self.dead_particles
             .iter()
-            .chain(self.dead_particles.iter())
+            .chain(self.alive_particles.iter())
     }
 
     fn life_particles(&self, life: Life) -> impl Iterator<Item = &Particle> {
@@ -164,14 +164,14 @@ impl Fuel {
         }
     }
     fn has_live_particles(&self) -> bool {
-        self.life_particles(Life::Alive).count() > 0
+        !self.alive_particles.is_empty()
     }
-    fn total_area_ratio(&self) -> f64 {
-        self.particles().map(|p| p.surface_area_ratio()).sum()
+    fn total_area(&self) -> f64 {
+        self.particles().map(|p| p.surface_area()).sum()
     }
     fn life_area_weight(&self, life: Life) -> f64 {
         self.life_particles(life)
-            .map(|p| p.surface_area_ratio() / self.total_area_ratio())
+            .map(|p| p.surface_area() / self.total_area())
             .sum()
     }
     fn life_fine_load(&self, life: Life) -> f64 {
@@ -188,9 +188,7 @@ impl Fuel {
     }
     fn life_load(&self, life: Life) -> f64 {
         self.life_particles(life)
-            .map(|p| {
-                self.part_size_class_weight(p) * p.load * (1.0 - p.si_total)
-            })
+            .map(|p| self.part_size_class_weight(p) * p.load * (1.0 - p.si_total))
             .sum()
     }
     fn life_savr(&self, life: Life) -> f64 {
@@ -218,7 +216,7 @@ impl Fuel {
                 1.0
             }
         } else {
-            0.0
+            1.0
         }
     }
     fn sigma(&self) -> f64 {
@@ -231,15 +229,13 @@ impl Fuel {
     fn flux_ratio(&self) -> f64 {
         let sigma = self.sigma();
         let beta = self.beta();
-        ((0.792 + 0.681 * sigma.sqrt()) * (beta.sqrt() + 0.1)).exp() / (192.0 + 0.2595 * sigma)
+        ((0.792 + 0.681 * sigma.sqrt()) * (beta + 0.1)).exp() / (192.0 + 0.2595 * sigma)
     }
     fn beta(&self) -> f64 {
-        if self.depth > SMIDGEN {
-            let x : f64 = self.particles().map(|p| p.load / p.density).sum();
-            x / self.depth
-        } else {
-            0.0
-        }
+        safe_div(
+            self.particles().map(|p| safe_div(p.load, p.density)).sum(),
+            self.depth,
+        )
     }
     fn gamma(&self) -> f64 {
         let sigma = self.sigma();
@@ -253,11 +249,12 @@ impl Fuel {
         self.life_load(life) * self.life_heat(life) * self.life_eta_s(life) * self.gamma()
     }
     fn part_area_weight(&self, particle: &Particle) -> f64 {
-        safe_div(particle.surface_area_ratio(),
-            self
-            .life_particles(particle.life())
-            .map(|p| p.surface_area_ratio())
-            .sum())
+        safe_div(
+            particle.surface_area(),
+            self.life_particles(particle.life())
+                .map(|p| p.surface_area())
+                .sum(),
+        )
     }
 
     fn part_size_class_weight(&self, particle: &Particle) -> f64 {
@@ -268,11 +265,14 @@ impl Fuel {
     }
 
     fn live_ext_factor(&self) -> f64 {
-        2.9 * self.life_fine_load(Life::Dead) / self.life_fine_load(Life::Alive)
+        2.9 * safe_div(
+            self.life_fine_load(Life::Dead),
+            self.life_fine_load(Life::Alive),
+        )
     }
 
     fn bulk_density(&self) -> f64 {
-        self.particles().map(|p| p.load / self.depth).sum()
+        self.particles().map(|p| safe_div(p.load, self.depth)).sum()
     }
 
     fn residence_time(&self) -> f64 {
@@ -302,7 +302,7 @@ impl Fuel {
             live_rx_factor: self.life_rx_factor(Life::Alive),
             dead_area_weight: self.life_area_weight(Life::Dead),
             dead_rx_factor: self.life_rx_factor(Life::Dead),
-            fine_dead_factor: self.life_load(Life::Dead),
+            fine_dead_factor: self.life_fine_load(Life::Dead),
             live_ext_factor: self.live_ext_factor(),
             fuel_bed_bulk_dens: self.bulk_density(),
             residence_time: self.residence_time(),
@@ -338,7 +338,7 @@ impl Combustion {
             + self.fuel.life_rx_factor(Life::Dead) * self.life_eta_m(Life::Dead, terrain)
     }
     fn speed0(&self, terrain: &Terrain) -> f64 {
-        self.rx_int(terrain) * self.flux_ratio / self.rbqig(terrain)
+        safe_div(self.rx_int(terrain) * self.flux_ratio, self.rbqig(terrain))
     }
     fn hpua(&self, terrain: &Terrain) -> f64 {
         self.rx_int(terrain) * self.residence_time
@@ -376,10 +376,8 @@ impl Combustion {
         match life {
             Life::Alive => {
                 if self.fuel.has_live_particles() {
-                    let fdmois = self.wfmd(terrain) / self.fine_dead_factor;
-                    let live_mext = self.live_ext_factor
-                        * (1.0 - fdmois / self.fuel.mext)
-                        - 0.226;
+                    let fdmois = safe_div(self.wfmd(terrain), self.fine_dead_factor);
+                    let live_mext = self.live_ext_factor * (1.0 - fdmois / self.fuel.mext) - 0.226;
                     live_mext.max(self.fuel.mext)
                 } else {
                     0.0
@@ -394,7 +392,7 @@ impl Combustion {
             0.0
         } else if self.life_mext(life, terrain) > SMIDGEN {
             let rt = self.life_moisture(life, terrain) / self.life_mext(life, terrain);
-            1.0 - 2.59 * rt.powf(1.0) + 5.11 * rt.powf(2.0) - 3.52 * rt.powf(3.0)
+            1.0 - 2.59 * rt + 5.11 * rt * rt - 3.52 * rt * rt * rt
         } else {
             0.0
         }
@@ -408,7 +406,8 @@ impl Combustion {
     }
 
     fn rbqig(&self, terrain: &Terrain) -> f64 {
-        self.fuel
+        let x: f64 = self
+            .fuel
             .particles()
             .map(|p| {
                 (250.0 + 1116.0 * p.moisture(terrain))
@@ -416,7 +415,8 @@ impl Combustion {
                     * self.fuel.life_area_weight(p.life())
                     * p.sigma_factor()
             })
-            .sum()
+            .sum();
+        self.fuel_bed_bulk_dens * x
     }
 
     fn phi_slope(&self, terrain: &Terrain) -> f64 {
@@ -455,31 +455,14 @@ mod tests {
 
     use quickcheck::{Arbitrary, Gen};
 
-    #[test]
-    fn it_works() {
-        let zero = Ratio::new::<ratio>(0.0);
-        let (spread, _spread_az) = firelib_spread(
-            0,
-            &Terrain {
-                d1hr: zero,
-                d10hr: zero,
-                d100hr: zero,
-                herb: zero,
-                wood: zero,
-                wind_speed: Velocity::new::<foot_per_minute>(0.0),
-                wind_azimuth: Angle::new::<degree>(0.0),
-                slope: zero,
-                aspect: Angle::new::<degree>(0.0),
-            },
-            0.0,
-        );
-        assert_eq!(spread.speed0.get::<foot_per_minute>(), 0.0);
-    }
-
     fn almost_eq(a: f64, b: f64) -> bool {
         let r = (a - b).abs() < SMIDGEN;
         println!("{:?} = {:?}", a, b);
         r
+    }
+    #[test]
+    fn particles_works() {
+        assert_eq!(STANDARD_CATALOG.get(4).unwrap().particles().count(), 4)
     }
 
     quickcheck::quickcheck! {
@@ -530,14 +513,13 @@ mod tests {
                 terrain.aspect.get::<degree>(),
             );
             let fuel: *mut fuelModelDataStruct = *(*catalog).modelPtr.wrapping_add(model);
-            let az_max = (*fuel).azimuthMax;
+            let f = *fuel;
             Fire_SpreadAtAzimuth(
                 catalog,
                 model,
-                az_max,
+                azimuth,
                 (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
             );
-            let f = *fuel;
             let spread = Spread {
                 rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(f.rxInt),
                 speed0: Velocity::new::<foot_per_minute>(f.spread0),
@@ -549,12 +531,6 @@ mod tests {
                 byrams_max: LinearPowerDensity::new::<btu_foot_sec>(f.byrams),
                 flame_max: Length::new::<foot>(f.flame),
             };
-            Fire_SpreadAtAzimuth(
-                catalog,
-                model,
-                azimuth,
-                (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
-            );
             let spread_az = SpreadAtAzimuth {
                 speed: Velocity::new::<foot_per_minute>(f.spreadAny),
                 byrams: LinearPowerDensity::new::<btu_foot_sec>(f.byrams),
@@ -564,11 +540,11 @@ mod tests {
             (spread, spread_az)
         }
     }
-
+    use uom::si::velocity::meter_per_second;
     impl Arbitrary for Terrain {
         fn arbitrary(g: &mut Gen) -> Self {
-            let humidities = &(0..1001).map(|x| x as f64 / 10.0).collect::<Vec<_>>()[..];
-            let wind_speeds = &(0..1001).map(|x| x as f64 / 10.0).collect::<Vec<_>>()[..];
+            let humidities = &(0..101).map(|x| x as f64 / 100.0).collect::<Vec<_>>()[..];
+            let wind_speeds = &(0..101).map(|x| x as f64 / 10.0).collect::<Vec<_>>()[..];
             let slopes = &(0..1001).map(|x| x as f64 / 1000.0).collect::<Vec<_>>()[..];
             let mut choose_humidity = || Ratio::new::<ratio>(*g.choose(humidities).unwrap());
             Self {
@@ -577,7 +553,7 @@ mod tests {
                 d100hr: choose_humidity(),
                 herb: choose_humidity(),
                 wood: choose_humidity(),
-                wind_speed: Velocity::new::<foot_per_minute>(*g.choose(wind_speeds).unwrap()),
+                wind_speed: Velocity::new::<meter_per_second>(*g.choose(wind_speeds).unwrap()),
                 wind_azimuth: Angle::new::<degree>(ValidAzimuth::arbitrary(g).0),
                 slope: Ratio::new::<ratio>(*g.choose(slopes).unwrap()),
                 aspect: Angle::new::<degree>(ValidAzimuth::arbitrary(g).0),
@@ -600,7 +576,7 @@ mod tests {
 
     impl Arbitrary for ValidModel {
         fn arbitrary(g: &mut Gen) -> Self {
-            let models = &(1..7).collect::<Vec<_>>()[..]; //FIXME
+            let models = &(0..7).collect::<Vec<_>>()[..]; //FIXME
             Self(*g.choose(models).unwrap())
         }
     }

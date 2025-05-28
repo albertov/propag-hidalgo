@@ -4,7 +4,8 @@ pub mod areal_mass_density {
         system: uom::si;
         quantity: uom::si::areal_mass_density;
 
-        @pound_per_square_foot: 4.8824276270581; "lb/ft²", "pound mass per square foot", "pounds mass per square foot";
+        @pound_per_square_foot: (3.048_E-1 * 3.048_E-1) / 4.535_924_E-1 ; "lb/ft²", "pound mass per square foot", "pounds mass per square foot";
+
     }
 }
 
@@ -40,13 +41,11 @@ pub mod heat_flux_density {
         @btu_sq_foot_min: 1.054_350_E3 / (3.048_E-1 * 3.048_E-1) / 60.0; "btu/ft²/min", "BTU per square foot per minute", "BTU per square foot per minute";
     }
 }
-
-// SaToVolRatio es uom::si::reciprocal_length
 pub mod reciprocal_length {
     unit! {
         system: uom::si;
         quantity: uom::si::reciprocal_length;
 
-        @reciprocal_foot: 3.048_E1; "ft⁻¹", "reciprocal foot", "reciprocal feet";
+        @reciprocal_foot: 1.0 / 3.048_E-1; "ft⁻¹", "reciprocal foot", "reciprocal feet";
     }
 }

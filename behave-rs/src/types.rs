@@ -19,7 +19,7 @@ pub enum ParticleType {
 pub struct ParticleDef {
     pub type_: ParticleType,
     pub load: ArealMassDensity, // fuel loading
-    pub savr: Ratio, // surface area to volume ratio
+    pub savr: ReciprocalLength, // surface area to volume ratio
     pub density: MassDensity,
     pub heat: AvailableEnergy,
     pub si_total: Ratio,     // total silica content
@@ -191,7 +191,7 @@ lazy_static::lazy_static! {
             particles: vec![
                 ParticleDef::standard(ParticleType::Dead, 0.0690, 1750.0),
                 ParticleDef::standard(ParticleType::Dead, 0.1150, 109.0),
-                ParticleDef::standard(ParticleType::Wood, 0.0920, 30.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0920, 30.0),
             ],
         }),
     ]

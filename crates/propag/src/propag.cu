@@ -1,5 +1,17 @@
 #include "propag.h"
 
+__device__ static inline bool
+is_boundary(const unsigned int *__restrict__ boundaries, int ix) {
+  int byte_ix = ix >> 5;
+  int bit_ix = ix - (byte_ix << 5);
+  return boundaries[byte_ix] & (1 << bit_ix);
+}
+__device__ static inline void set_boundary(unsigned int *boundaries, int ix) {
+  int byte_ix = ix >> 5;
+  int bit_ix = ix - (byte_ix << 5);
+  atomicOr(boundaries + byte_ix, 1 << bit_ix);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 /// Propagator
 //////////////////////////////////////////////////////////////////////////////
@@ -51,7 +63,7 @@ public:
   };
 
   __device__ void run(unsigned *worked, unsigned *progress,
-                      const unsigned char *__restrict__ boundaries) {
+                      const unsigned int *__restrict__ boundaries) {
     __shared__ bool grid_improved;
     bool first_iteration = true;
     do { // Grid loop
@@ -108,7 +120,7 @@ public:
       // Analysys ends when grid has not improved
     } while (grid_improved); // end grid loop
   }
-  __device__ void post_propagate(const unsigned char *__restrict__ boundaries) {
+  __device__ void post_propagate(const unsigned int *__restrict__ boundaries) {
     if (in_bounds_) {
       load_points_into_shared_memory(true);
     }
@@ -120,7 +132,7 @@ public:
       };
     };
   }
-  __device__ void pre_propagate(unsigned char *boundaries) {
+  __device__ void pre_propagate(unsigned int *boundaries) {
     if (in_bounds_) {
       load_points_into_shared_memory(true);
     }
@@ -130,7 +142,7 @@ public:
 
 private:
   __device__ inline Point find_neighbor_with_least_access_time(
-      const unsigned char *__restrict__ boundaries) {
+      const unsigned int *__restrict__ boundaries) {
     if (in_bounds_) {
       Point best = shared_[local_ix_];
 #pragma unroll
@@ -175,7 +187,7 @@ private:
               size_t blockage_idx =
                   possible_blockage_pos.x +
                   possible_blockage_pos.y * settings_.geo_ref.width;
-              if (boundaries[blockage_idx]) {
+              if (is_boundary(boundaries, blockage_idx)) {
                 reference = PointRef(neighbor.time, neighbor_pos);
                 break;
               };
@@ -355,7 +367,7 @@ private:
            (in_bounds_ ? refs_y_[global_ix_] : USHRT_MAX));
   }
 
-  __device__ inline void fill_boundaries(unsigned char *boundaries) {
+  __device__ inline void fill_boundaries(unsigned int *boundaries) {
     if (in_bounds_) {
       const Point me = shared_[local_ix_];
       unsigned short changed = 0;
@@ -381,7 +393,9 @@ private:
                      me.fire.speed_max < neighbor.fire.speed_max;
         }
       }
-      boundaries[global_ix_] = changed;
+      if (changed) {
+        set_boundary(boundaries, global_ix_);
+      }
     }
   }
 };
@@ -396,7 +410,7 @@ propag(const Settings settings, const unsigned grid_x, const unsigned grid_y,
        const float *const azimuth_max, const float *const eccentricity,
        float volatile *time, unsigned short volatile *refs_x,
        unsigned short volatile *refs_y, float volatile *refs_time,
-       const unsigned char *__restrict__ boundaries, unsigned *progress) {
+       const unsigned int *__restrict__ boundaries, unsigned *progress) {
   extern __shared__ Point shared[];
 
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
@@ -410,7 +424,7 @@ post_propagate(const Settings settings, const unsigned grid_x,
                const float *const azimuth_max, const float *const eccentricity,
                float volatile *time, unsigned short volatile *refs_x,
                unsigned short volatile *refs_y, float volatile *refs_time,
-               unsigned char *__restrict__ boundaries) {
+               unsigned int *__restrict__ boundaries) {
   extern __shared__ Point shared[];
 
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
@@ -424,7 +438,7 @@ pre_propagate(const Settings settings, const unsigned grid_x,
               const float *const azimuth_max, const float *const eccentricity,
               float volatile *time, unsigned short volatile *refs_x,
               unsigned short volatile *refs_y, float volatile *refs_time,
-              unsigned char *boundaries) {
+              unsigned int *boundaries) {
   extern __shared__ Point shared[];
 
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,

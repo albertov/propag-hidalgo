@@ -48,6 +48,7 @@ fn main() {
             "-arch",
             "compute_62",
             //"-use_fast_math",
+            "-std=c++17",
             "-O3",
             //"--restrict",
             //"--expt-relaxed-constexpr",

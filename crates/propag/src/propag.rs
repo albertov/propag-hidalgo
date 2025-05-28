@@ -1,5 +1,6 @@
 use ::geometry::*;
 use gdal::Dataset;
+use std::ops::Div;
 
 use core::ffi::c_char;
 use cust::device::DeviceAttribute;
@@ -309,7 +310,7 @@ pub unsafe extern "C" fn FFIPropagation_run(
 pub struct PropagResults {
     pub geo_ref: GeoReference,
     pub time: Vec<f32>,
-    pub boundary_change: Vec<u8>,
+    pub boundary_change: Vec<u32>,
     pub refs_x: Vec<u16>,
     pub refs_y: Vec<u16>,
     pub refs_time: Vec<f32>,
@@ -406,7 +407,7 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
         let mut refs_x: Vec<u16> = std::iter::repeat_n(Max::MAX, len).collect();
         let mut refs_y: Vec<u16> = std::iter::repeat_n(Max::MAX, len).collect();
         let mut refs_time: Vec<f32> = std::iter::repeat_n(Max::MAX, len).collect();
-        let mut boundary_change: Vec<u8> = std::iter::repeat_n(0, len).collect();
+        let mut boundary_change: Vec<u32> = std::iter::repeat_n(0, len.div_ceil(32)).collect();
 
         let speed_max: Vec<float::T> = std::iter::repeat_n(0.0, len).collect();
         let azimuth_max: Vec<float::T> = std::iter::repeat_n(0.0, len).collect();
@@ -697,7 +698,9 @@ fn write_refs(
         for i in 0..geo_ref.width {
             for j in 0..geo_ref.height {
                 let ix = (i + j * geo_ref.width) as usize;
-                if time[ix] < Max::MAX && boundary_change[ix] == 1 {
+                let byte_ix = ix.div(32);
+                let bit_ix = ix % 32;
+                if time[ix] < Max::MAX && (boundary_change[byte_ix] & (1 << bit_ix)) != 0 {
                     let dst = geo_ref.backward(USizeVec2 {
                         x: i as usize,
                         y: j as usize,

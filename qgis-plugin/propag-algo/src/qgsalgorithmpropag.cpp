@@ -52,9 +52,6 @@ void QgsPropagAlgorithm::initAlgorithm(const QVariantMap &) {
       QObject::tr("The name of the field of the fuel code feature that "
                   "holds the fuel code"),
       QVariant("BEHAVE"), false, false));
-  addParameter(new QgsProcessingParameterBoolean(
-      QStringLiteral("GENERATE_REFS"),
-      QObject::tr("Generate references vector layer"), false));
   addParameter(new QgsProcessingParameterNumber(
       QStringLiteral("MAX_SIMULATION_MINUTES"),
       QObject::tr("Maximum simulation minutes"),
@@ -70,6 +67,9 @@ void QgsPropagAlgorithm::initAlgorithm(const QVariantMap &) {
       Qgis::ProcessingNumberParameterType::Double, QVariant(5.0), false, 1e-9));
   addParameter(new QgsProcessingParameterRasterDestination(
       QStringLiteral("TIMES"), QObject::tr("Access time output raster")));
+  addParameter(new QgsProcessingParameterVectorDestination(
+      QStringLiteral("REFERENCES"), QObject::tr("References output layer"),
+      Qgis::ProcessingSourceType::VectorLine, QVariant(), true, false));
 }
 
 QVariantMap
@@ -78,6 +78,14 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
                                      QgsProcessingFeedback *feedback) {
   const QString outputFile =
       parameterAsOutputLayer(parameters, QStringLiteral("TIMES"), context);
+
+  bool find_ref_change =
+      parameters.value(QStringLiteral("REFERENCES")).isValid();
+  QString refsOutputFile;
+  if (find_ref_change) {
+    refsOutputFile = parameterAsOutputLayer(
+        parameters, QStringLiteral("REFERENCES"), context);
+  };
 
   QgsFeatureSource *ignitedElements =
       parameterAsSource(parameters, "IGNITED_ELEMENTS", context);
@@ -105,9 +113,6 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
   } else {
     throw QgsProcessingException(QObject::tr("Invalid FUEL_CODE_FIELD"));
   }
-
-  const bool find_ref_change =
-      parameterAsBoolean(parameters, QStringLiteral("GENERATE_REFS"), context);
 
   bool hasXValue = parameters.value(QStringLiteral("CELL_SIZE_X")).isValid();
   bool hasYValue = parameters.value(QStringLiteral("CELL_SIZE_Y")).isValid();
@@ -167,9 +172,6 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
 
   Settings settings(geo_ref, max_time, find_ref_change);
 
-  QByteArray outputFile_ba = outputFile.toUtf8();
-  const char *output_path = outputFile_ba.data();
-
   int fuelIdx = fuelCodes->fields().indexOf(fuel_code_field);
   if (fuelIdx == -1) {
     throw QgsProcessingException(
@@ -210,9 +212,15 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
   QString ie_proj = ignitedElements->sourceCrs().toProj();
   QByteArray ie_proj_ba = ie_proj.toUtf8();
 
-  FFIPropagation propagation(settings, output_path, features.data(),
-                             features.size(), ie_proj_ba.data(),
-                             terrain_loader);
+  QByteArray outputFile_ba = outputFile.toUtf8();
+  const char *output_path = outputFile_ba.data();
+
+  QByteArray refsOutputFile_ba = refsOutputFile.toUtf8();
+  const char *refs_output_path = refsOutputFile_ba.data();
+
+  FFIPropagation propagation(settings, output_path, refs_output_path,
+                             features.data(), features.size(),
+                             ie_proj_ba.data(), terrain_loader);
 
   char err_c[1024];
   memset(&err_c, 0, 1024);

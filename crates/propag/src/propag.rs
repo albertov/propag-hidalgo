@@ -13,6 +13,8 @@ use gdal::raster::Buffer;
 use gdal::raster::RasterCreationOptions;
 use gdal::spatial_ref::SpatialRef;
 use gdal::vector::Geometry;
+use gdal::vector::LayerAccess;
+use gdal::vector::LayerOptions;
 use gdal::DriverManager;
 use gdal_sys::CPLErr::CE_None;
 use gdal_sys::OGRGeometryH;
@@ -23,7 +25,7 @@ use std::ffi::CStr;
 use std::fmt;
 
 //FIXME: Use the C version as source of truth with bindgen
-pub const HALO_RADIUS: i32 = 1;
+pub const HALO_RADIUS: i32 = 2;
 
 const THREAD_BLOCK_AXIS_LENGTH: u32 = 19;
 
@@ -57,6 +59,7 @@ impl Settings {
 pub struct Propagation {
     pub settings: Settings,
     pub output_path: String,
+    pub refs_output_path: Option<String>,
     pub initial_ignited_elements: Vec<TimeFeature>,
     pub initial_ignited_elements_crs: SpatialRef,
     pub terrain_loader: Box<dyn TerrainLoader>,
@@ -171,6 +174,7 @@ impl TryFrom<&FFIFuelFeature> for FuelFeature {
 pub struct FFIPropagation {
     settings: Settings,
     output_path: *const c_char,
+    refs_output_path: *const c_char,
     initial_ignited_elements: *const FFITimeFeature,
     initial_ignited_elements_len: usize,
     initial_ignited_elements_crs: *const c_char,
@@ -197,9 +201,16 @@ impl TryFrom<FFIPropagation> for Propagation {
             unsafe { spatial_ref_from_buf(p.initial_ignited_elements_crs) }?;
         let output_path = unsafe { CStr::from_ptr(p.output_path) };
         let output_path = String::from_utf8_lossy(output_path.to_bytes()).to_string();
+        let refs_output_path = if !p.refs_output_path.is_null() {
+            let refs_output_path = unsafe { CStr::from_ptr(p.refs_output_path) };
+            Some(String::from_utf8_lossy(refs_output_path.to_bytes()).to_string())
+        } else {
+            None
+        };
         Ok(Propagation {
             settings: p.settings,
             output_path,
+            refs_output_path,
             initial_ignited_elements,
             initial_ignited_elements_crs,
             terrain_loader: Box::new(p.terrain_loader),
@@ -250,8 +261,26 @@ pub unsafe extern "C" fn FFIPropagation_run(
             &geo_ref,
         )
         .map_err(PropagGdalError)?;
-        propagate(&propag, &mut time)?;
-        write_times(time, &geo_ref, propag.output_path).map_err(PropagGdalError)
+        let PropagResults {
+            time,
+            boundary_change,
+            refs_x,
+            refs_y,
+            refs_time,
+        } = propagate(&propag, &mut time)?;
+        write_times(time, &geo_ref, propag.output_path).map_err(PropagGdalError)?;
+        if let Some(out_path) = propag.refs_output_path {
+            write_refs(
+                &boundary_change,
+                &refs_x,
+                &refs_y,
+                &refs_time,
+                &geo_ref,
+                out_path,
+            )
+            .map_err(PropagGdalError)?;
+        }
+        Ok::<(), PropagError>(())
     }) {
         Ok(Ok(())) => true,
         Ok(Err(err)) => {
@@ -268,7 +297,15 @@ pub unsafe extern "C" fn FFIPropagation_run(
     }
 }
 
-fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<(), PropagError> {
+struct PropagResults {
+    time: Vec<f32>,
+    boundary_change: Vec<u16>,
+    refs_x: Vec<u16>,
+    refs_y: Vec<u16>,
+    refs_time: Vec<f32>,
+}
+
+fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<PropagResults, PropagError> {
     let settings = propag.settings;
     let max_time = settings.max_time;
     let geo_ref = settings.geo_ref;
@@ -437,20 +474,18 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<(), PropagErro
             stream.synchronize()?;
             //println!("find boundary_change done");
             /*
-            refs_x_buf.copy_to(&mut refs_x)?;
-            refs_y_buf.copy_to(&mut refs_y)?;
-            assert!(refs_x.iter().all(|x| *x == Max::MAX || *x == fire_pos.x),);
-            assert!(refs_y.iter().all(|x| *x == Max::MAX || *x == fire_pos.y),);
-            assert_eq!(
-                refs_x.iter().filter(|x| *x < &Max::MAX).count(),
-                refs_y.iter().filter(|x| *x < &Max::MAX).count(),
-            );
-            */
+            fn write_refs(
+                        refs_x_buf.copy_to(&mut refs_x)?;
+                        refs_y_buf.copy_to(&mut refs_y)?;
+                        assert!(refs_x.iter().all(|x| *x == Max::MAX || *x == fire_pos.x),);
+                        assert!(refs_y.iter().all(|x| *x == Max::MAX || *x == fire_pos.y),);
+                        assert_eq!(
+                            refs_x.iter().filter(|x| *x < &Max::MAX).count(),
+                            refs_y.iter().filter(|x| *x < &Max::MAX).count(),
+                        );
+                        */
         };
         time_buf.copy_to(time)?;
-        boundary_change_buf.copy_to(&mut boundary_change)?;
-        refs_x_buf.copy_to(&mut refs_x)?;
-        refs_y_buf.copy_to(&mut refs_y)?;
 
         let good_times: Vec<f32> = time
             .iter()
@@ -467,7 +502,19 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<(), PropagErro
         );
         let num_times_after = good_times.len();
         println!("num_times_after={}", num_times_after);
-        Ok(())
+        if propag.settings.find_ref_change {
+            boundary_change_buf.copy_to(&mut boundary_change)?;
+            refs_x_buf.copy_to(&mut refs_x)?;
+            refs_y_buf.copy_to(&mut refs_y)?;
+            refs_time_buf.copy_to(&mut refs_time)?;
+        };
+        Ok(PropagResults {
+            time: time.clone(),
+            boundary_change,
+            refs_x,
+            refs_y,
+            refs_time,
+        })
     })()
     .map_err(PropagError::PropagCudaError)
 }
@@ -495,6 +542,55 @@ fn write_times(
     band.set_no_data_value(Some(no_data as f64))?;
     let mut buf = Buffer::new(band.size(), times);
     band.write((0, 0), band.size(), &mut buf)?;
+    Ok(())
+}
+
+fn write_refs(
+    boundary_change: &[u16],
+    refs_x: &[u16],
+    refs_y: &[u16],
+    _refs_time: &[f32],
+    geo_ref: &GeoReference,
+    output_path: String,
+) -> gdal::errors::Result<()> {
+    let shape = DriverManager::get_driver_by_name("GPKG")?;
+    let mut ds = shape.create_vector_only(output_path)?;
+    let srs = crate::loader::to_spatial_ref(&geo_ref.proj)?;
+    let mut layer = ds.create_layer(LayerOptions {
+        name: "fire_references",
+        srs: Some(&srs),
+        ty: gdal_sys::OGRwkbGeometryType::wkbLineString,
+        ..Default::default()
+    })?;
+    for i in 0..geo_ref.width {
+        for j in 0..geo_ref.height {
+            let ix = (i + j * geo_ref.width) as usize;
+            if boundary_change[ix] == 1 {
+                let dst = geo_ref.backward(USizeVec2 {
+                    x: i as usize,
+                    y: j as usize,
+                });
+                let dst = dst
+                    + Vec2 {
+                        x: geo_ref.transform.dx() / 2.0,
+                        y: geo_ref.transform.dy() / 2.0,
+                    };
+                let src = geo_ref.backward(USizeVec2 {
+                    x: refs_x[ix] as usize,
+                    y: refs_y[ix] as usize,
+                });
+                let src = src
+                    + Vec2 {
+                        x: geo_ref.transform.dx() / 2.0,
+                        y: geo_ref.transform.dy() / 2.0,
+                    };
+                let geom = Geometry::from_wkt(
+                    (format!("LINESTRING({} {}, {} {})", src.x, src.y, dst.x, dst.y)).as_str(),
+                )?;
+                layer.create_feature(geom)?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -604,6 +700,7 @@ pub fn rasterize_times(
 }
 
 #[unsafe(no_mangle)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn propag_rasterize_fuels(
     fuels: *const FFIFuelFeature,
     fuels_len: usize,

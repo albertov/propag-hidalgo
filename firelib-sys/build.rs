@@ -2,6 +2,8 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
+    println!("cargo::rerun-if-changed=fireLib.c");
+    println!("cargo::rerun-if-changed=fireLib.h");
     // The bindgen::Builder is the main entry point
     // to bindgen, and lets you build up options for
     // the resulting bindings.

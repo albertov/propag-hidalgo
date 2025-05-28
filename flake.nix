@@ -10,7 +10,7 @@
     ];
   };
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/release-24.11";
     nixpkgs_old.url = "github:NixOS/nixpkgs/release-23.11";
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
@@ -93,16 +93,16 @@
             pkgs = nixpkgs.legacyPackages.x86_64-linux;
           in
           pkgs.dockerTools.buildImage {
-            name = drv.pname or "image";
+            name = "albertometeo/${drv.pname or "image"}";
             tag = drv.version;
-            fromImageName = "ubuntu";
-            fromImageTag = "noble";
+            fromImageName = "nvidia/cuda";
+            fromImageTag = "cuda:12.6.3-runtime-ubuntu24.04";
             copyToRoot = pkgs.buildEnv {
               name = "image-root";
               paths = [ drv ];
             };
             config.EntryPoint = [ (pkgs.lib.getExe drv) ];
-            config.Env = [ "LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64" ];
+            #config.Env = [ "LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64" ];
           };
       };
     }

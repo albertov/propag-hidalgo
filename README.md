@@ -122,3 +122,13 @@ max_time=Some(0.0)
 num_times_after=447822
 Generating times geotiff
 ```
+
+### Running it on Meluxina
+
+```console
+(login)$ salloc -A p200648 -t 01:00:00 -q dev --res gpudev -p gpu -N 1
+(compute)$ module load Apptainer/1.3.6-GCCcore-13.3.0
+(compute)$ export IMAGE=albertometeo/propag:0.1.0
+(compute)$ apptainer pull docker://$IMAGE
+(compute)$ apptainer run --nv propag_0.1.0.sif
+```

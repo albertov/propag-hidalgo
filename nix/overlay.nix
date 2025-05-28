@@ -1,7 +1,7 @@
 self: inputs: system: final: prev:
 let
 
-  rust_cuda_sha256 = "sha256-jScxBAjLryFa5tUTgfifAEaVW+xqTE1WVLkjjun4jmY=";
+  rust_cuda_sha256 = "sha256-sqkQ1LsqDr9ZeEa1ixSLZ8P7TRJxlOY4CKYLYAmrhQo=";
 
   inherit (final) lib buildPackages stdenv;
   libclang = buildPackages.llvmPackages.libclang.lib;
@@ -134,7 +134,7 @@ in
 
       });
 
-  cudaPackages = prev.cudaPackages_12_8;
+  cudaPackages = prev.cudaPackages_12;
 
   cudaCombined = final.symlinkJoin {
     name = "cuda-combined";
@@ -162,10 +162,6 @@ in
         targetLlvmLibraries = targetPackages.llvmPackages_7.libraries or llvmPackages_7.libraries;
       }
     );
-  # for llvmPackages_7
-  libbfd = prev.libbfd // {
-    hasPluginAPI = false;
-  };
 
   myRustToolchain = final.buildPackages.rust-bin.fromRustupToolchainFile ../crates/rust-toolchain.toml;
 

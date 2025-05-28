@@ -37,11 +37,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         (
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 {
-                x: 25000.0,
-                y: 25000.0,
+                x: 5000.0,
+                y: 5000.0,
             },
         ),
-        Vec2 { x: 5.0, y: 5.0 },
+        Vec2 { x: 1.0, y: 1.0 },
         25830,
     )
     .unwrap();
@@ -126,7 +126,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "using geo_ref={:?}\ngrid_size={:?}\nblocks_size={:?}\nlinear_grid_size={}\nsuper_grid_size={:?}\nfor {} elems",
         geo_ref, grid_size, block_size, linear_grid_size, super_grid_size, len
     );
-    //model[fire_pos.x + (fire_pos.y - 2) * geo_ref.width as usize] = 0;
+    model[fire_pos.x + (fire_pos.y - 2) * geo_ref.width as usize] = 0;
     // allocate the GPU memory needed to house our numbers and copy them over.
     let model_gpu = model.as_slice().as_dbuf()?;
     let d1hr_gpu = d1hr.as_slice().as_dbuf()?;

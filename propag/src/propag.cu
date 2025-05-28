@@ -221,16 +221,15 @@ private:
             continue;
 
           // Good neighbor
-          Point neighbor_point =
+          Point neighbor =
               shared_[(local_x_ + i) + (local_y_ + j) * shared_width_];
 
-          if (!(neighbor_point.time < MAX_TIME &&
-                !is_fire_null(neighbor_point.fire))) {
+          if (!(neighbor.time < MAX_TIME && !is_fire_null(neighbor.fire))) {
             // not burning, skip it
             continue;
           };
 
-          PointRef reference = neighbor_point.reference;
+          PointRef reference = neighbor.reference;
           ASSERT((reference.time < MAX_TIME && reference.pos.x != USHRT_MAX &&
                   reference.pos.y != USHRT_MAX));
           ASSERT(
@@ -263,17 +262,11 @@ private:
           Point candidate = Point_NULL;
           if (!is_fire_null(fire) && reference.time < MAX_TIME) {
             // We are combustible
-            if (!similar_fires_(fire, reference.fire)) {
-              assert(false); // FIXME
-              // we can't reuse reference because fire is different to ours.
+            if (!similar_fires_(neighbor.fire, reference.fire)) {
+              // we can't reuse reference because fire is different than
+              // neighbor
               // Try to use neighbor as reference
-              PointRef r = PointRef(neighbor_point.time, neighbor_pos,
-                                    neighbor_point.fire);
-              if (!is_fire_null(r.fire) && similar_fires_(fire, r.fire)) {
-                reference = r;
-              } else {
-                reference = PointRef_NULL;
-              };
+              reference = PointRef(neighbor.time, neighbor_pos, neighbor.fire);
             };
             if (reference.time < MAX_TIME && !is_fire_null(reference.fire)) {
               float t = time_to(settings_.geo_ref, reference, idx_2d_);
@@ -286,7 +279,6 @@ private:
               }
             };
           } else if (reference.time < MAX_TIME) {
-            assert(false); // FIXME
             // We are not combustible but reference can be used.
             // We assign an access time but a None fire
             float t = time_to(settings_.geo_ref, reference, idx_2d_);

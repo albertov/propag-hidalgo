@@ -201,14 +201,9 @@ mod tests {
         terrain: &Terrain,
         azimuth: Angle,
     ) -> (Fire, SpreadAtAzimuth) {
-        Catalog::STANDARD
-            .get(model)
-            .and_then(|fuel| fuel.burn(terrain))
-            .map(|fire| {
-                let spread_az = SpreadAtAzimuth::from_spread(&fire.spread(azimuth));
-                (fire, spread_az)
-            })
-            .unwrap_or((Fire::null(), SpreadAtAzimuth::null()))
+        let fire = Catalog::STANDARD.burn(model, terrain);
+        let spread_az = SpreadAtAzimuth::from_spread(&fire.spread(azimuth));
+        (fire, spread_az)
     }
 
     fn firelib_c_spread(

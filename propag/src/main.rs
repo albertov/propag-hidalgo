@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
         .collect();
     let model: Vec<usize> = (0..NUMBERS_LEN).map(|_n| rng.random_range(0..14)).collect();
-    let mut fire: FireCudaVec = std::iter::repeat(Fire::null().into())
+    let mut fire: FireCudaVec = std::iter::repeat(Fire::NULL.into())
         .take(model.len())
         .collect();
 
@@ -151,7 +151,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let terrain: Vec<Terrain> = terrain.iter().map(|t| t.into()).collect();
     let mut fire_rs: Vec<Fire> = Vec::new();
     for _ in 0..fire.len() {
-        fire_rs.push(Fire::null())
+        fire_rs.push(Fire::NULL)
     }
 
     println!("Calculating with CPU");
@@ -159,12 +159,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         fire_rs = model
             .iter()
             .zip(terrain.iter())
-            .map(|(m, t)| {
-                firelib_rs::Catalog::STANDARD
-                    .get(*m)
-                    .and_then(|f| f.burn(t))
-                    .unwrap_or(Fire::null())
-            })
+            .map(|(m, t)| firelib_rs::Catalog::STANDARD.burn(*m, t))
             .collect()
     });
     assert!(fire

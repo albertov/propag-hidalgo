@@ -36,19 +36,14 @@ pub unsafe fn standard_burn(
             slope: slope[i],
             aspect: aspect[i],
         };
-        if let Some(fire) = Catalog::STANDARD
-            .get(model[i])
-            .and_then(|fuel| fuel.burn(&terrain.into()))
-        {
-            let fire: FireCuda = fire.into();
-            *rx_int.add(i) = fire.rx_int;
-            *speed0.add(i) = fire.speed0;
-            *hpua.add(i) = fire.hpua;
-            *phi_eff_wind.add(i) = fire.phi_eff_wind;
-            *speed_max.add(i) = fire.speed_max;
-            *azimuth_max.add(i) = fire.azimuth_max;
-            *eccentricity.add(i) = fire.eccentricity;
-            *residence_time.add(i) = fire.residence_time;
-        }
+        let fire: FireCuda = Catalog::STANDARD.burn(model[i], &terrain.into()).into();
+        *rx_int.add(i) = fire.rx_int;
+        *speed0.add(i) = fire.speed0;
+        *hpua.add(i) = fire.hpua;
+        *phi_eff_wind.add(i) = fire.phi_eff_wind;
+        *speed_max.add(i) = fire.speed_max;
+        *azimuth_max.add(i) = fire.azimuth_max;
+        *eccentricity.add(i) = fire.eccentricity;
+        *residence_time.add(i) = fire.residence_time;
     }
 }

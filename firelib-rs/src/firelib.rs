@@ -332,6 +332,12 @@ impl Catalog {
             _ => None,
         }
     }
+    #[inline]
+    pub fn burn(&self, model: usize, terrain: &Terrain) -> Fire {
+        self.get(model)
+            .and_then(|f| f.burn(terrain))
+            .unwrap_or(Fire::NULL)
+    }
 }
 
 impl Terrain {
@@ -346,18 +352,18 @@ impl Terrain {
 }
 
 impl<'a> Fire {
-    pub fn null() -> Self {
+    pub const NULL: Self = {
         Self {
-            rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(0.0),
-            speed0: Velocity::new::<foot_per_minute>(0.0),
-            hpua: RadiantExposure::new::<btu_sq_foot>(0.0),
-            phi_eff_wind: Ratio::new::<ratio>(0.0),
-            speed_max: Velocity::new::<foot_per_minute>(0.0),
-            azimuth_max: Angle::new::<radian>(0.0),
-            eccentricity: Ratio::new::<ratio>(0.0),
-            residence_time: Time::new::<minute>(0.0),
+            rx_int: to_quantity!(HeatFluxDensity, 0.0),
+            speed0: to_quantity!(Velocity, 0.0),
+            hpua: to_quantity!(RadiantExposure, 0.0),
+            phi_eff_wind: to_quantity!(Ratio, 0.0),
+            speed_max: to_quantity!(Velocity, 0.0),
+            azimuth_max: to_quantity!(Angle, 0.0),
+            eccentricity: to_quantity!(Ratio, 0.0),
+            residence_time: to_quantity!(Time, 0.0),
         }
-    }
+    };
     fn flame_length(byrams: f64) -> f64 {
         if byrams > SMIDGEN {
             0.45 * byrams.powf(0.46)
@@ -893,14 +899,16 @@ impl Fuel {
         }
     }
 
+    #[inline]
     pub fn burn(&self, terrain: &Terrain) -> Option<Fire> {
         if !self.has_particles() {
             None
         } else {
-            let rx_int = self.rx_int(terrain);
-            let speed0 = self.speed0(terrain, rx_int);
+            let (rx_int, rbqig) = self.rx_int_rbqig(terrain);
+            let speed0 = rx_int * self.flux_ratio / rbqig;
             let (phi_eff_wind, eff_wind, speed_max, azimuth_max) =
                 self.calculate_wind_dependent_vars(terrain, speed0, rx_int);
+            sync_threads();
             Some(Fire {
                 rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(rx_int),
                 speed0: Velocity::new::<foot_per_minute>(speed0),
@@ -913,15 +921,20 @@ impl Fuel {
             })
         }
     }
-    fn particles(&self) -> impl Iterator<Item = &Particle> {
-        iter_particles(&self.particles)
-    }
-    fn rx_int(&self, terrain: &Terrain) -> f64 {
+    fn rx_int_rbqig(&self, terrain: &Terrain) -> (f64, f64) {
         let mut wfmd = 0.0;
         let mut alive_moist = 0.0;
         let mut dead_moist = 0.0;
+        let mut rbqig = 0.0;
         for p in self.particles.iter() {
+            if p.is_sentinel() {
+                break;
+            }
             let m = p.moisture(terrain);
+            rbqig += (250.0 + 1116.0 * m)
+                * p.area_weight
+                * self.life_area_weight(p.life)
+                * p.sigma_factor;
             match p.life {
                 Life::Alive => alive_moist += p.area_weight * m,
                 Life::Dead => {
@@ -930,6 +943,7 @@ impl Fuel {
                 }
             }
         }
+        sync_threads();
         let eta_m = |life, life_moist| {
             let life_mext = match life {
                 Life::Alive => {
@@ -950,8 +964,11 @@ impl Fuel {
                 1.0 - 2.59 * rt + 5.11 * rt * rt - 3.52 * rt * rt * rt
             }
         };
-        self.life_rx_factor_alive * eta_m(Life::Alive, alive_moist)
-            + self.life_rx_factor_dead * eta_m(Life::Dead, dead_moist)
+        (
+            self.life_rx_factor_alive * eta_m(Life::Alive, alive_moist)
+                + self.life_rx_factor_dead * eta_m(Life::Dead, dead_moist),
+            self.fuel_bed_bulk_dens * rbqig,
+        )
     }
     fn calculate_wind_dependent_vars(
         &self,
@@ -1048,21 +1065,6 @@ impl Fuel {
             CrossSlope
         }
     }
-    fn speed0(&self, terrain: &Terrain, rx_int: f64) -> f64 {
-        rx_int * self.flux_ratio / self.rbqig(terrain)
-    }
-    fn rbqig(&self, terrain: &Terrain) -> f64 {
-        let x: f64 = self
-            .particles()
-            .map(|p| {
-                (250.0 + 1116.0 * p.moisture(terrain))
-                    * p.area_weight
-                    * self.life_area_weight(p.life)
-                    * p.sigma_factor
-            })
-            .sum();
-        self.fuel_bed_bulk_dens * x
-    }
     fn hpua(&self, rx_int: f64) -> f64 {
         rx_int * self.residence_time
     }
@@ -1104,9 +1106,6 @@ enum WindSlopeSituation {
     CrossSlope,
 }
 
-fn iter_particles<const N: usize>(particles: &[Particle; N]) -> impl Iterator<Item = &Particle> {
-    particles.iter().take_while(|p| !p.is_sentinel())
-}
 const fn init_arr<T: Copy, const N: usize, const M: usize>(def: T, src: [T; M]) -> [T; N] {
     let mut dst = [def; N];
     let mut i = 0;
@@ -1115,4 +1114,11 @@ const fn init_arr<T: Copy, const N: usize, const M: usize>(def: T, src: [T; M]) 
         i += 1;
     }
     dst
+}
+pub(crate) fn sync_threads() {
+    #[cfg(target_os = "cuda")]
+    {
+        use cuda_std::thread::sync_threads;
+        sync_threads();
+    }
 }

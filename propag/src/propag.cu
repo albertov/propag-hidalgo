@@ -163,10 +163,13 @@ __global__ void propag(const Settings &settings, const float *speed_max,
   int shared_width = blockDim.x + HALO_RADIUS * 2;
   int local_ix = local_x + local_y * shared_width;
 
-  //////////////////////////////////////////////////////
-  // First phase, load data from global to shared memory
-  //////////////////////////////////////////////////////
-  if (in_bounds) {
+  bool any_improved = false;
+  int num_iterations = 0;
+  do {
+    //////////////////////////////////////////////////////
+    // First phase, load data from global to shared memory
+    //////////////////////////////////////////////////////
+    if (in_bounds) {
 #define LOAD(LOCAL_X, LOCAL_Y, GLOBAL_X, GLOBAL_Y)                             \
   if ((GLOBAL_X) >= 0 && (GLOBAL_X) < width && (GLOBAL_Y) >= 0 &&              \
       (GLOBAL_Y) < height) {                                                   \
@@ -177,238 +180,234 @@ __global__ void propag(const Settings &settings, const float *speed_max,
   } else {                                                                     \
     shared[(LOCAL_X) + (LOCAL_Y) * shared_width] = Point_NULL;                 \
   }
-    // Load the central block data
-    LOAD(local_x, local_y, global_x, global_y);
+      // Load the central block data
+      if (num_iterations == 0) {
+        LOAD(local_x, local_y, global_x, global_y);
+        num_iterations++;
+      }
 
-    // Load the halo regions
-    bool x_near_x0 = threadIdx.x < HALO_RADIUS;
-    bool y_near_y0 = threadIdx.y < HALO_RADIUS;
-    if (y_near_y0) {
-      // Top halo
-      LOAD(local_x, local_y - HALO_RADIUS, global_x, global_y - HALO_RADIUS);
-      // Bottom halo
-      LOAD(local_x, local_y + blockDim.y, global_x, global_y + blockDim.y);
-    }
-    if (x_near_x0) {
-      // Left halo
-      LOAD(local_x - HALO_RADIUS, local_y, global_x - HALO_RADIUS, global_y);
-      // Right halo
-      LOAD(local_x + blockDim.x, local_y, global_x + blockDim.x, global_y);
-    }
-    if (x_near_x0 && y_near_y0) {
-      // corners
-      LOAD(local_x - HALO_RADIUS, local_y - HALO_RADIUS, global_x - HALO_RADIUS,
-           global_y - HALO_RADIUS);
-      LOAD(local_x + blockDim.x, local_y - HALO_RADIUS, global_x + blockDim.x,
-           global_y - HALO_RADIUS);
-      LOAD(local_x + blockDim.x, local_y + blockDim.y, global_x + blockDim.x,
-           global_y + blockDim.y);
-      LOAD(local_x - HALO_RADIUS, local_y + blockDim.y, global_x - HALO_RADIUS,
-           global_y + blockDim.y);
-    }
+      // Load the halo regions
+      bool x_near_x0 = threadIdx.x < HALO_RADIUS;
+      bool y_near_y0 = threadIdx.y < HALO_RADIUS;
+      if (y_near_y0) {
+        // Top halo
+        LOAD(local_x, local_y - HALO_RADIUS, global_x, global_y - HALO_RADIUS);
+        // Bottom halo
+        LOAD(local_x, local_y + blockDim.y, global_x, global_y + blockDim.y);
+      }
+      if (x_near_x0) {
+        // Left halo
+        LOAD(local_x - HALO_RADIUS, local_y, global_x - HALO_RADIUS, global_y);
+        // Right halo
+        LOAD(local_x + blockDim.x, local_y, global_x + blockDim.x, global_y);
+      }
+      if (x_near_x0 && y_near_y0) {
+        // corners
+        LOAD(local_x - HALO_RADIUS, local_y - HALO_RADIUS,
+             global_x - HALO_RADIUS, global_y - HALO_RADIUS);
+        LOAD(local_x + blockDim.x, local_y - HALO_RADIUS, global_x + blockDim.x,
+             global_y - HALO_RADIUS);
+        LOAD(local_x + blockDim.x, local_y + blockDim.y, global_x + blockDim.x,
+             global_y + blockDim.y);
+        LOAD(local_x - HALO_RADIUS, local_y + blockDim.y,
+             global_x - HALO_RADIUS, global_y + blockDim.y);
+      }
 
-  }; // end in_bounds
+    }; // end in_bounds
 
-  __syncthreads();
+    __syncthreads();
 
-  /*
-  if (in_bounds) {
-    FireSimpleCuda f = shared[local_x + local_y * shared_width].fire;
-    assert(!is_fire_null(f));
-  };
+    /*
+    if (in_bounds) {
+      FireSimpleCuda f = shared[local_x + local_y * shared_width].fire;
+      assert(!is_fire_null(f));
+    };
 
-  if (threadIdx.x == 0 && threadIdx.y == 0) {
-    bool good = true;
-    for (int i = 0; i < blockDim.x + HALO_RADIUS * 2; i++)
-      for (int j = 0; j < blockDim.y + HALO_RADIUS * 2; j++) {
-        if (!((i + blockDim.x * blockIdx.x) < width &&
-              (j + blockDim.x * blockIdx.x) < height))
-          continue;
-        bool expect_top_halo = blockIdx.y == 0;
-        bool expect_bottom_halo = blockIdx.y == gridDim.y - 1;
-        bool expect_left_halo = blockIdx.x == 0;
-        bool expect_right_halo = blockIdx.x == gridDim.y - 1;
-        FireSimpleCuda f = shared[i + j * shared_width].fire;
-        if (i < HALO_RADIUS && expect_left_halo != is_fire_null(f)) {
-          printf("caca left %d %d\n%d %d\n%f %f %f\n", i, j, blockIdx.x,
-                 blockIdx.y, f.azimuth_max, f.speed_max, f.eccentricity);
-          printf("fire null? %d\n", is_fire_null(f));
-          good = false;
-        }
-        if (i >= blockDim.x + HALO_RADIUS &&
-            expect_right_halo != is_fire_null(f)) {
-          printf("caca right %d %d\n%d %d\n%f %f %f\n", i, j, blockIdx.x,
-                 blockIdx.y, f.azimuth_max, f.speed_max, f.eccentricity);
-          printf("fire null? %d\n", is_fire_null(f));
-          good = false;
-        }
-        if (j < HALO_RADIUS && expect_top_halo != is_fire_null(f)) {
-          printf("caca top %d %d\n%d %d\n%f %f %f\n", i, j, blockIdx.x,
-                 blockIdx.y, f.azimuth_max, f.speed_max, f.eccentricity);
-          printf("fire null? %d\n", is_fire_null(f));
-          good = false;
-        }
-        if (j >= blockDim.y + HALO_RADIUS &&
-            expect_bottom_halo != is_fire_null(f)) {
-          printf("caca bottom %d %d\n%d %d\n%f %f %f\n", i, j, blockIdx.x,
-                 blockIdx.y, f.azimuth_max, f.speed_max, f.eccentricity);
-          printf("fire null? %d\n", is_fire_null(f));
-          good = false;
-        }
-      };
-    assert(good);
-  };
-  return;
-  */
-
-  ////////////////////////////////////////////////////////////////////////
-  // Begin neighbor analysys
-  ////////////////////////////////////////////////////////////////////////
-  Point me = shared[local_ix];
-  FireSimpleCuda fire = me.fire;
-  bool is_new = !(me.time < MAX_TIME);
-
-  if (in_bounds && is_new) {
-    assert(!is_fire_null(fire));
-  };
-
-  Point best = Point_NULL;
-
-  if (in_bounds && is_new) {
-#pragma unroll
-    for (int i = -1; i < 2; i++) {
-#pragma unroll
-      for (int j = -1; j < 2; j++) {
-        // Skip self and out-of-bounds neighbors
-        if (i == 0 && j == 0)
-          continue;
-        int2 neighbor_pos = make_int2((int)idx_2d.x + i, (int)idx_2d.y + j);
-        if (!(neighbor_pos.x >= 0 && neighbor_pos.y >= 0 &&
-              neighbor_pos.x < width && neighbor_pos.y < height))
-          continue;
-
-        // Good neighbor
-        Point neighbor_point =
-            shared[(local_x + i) + (local_y + j) * shared_width];
-
-        if (!(neighbor_point.time < MAX_TIME)) {
-          // not burning, skip it
-          continue;
+    if (threadIdx.x == 0 && threadIdx.y == 0) {
+      bool good = true;
+      for (int i = 0; i < blockDim.x + HALO_RADIUS * 2; i++)
+        for (int j = 0; j < blockDim.y + HALO_RADIUS * 2; j++) {
+          if (!((i + blockDim.x * blockIdx.x) < width &&
+                (j + blockDim.x * blockIdx.x) < height))
+            continue;
+          bool expect_top_halo = blockIdx.y == 0;
+          bool expect_bottom_halo = blockIdx.y == gridDim.y - 1;
+          bool expect_left_halo = blockIdx.x == 0;
+          bool expect_right_halo = blockIdx.x == gridDim.y - 1;
+          FireSimpleCuda f = shared[i + j * shared_width].fire;
+          if (i < HALO_RADIUS && expect_left_halo != is_fire_null(f)) {
+            printf("caca left %d %d\n%d %d\n%f %f %f\n", i, j, blockIdx.x,
+                   blockIdx.y, f.azimuth_max, f.speed_max, f.eccentricity);
+            printf("fire null? %d\n", is_fire_null(f));
+            good = false;
+          }
+          if (i >= blockDim.x + HALO_RADIUS &&
+              expect_right_halo != is_fire_null(f)) {
+            printf("caca right %d %d\n%d %d\n%f %f %f\n", i, j, blockIdx.x,
+                   blockIdx.y, f.azimuth_max, f.speed_max, f.eccentricity);
+            printf("fire null? %d\n", is_fire_null(f));
+            good = false;
+          }
+          if (j < HALO_RADIUS && expect_top_halo != is_fire_null(f)) {
+            printf("caca top %d %d\n%d %d\n%f %f %f\n", i, j, blockIdx.x,
+                   blockIdx.y, f.azimuth_max, f.speed_max, f.eccentricity);
+            printf("fire null? %d\n", is_fire_null(f));
+            good = false;
+          }
+          if (j >= blockDim.y + HALO_RADIUS &&
+              expect_bottom_halo != is_fire_null(f)) {
+            printf("caca bottom %d %d\n%d %d\n%f %f %f\n", i, j, blockIdx.x,
+                   blockIdx.y, f.azimuth_max, f.speed_max, f.eccentricity);
+            printf("fire null? %d\n", is_fire_null(f));
+            good = false;
+          }
         };
+      assert(good);
+    };
+    return;
+    */
 
-        // Check if neighbor's reference is usable
-        PointRef reference = neighbor_point.reference;
-        if (!(reference.time < MAX_TIME && reference.pos.x != SIZE_MAX &&
-              reference.pos.y != SIZE_MAX)) {
-          printf("referencia ta %d %d %f %d %d %f %f %f\n", reference.pos.x,
-                 reference.pos.y, reference.time, idx_2d.x, idx_2d.y,
-                 reference.fire.speed_max, reference.fire.azimuth_max,
-                 reference.fire.eccentricity);
-          assert(false);
-        }
+    ////////////////////////////////////////////////////////////////////////
+    // Begin neighbor analysys
+    ////////////////////////////////////////////////////////////////////////
+    Point me = shared[local_ix];
+    FireSimpleCuda fire = me.fire;
+    bool is_new = !(me.time < MAX_TIME);
 
-        assert(!(reference.pos.x == idx_2d.x && reference.pos.y == idx_2d.y));
+    if (in_bounds && is_new) {
+      assert(!is_fire_null(fire));
+    };
 
-        int2 dir = neighbor_direction(
-            idx_2d, make_uint2(reference.pos.x, reference.pos.y));
-        if (idx_2d.x + dir.x >= 0 && idx_2d.x + dir.x < width &&
-            idx_2d.y + dir.y >= 0 && idx_2d.y + dir.y < height) {
-          Point possible_blockage =
-              shared[(local_x + dir.x) + (local_y + dir.y) * shared_width];
-          if (is_point_null(possible_blockage))
-          {
+    Point best = Point_NULL;
+
+    if (in_bounds && is_new) {
+#pragma unroll
+      for (int i = -1; i < 2; i++) {
+#pragma unroll
+        for (int j = -1; j < 2; j++) {
+          // Skip self and out-of-bounds neighbors
+          if (i == 0 && j == 0)
+            continue;
+          int2 neighbor_pos = make_int2((int)idx_2d.x + i, (int)idx_2d.y + j);
+          if (!(neighbor_pos.x >= 0 && neighbor_pos.y >= 0 &&
+                neighbor_pos.x < width && neighbor_pos.y < height))
+            continue;
+
+          // Good neighbor
+          Point neighbor_point =
+              shared[(local_x + i) + (local_y + j) * shared_width];
+
+          if (!(neighbor_point.time < MAX_TIME)) {
+            // not burning, skip it
+            continue;
+          };
+
+          // Check if neighbor's reference is usable
+          PointRef reference = neighbor_point.reference;
+          if (!(reference.time < MAX_TIME && reference.pos.x != SIZE_MAX &&
+                reference.pos.y != SIZE_MAX)) {
+            printf("referencia ta %d %d %f %d %d %f %f %f\n", reference.pos.x,
+                   reference.pos.y, reference.time, idx_2d.x, idx_2d.y,
+                   reference.fire.speed_max, reference.fire.azimuth_max,
+                   reference.fire.eccentricity);
+            assert(false);
+          }
+
+          assert(!(reference.pos.x == idx_2d.x && reference.pos.y == idx_2d.y));
+
+          int2 dir = neighbor_direction(
+              idx_2d, make_uint2(reference.pos.x, reference.pos.y));
+          if (idx_2d.x + dir.x >= 0 && idx_2d.x + dir.x < width &&
+              idx_2d.y + dir.y >= 0 && idx_2d.y + dir.y < height) {
+            Point possible_blockage =
+                shared[(local_x + dir.x) + (local_y + dir.y) * shared_width];
+            if (is_point_null(possible_blockage)) {
               // If we haven't analyzed the blockage point yet then we can't use
               // the reference in this iteration
               reference = PointRef_NULL;
-          } else {
+            } else {
               assert(!is_fire_null(possible_blockage.fire));
               if (!similar_fires_(possible_blockage.fire, reference.fire)) {
                 reference = PointRef_NULL;
               };
-          };
-        };
-
-        // Look for a new candidate for best time
-        Point candidate = Point_NULL;
-        if (!is_fire_null(fire) && reference.time < MAX_TIME) {
-          // We are combustible
-          if (!similar_fires_(fire, reference.fire)) {
-            // we can't reuse reference because fire is different to ours.
-            // Try to use neighbor as reference
-            printf("%d %d %d %d %f %f %f %f %f %f %f\n",
-                  idx_2d.x, idx_2d.y,
-                   reference.pos.x,
-                   reference.pos.y,
-                   fire.speed_max,
-                   fire.azimuth_max,
-                   fire.eccentricity,
-                   reference.fire.speed_max,
-                   reference.fire.azimuth_max,
-                   reference.fire.eccentricity,
-                   reference.time
-                   );
-            PointRef r = PointRef(neighbor_point.time, neighbor_pos,
-                                  neighbor_point.fire);
-            if (!(r.pos.x == idx_2d.x && r.pos.y == idx_2d.y) &&
-                similar_fires_(fire, r.fire)) {
-              reference = r;
             };
           };
-          if (reference.time < MAX_TIME) {
+
+          // Look for a new candidate for best time
+          Point candidate = Point_NULL;
+          if (!is_fire_null(fire) && reference.time < MAX_TIME) {
+            // We are combustible
+            if (!similar_fires_(fire, reference.fire)) {
+              // we can't reuse reference because fire is different to ours.
+              // Try to use neighbor as reference
+              printf("%d %d %d %d %f %f %f %f %f %f %f\n", idx_2d.x, idx_2d.y,
+                     reference.pos.x, reference.pos.y, fire.speed_max,
+                     fire.azimuth_max, fire.eccentricity,
+                     reference.fire.speed_max, reference.fire.azimuth_max,
+                     reference.fire.eccentricity, reference.time);
+              PointRef r = PointRef(neighbor_point.time, neighbor_pos,
+                                    neighbor_point.fire);
+              if (!(r.pos.x == idx_2d.x && r.pos.y == idx_2d.y) &&
+                  similar_fires_(fire, r.fire)) {
+                reference = r;
+              };
+            };
+            if (reference.time < MAX_TIME) {
+              float t = time_to(settings.geo_ref, reference, idx_2d);
+              if (t < settings.max_time) {
+                candidate.time = t;
+                candidate.fire = fire;
+                candidate.reference = reference;
+              }
+            };
+          } else if (reference.time < MAX_TIME) {
+            // We are not combustible but reference can be used.
+            // We assign an access time but a None fire
             float t = time_to(settings.geo_ref, reference, idx_2d);
             if (t < settings.max_time) {
               candidate.time = t;
-              candidate.fire = fire;
+              candidate.fire = FireSimpleCuda_NULL;
               candidate.reference = reference;
             }
-          };
-        } else if (reference.time < MAX_TIME) {
-          // We are not combustible but reference can be used.
-          // We assign an access time but a None fire
-          float t = time_to(settings.geo_ref, reference, idx_2d);
-          if (t < settings.max_time) {
-            candidate.time = t;
-            candidate.fire = FireSimpleCuda_NULL;
-            candidate.reference = reference;
           }
-        }
 
-        // If no candidate or candidate improves use it as best
-        if (candidate.time < best.time) {
-          best = candidate;
-        }
+          // If no candidate or candidate improves use it as best
+          if (candidate.time < best.time) {
+            best = candidate;
+          }
+        };
       };
     };
-  };
 
-  ///////////////////////////////////////////////////
-  // End of neighbor analysys, save point if improves
-  ///////////////////////////////////////////////////
-  bool improved = false;
-  if (in_bounds && best.time < MAX_TIME) {
-    // printf("best time %f\n", best.time);
-    assert(global_ix < settings.geo_ref.width * settings.geo_ref.height);
-    time[global_ix] = best.time;
-    refs_x[global_ix] = best.reference.pos.x;
-    refs_y[global_ix] = best.reference.pos.y;
-    improved = true;
-  };
+    ///////////////////////////////////////////////////
+    // End of neighbor analysys, save point if improves
+    ///////////////////////////////////////////////////
+    bool improved = false;
+    if (in_bounds && best.time < MAX_TIME) {
+      // printf("best time %f\n", best.time);
+      assert(global_ix < settings.geo_ref.width * settings.geo_ref.height);
+      time[global_ix] = best.time;
+      refs_x[global_ix] = best.reference.pos.x;
+      refs_y[global_ix] = best.reference.pos.y;
+      improved = true;
+    };
 
-  ///////////////////////////////////////////////////
-  // Wait for other threads to end their analysis and
-  // check if any has improved. Then if we're the first
-  // thread of the block mark progress
-  ///////////////////////////////////////////////////
-  bool any_improved = __syncthreads_count(improved);
-  if (improved) {
-    shared[local_x + local_y * shared_width] = best;
-  }
-  __syncthreads();
+    ///////////////////////////////////////////////////
+    // Wait for other threads to end their analysis and
+    // check if any has improved. Then if we're the first
+    // thread of the block mark progress
+    ///////////////////////////////////////////////////
+    any_improved = __syncthreads_count(improved);
+    if (improved) {
+      shared[local_x + local_y * shared_width] = best;
+    }
+    __syncthreads();
 
-  if (any_improved && threadIdx.x == 0 && threadIdx.y == 0) {
-    size_t block_ix = blockIdx.x + blockIdx.y * gridDim.x;
-    progress[block_ix] = 1;
-  };
+    if (any_improved && threadIdx.x == 0 && threadIdx.y == 0) {
+      size_t block_ix = blockIdx.x + blockIdx.y * gridDim.x;
+      progress[block_ix] = 1;
+    };
+  } while (any_improved);
 }
 
 #ifdef __cplusplus

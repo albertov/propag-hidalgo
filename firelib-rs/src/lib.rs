@@ -178,7 +178,6 @@ mod tests {
     use crate::units::linear_power_density::btu_foot_sec;
     use firelib_sys::*;
     use std::ffi::CString;
-    use std::println;
     use std::vec::Vec;
     use uom::si::angle::degree;
     use uom::si::length::foot;

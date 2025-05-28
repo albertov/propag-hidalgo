@@ -58,6 +58,7 @@ in
           cudatoolkit
           cudatoolkit.lib
           openssl
+          (enableDebugging gdal)
         ];
       LLVM_LINK_SHARED = 1;
       nativeBuildInputs = with final; [

@@ -75,6 +75,10 @@
             env = {
               # FIXME
               LD_LIBRARY_PATH = "${pkgs.linuxPackages.nvidia_x11}/lib";
+
+              GDAL_DATA = "${pkgs.gdal}/share/gdal";
+              PROJ_DATA = "${pkgs.proj}/share/proj";
+
               inherit (pkgs.firelib-rs)
                 BINDGEN_EXTRA_CLANG_ARGS
                 LIBCLANG_PATH
@@ -90,6 +94,7 @@
               git
               cargo-watch
               rustup
+              gdb
             ];
           };
           # for `nix fmt`

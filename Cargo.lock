@@ -106,6 +106,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "chrono"
+version = "0.4.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a7964611d71df112cb1730f2ee67324fcf4d0fc6606acbbe9bfe06df124637c"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "clang-sys"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -374,6 +383,44 @@ name = "fortanix-sgx-abi"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57cafc2274c10fab234f176b25903ce17e690fca7597090d50880e047a0389c5"
+
+[[package]]
+name = "gdal"
+version = "0.17.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82ab834e8be6b54fee3d0141fce5e776ad405add1f9d0da054281926e0d35a9f"
+dependencies = [
+ "bitflags",
+ "chrono",
+ "gdal-sys",
+ "geo-types",
+ "libc",
+ "once_cell",
+ "semver 1.0.26",
+ "thiserror",
+]
+
+[[package]]
+name = "gdal-sys"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18ad5d608ee6726efcf6e1d91261eb6dec7da3ee7db6bda984cdfb8a7d65ebf9"
+dependencies = [
+ "libc",
+ "pkg-config",
+ "semver 1.0.26",
+]
+
+[[package]]
+name = "geo-types"
+version = "0.7.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62ddb1950450d67efee2bbc5e429c68d052a822de3aad010d28b351fbb705224"
+dependencies = [
+ "approx",
+ "num-traits",
+ "serde",
+]
 
 [[package]]
 name = "getopts"
@@ -802,6 +849,8 @@ dependencies = [
  "dlmalloc",
  "firelib-rs",
  "fortanix-sgx-abi",
+ "gdal",
+ "gdal-sys",
  "getopts",
  "hashbrown",
  "hermit-abi",
@@ -1187,6 +1236,26 @@ dependencies = [
  "filetime",
  "libc",
  "xattr",
+]
+
+[[package]]
+name = "thiserror"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

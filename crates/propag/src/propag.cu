@@ -170,12 +170,14 @@ private:
                                     (blockDim.y + HALO_RADIUS * 2)));
 
               Point possible_blockage = shared_[blockage_ix];
+              if (!(possible_blockage.time < FLT_MAX)) {
+                return Point_NULL;
+              }
 
               if (!( // If we haven't analyzed the blockage point yet then we
                      // can't use the reference in this iteration. We'll use
                      // neighbor as reference in this iteration and it may
                      // improve in another if no blockage
-                      possible_blockage.time < FLT_MAX &&
                       // Check that the possible blockage has the same reference
                       // as our neighbor...
                       possible_blockage.reference.pos.x ==

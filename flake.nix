@@ -61,8 +61,10 @@
         {
           legacyPackages = pkgs;
           packages = {
-            default = self'.packages.firelib-rs;
-            inherit (pkgs) firelib-rs;
+            default = self'.packages.propag;
+            inherit (pkgs)
+              propag
+              firelib-rs;
           };
           devShells.default = pkgs.mkShell {
             inputsFrom = [
@@ -84,9 +86,9 @@
             packages = with pkgs; [
               git
               cargo-watch
-              openssl.dev
-              pkg-config
               rustup
+              cudatoolkit_11
+              cudatoolkit_11.lib
             ];
           };
           # for `nix fmt`

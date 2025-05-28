@@ -4,6 +4,9 @@ extern crate std;
 #[cfg(target_os = "cuda")]
 extern crate cuda_std;
 
+#[cfg(not(target_os = "cuda"))]
+extern crate cust;
+
 use crate::units::heat_flux_density::btu_sq_foot_min;
 use crate::units::linear_power_density::btu_foot_sec;
 use crate::units::radiant_exposure::btu_sq_foot;
@@ -77,6 +80,66 @@ pub struct Terrain {
     pub aspect: Angle,
 }
 
+#[cfg_attr(not(target_os = "cuda"), derive(Copy, Clone, Debug, cust::DeviceCopy))]
+pub struct TerrainCuda {
+    pub d1hr: f64,
+    pub d10hr: f64,
+    pub d100hr: f64,
+    pub herb: f64,
+    pub wood: f64,
+    pub wind_speed: f64,
+    pub wind_azimuth: f64,
+    pub slope: f64,
+    pub aspect: f64,
+}
+
+macro_rules! to_quantity {
+    ($quant:ident, $val:expr) => {
+	{
+	    use uom::lib::marker::PhantomData;
+	    $quant { value: $val, units: PhantomData, dimension: PhantomData}
+	}
+    };
+}
+macro_rules! from_quantity {
+    ($quant:ident, $val:expr) => {
+	{
+	    let $quant { value, .. } = $val;
+	    value
+	}
+    };
+}
+impl From<TerrainCuda> for Terrain {
+    fn from(f: TerrainCuda) -> Self {
+        Self {
+            d1hr: to_quantity!(Ratio, f.d1hr),
+            d10hr: to_quantity!(Ratio, f.d10hr),
+            d100hr: to_quantity!(Ratio, f.d100hr),
+            herb: to_quantity!(Ratio, f.herb),
+            wood: to_quantity!(Ratio, f.wood),
+            wind_speed: to_quantity!(Velocity, f.wind_speed),
+            wind_azimuth: to_quantity!(Angle, f.wind_azimuth),
+            slope: to_quantity!(Ratio, f.slope),
+            aspect: to_quantity!(Angle, f.aspect),
+        }
+    }
+}
+impl From<Terrain> for TerrainCuda {
+    fn from(f: Terrain) -> Self {
+        Self {
+            d1hr: from_quantity!(Ratio, f.d1hr),
+            d10hr: from_quantity!(Ratio, f.d10hr),
+            d100hr: from_quantity!(Ratio, f.d100hr),
+            herb: from_quantity!(Ratio, f.herb),
+            wood: from_quantity!(Ratio, f.wood),
+            wind_speed: from_quantity!(Velocity, f.wind_speed),
+            wind_azimuth: from_quantity!(Angle, f.wind_azimuth),
+            slope: from_quantity!(Ratio, f.slope),
+            aspect: from_quantity!(Angle, f.aspect),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Fire {
     pub rx_int: HeatFluxDensity,
@@ -87,6 +150,47 @@ pub struct Fire {
     pub azimuth_max: Angle,
     pub eccentricity: Ratio,
     pub residence_time: Time,
+}
+#[cfg_attr(not(target_os = "cuda"), derive(Copy, Clone, Debug, cust::DeviceCopy))]
+pub struct FireCuda {
+    pub rx_int: f64,
+    pub speed0: f64,
+    pub hpua: f64,
+    pub phi_eff_wind: f64,
+    pub speed_max: f64,
+    pub azimuth_max: f64,
+    pub eccentricity: f64,
+    pub residence_time: f64,
+}
+
+
+impl From<FireCuda> for Fire {
+    fn from(f: FireCuda) -> Self {
+        Self {
+            rx_int: to_quantity!(HeatFluxDensity, f.rx_int),
+            speed0: to_quantity!(Velocity, f.speed0),
+            hpua: to_quantity!(RadiantExposure, f.hpua),
+            phi_eff_wind: to_quantity!(Ratio, f.phi_eff_wind),
+            speed_max: to_quantity!(Velocity, f.speed_max),
+            azimuth_max: to_quantity!(Angle, f.azimuth_max),
+            eccentricity: to_quantity!(Ratio, f.eccentricity),
+            residence_time: to_quantity!(Time, f.residence_time),
+        }
+    }
+}
+impl From<Fire> for FireCuda {
+    fn from(f: Fire) -> Self {
+        Self {
+            rx_int: from_quantity!(HeatFluxDensity, f.rx_int),
+            speed0: from_quantity!(Velocity, f.speed0),
+            hpua: from_quantity!(RadiantExposure, f.hpua),
+            phi_eff_wind: from_quantity!(Ratio, f.phi_eff_wind),
+            speed_max: from_quantity!(Velocity, f.speed_max),
+            azimuth_max: from_quantity!(Angle, f.azimuth_max),
+            eccentricity: from_quantity!(Ratio, f.eccentricity),
+            residence_time: from_quantity!(Time, f.residence_time),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -211,8 +315,7 @@ impl Terrain {
 }
 
 impl<'a> Fire {
-    #[cfg(test)]
-    pub(crate) fn null() -> Self {
+    pub fn null() -> Self {
         Self {
             rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(0.0),
             speed0: Velocity::new::<foot_per_minute>(0.0),

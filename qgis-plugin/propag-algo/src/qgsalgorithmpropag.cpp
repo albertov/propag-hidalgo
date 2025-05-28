@@ -34,7 +34,7 @@ QgsPropagAlgorithm *QgsPropagAlgorithm::createInstance() const {
 void QgsPropagAlgorithm::initAlgorithm(const QVariantMap &) {
   addParameter(new QgsProcessingParameterFeatureSource(
       QStringLiteral("IGNITED_ELEMENTS"),
-      QObject::tr("Initial ignited elements layer")));
+      QObject::tr("Initial ignited elements")));
   addParameter(new QgsProcessingParameterString(
       QStringLiteral("IGNITED_ELEMENT_TIME_FIELD"),
       QObject::tr("The name of the field of the ignited element feature that "
@@ -53,7 +53,8 @@ void QgsPropagAlgorithm::initAlgorithm(const QVariantMap &) {
       Qgis::ProcessingNumberParameterType::Double, QVariant(5.0 * 60.0), false,
       1e-9));
   addParameter(new QgsProcessingParameterExtent(
-      QStringLiteral("EXTENT"), QObject::tr("Extent"), QVariant(), false));
+      QStringLiteral("EXTENT"), QObject::tr("Max simulation extent"),
+      QVariant(), false));
   addParameter(new QgsProcessingParameterNumber(
       QStringLiteral("CELL_SIZE_X"), QObject::tr("Cell size X"),
       Qgis::ProcessingNumberParameterType::Double, QVariant(5.0), false, 1e-9));
@@ -61,13 +62,12 @@ void QgsPropagAlgorithm::initAlgorithm(const QVariantMap &) {
       QStringLiteral("CELL_SIZE_Y"), QObject::tr("Cell size Y"),
       Qgis::ProcessingNumberParameterType::Double, QVariant(5.0), false, 1e-9));
   addParameter(new QgsProcessingParameterRasterDestination(
-      QStringLiteral("TIMES"), QObject::tr("Access time output raster")));
+      QStringLiteral("TIMES"), QObject::tr("Fire Access Times")));
   addParameter(new QgsProcessingParameterVectorDestination(
-      QStringLiteral("REFERENCES"), QObject::tr("References output layer"),
+      QStringLiteral("REFERENCES"), QObject::tr("Fire References"),
       Qgis::ProcessingSourceType::VectorLine, QVariant(), true, false));
   addParameter(new QgsProcessingParameterVectorDestination(
-      QStringLiteral("BLOCK_BOUNDARIES"),
-      QObject::tr("Block boundaries output layer"),
+      QStringLiteral("BLOCK_BOUNDARIES"), QObject::tr("Block boundaries"),
       Qgis::ProcessingSourceType::VectorPolygon, QVariant(), true, false));
 }
 

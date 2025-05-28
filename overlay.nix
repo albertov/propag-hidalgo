@@ -53,7 +53,7 @@ in
     paths = with final; [
       cudaPackages.cuda_cudart
       cudaPackages.cuda_cudart.dev
-      cudaPackages.cuda_cudart.stubs
+      cudaPackages.cuda_cudart.static
       cudaPackages.cuda_nvprof
       cudaPackages.cuda_cccl
       cudaPackages.cuda_cccl.dev
@@ -72,7 +72,7 @@ in
         with final;
         with final.myRustToolchain.availableComponents;
         [
-          cudaPackages.cuda_cudart.stubs.static
+          cudaPackages.cuda_cudart.static
           openssl
           gdal
         ];
@@ -90,13 +90,16 @@ in
       /*
         postInstall = with final; ''
           wrapProgram $out/bin/propag \
-            --prefix LD_LIBRARY_PATH : ${linuxPackages.nvidia_x11}/lib
+            --prefix LD_LIBRARY_PATH : /usr/lib \
+            --prefix LD_LIBRARY_PATH : /usr/lib64 \
         '';
       */
       fixupPhase = ''
         remove-references-to \
           -t ${final.myRustToolchain} \
           -t ${final.cudaPackages.backendStdenv.cc} \
+          -t ${final.cudaPackages.cuda_nvcc} \
+          -t ${final.cudaCombined} \
           $out/bin/propag
       '';
 

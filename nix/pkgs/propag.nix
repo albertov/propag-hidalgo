@@ -42,6 +42,9 @@ let
 
     meta.mainProgram = "propag";
 
+    postInstall = ''
+      cp -a target/cuda/include $out
+    '';
   };
 in
 self

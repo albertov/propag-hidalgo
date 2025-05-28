@@ -194,6 +194,54 @@ impl GeoReference {
             epsg,
         })
     }
+    #[unsafe(no_mangle)]
+    #[allow(clippy::len_without_is_empty)]
+    pub extern "C" fn GeoReference_south_up(
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        dx: f32,
+        dy: f32,
+        epsg: u32,
+        result: &mut GeoReference,
+    ) -> bool {
+        match Self::south_up(
+            (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }),
+            Vec2 { x: dx, y: dy },
+            epsg,
+        ) {
+            Some(x) => {
+                *result = x;
+                true
+            }
+            None => false,
+        }
+    }
+    #[unsafe(no_mangle)]
+    #[allow(clippy::len_without_is_empty)]
+    pub extern "C" fn GeoReference_north_up(
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        dx: f32,
+        dy: f32,
+        epsg: u32,
+        result: &mut GeoReference,
+    ) -> bool {
+        match Self::north_up(
+            (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }),
+            Vec2 { x: dx, y: dy },
+            epsg,
+        ) {
+            Some(x) => {
+                *result = x;
+                true
+            }
+            None => false,
+        }
+    }
     pub fn bbox(&self) -> (Vec2, Vec2) {
         let Self {
             transform,

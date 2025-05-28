@@ -4,6 +4,7 @@
   stdenv,
   qgis,
   qt5,
+  propag,
 }:
 let
   self = stdenv.mkDerivation {
@@ -11,8 +12,13 @@ let
     src = lib.cleanSource ../../qgis-plugin/propag-algo;
     pname = "qgis-propag-algo";
     nativeBuildInputs = [ cmake ];
-    cmakeFlags = [ "-DQGIS_PREFIX_PATH=${qgis}" ];
+    cmakeFlags = [
+      "-DQGIS_PREFIX_PATH=${qgis}"
+      "-DPROPAG_PREFIX_PATH=${propag}"
+    ];
     buildInputs = [
+      propag
+      qgis
       qt5.full
     ];
   };

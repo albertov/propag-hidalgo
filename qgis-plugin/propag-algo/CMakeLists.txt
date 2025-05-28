@@ -23,8 +23,22 @@ set(CMAKE_AUTORCC ON)
 find_package(QGIS REQUIRED)
 find_package(Qt5 COMPONENTS Core Widgets Xml Gui REQUIRED)
 
+FIND_PATH(PROPAG_INCLUDE_DIR
+    NAMES propag_host.h
+    PATHS
+    "${PROPAG_PREFIX_PATH}/include"
+    NO_CMAKE_FIND_ROOT_PATH
+  )
+
+FIND_LIBRARY(PROPAG_LIBRARY
+    NAMES propag
+    PATHS
+    "${PROPAG_PREFIX_PATH}/lib"
+)
+
 set(LIBS
   ${QGIS_CORE_LIBRARY}
+  ${PROPAG_LIBRARY}
   ${QGIS_GUI_LIBRARY}
   ${QGIS_ANALYSIS_LIBRARY}
   Qt5::Core
@@ -37,6 +51,7 @@ set(INCLUDES
   ${Boost_INCLUDE_DIRS}
   ${CMAKE_CURRENT_BINARY_DIR}
   ${QGIS_INCLUDE_DIR}
+  ${PROPAG_INCLUDE_DIR}
 )
 
 include_directories(

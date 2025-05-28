@@ -2,6 +2,7 @@ add_library(propagalgoplugin MODULE
   qgis_propag_algo.cpp
   qgsalgorithmpropag.cpp
   qgsproviderpropag.cpp
+  qgspropagloader.cpp
 )
 
 target_link_libraries(propagalgoplugin

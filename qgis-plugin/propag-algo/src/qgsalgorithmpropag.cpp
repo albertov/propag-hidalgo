@@ -1,4 +1,5 @@
 #include "qgsalgorithmpropag.h"
+#include "qgspropagloader.h"
 #include "qgis.h"
 
 ///@cond PRIVATE
@@ -47,175 +48,90 @@ QgsPropagAlgorithm *QgsPropagAlgorithm::createInstance() const
 
 void QgsPropagAlgorithm::initAlgorithm( const QVariantMap & )
 {
-  addParameter( new QgsProcessingParameterRasterLayer( QStringLiteral( "INPUT" ), QObject::tr( "Input layer" ) ) );
-
-  QStringList resamplingMethods;
-  resamplingMethods << QObject::tr( "Nearest Neighbour" )
-                    << QObject::tr( "Bilinear (2x2 Kernel)" )
-                    << QObject::tr( "Cubic (4x4 Kernel)" )
-                    << QObject::tr( "Cubic B-Spline (4x4 Kernel)" )
-                    << QObject::tr( "Lanczos (6x6 Kernel)" )
-                    << QObject::tr( "Average" )
-                    << QObject::tr( "Mode" )
-                    << QObject::tr( "Maximum" )
-                    << QObject::tr( "Minimum" )
-                    << QObject::tr( "Median" )
-                    << QObject::tr( "First Quartile (Q1)" )
-                    << QObject::tr( "Third Quartile (Q3)" );
-  addParameter( new QgsProcessingParameterEnum( QStringLiteral( "RESAMPLING_METHOD" ), QObject::tr( "Resampling method" ), resamplingMethods, false, 0, false ) );
-  addParameter( new QgsProcessingParameterBoolean( QStringLiteral( "RESCALE" ), QObject::tr( "Rescale values according to the cell size" ), false ) );
-  addParameter( new QgsProcessingParameterRasterLayer( QStringLiteral( "REFERENCE_LAYER" ), QObject::tr( "Reference layer" ) ) );
-  addParameter( new QgsProcessingParameterCrs( QStringLiteral( "CRS" ), QObject::tr( "Override reference CRS" ), QVariant(), true ) );
+  addParameter( new QgsProcessingParameterVectorLayer( QStringLiteral( "IGNITED_ELEMENTS" ), QObject::tr( "Initial ignited elements layer" ) ) );
+  addParameter( new QgsProcessingParameterBoolean( QStringLiteral( "GENERATE_REFS" ), QObject::tr( "Generate references vector layer" ), false ) );
+  addParameter( new QgsProcessingParameterNumber( QStringLiteral( "MAX_SIMULATION_MINUTES" ), QObject::tr( "Maximum simulation minutes" ), Qgis::ProcessingNumberParameterType::Double, QVariant(), true, 1e-9 ) );
   addParameter( new QgsProcessingParameterNumber( QStringLiteral( "CELL_SIZE_X" ), QObject::tr( "Override reference cell size X" ), Qgis::ProcessingNumberParameterType::Double, QVariant(), true, 1e-9 ) );
   addParameter( new QgsProcessingParameterNumber( QStringLiteral( "CELL_SIZE_Y" ), QObject::tr( "Override reference cell size Y" ), Qgis::ProcessingNumberParameterType::Double, QVariant(), true, 1e-9 ) );
-  addParameter( new QgsProcessingParameterNumber( QStringLiteral( "GRID_OFFSET_X" ), QObject::tr( "Override reference grid offset X" ), Qgis::ProcessingNumberParameterType::Double, QVariant(), true, 1e-9 ) );
-  addParameter( new QgsProcessingParameterNumber( QStringLiteral( "GRID_OFFSET_Y" ), QObject::tr( "Override reference grid offset Y" ), Qgis::ProcessingNumberParameterType::Double, QVariant(), true, 1e-9 ) );
   addParameter( new QgsProcessingParameterExtent( QStringLiteral( "EXTENT" ), QObject::tr( "Clip to extent" ), QVariant(), true ) );
-  addParameter( new QgsProcessingParameterRasterDestination( QStringLiteral( "OUTPUT" ), QObject::tr( "Aligned raster" ) ) );
+  addParameter( new QgsProcessingParameterRasterDestination( QStringLiteral( "TIMES" ), QObject::tr( "Access time output raster" ) ) );
 }
 
+static bool load_terrain(void *self, const GeoReference *geo_ref, FFITerrain *output) {
+  return static_cast<QgsPropagLoader*>(self)->load_terrain(geo_ref, output);
+};
 
 QVariantMap QgsPropagAlgorithm::processAlgorithm( const QVariantMap &parameters, QgsProcessingContext &context, QgsProcessingFeedback *feedback )
 {
-  const QString outputFile = parameterAsOutputLayer( parameters, QStringLiteral( "OUTPUT" ), context );
-  /*
-  QgsRasterLayer *inputLayer = parameterAsRasterLayer( parameters, QStringLiteral( "INPUT" ), context );
-  if ( !inputLayer )
-    throw QgsProcessingException( invalidRasterError( parameters, QStringLiteral( "INPUT" ) ) );
+  const QString outputFile = parameterAsOutputLayer( parameters, QStringLiteral( "TIMES" ), context );
+  QgsVectorLayer *ignitedElementsLayer = parameterAsVectorLayer( parameters, QStringLiteral( "IGNITED_ELEMENTS" ), context );
+  if ( !ignitedElementsLayer )
+    throw QgsProcessingException( invalidSourceError( parameters, QStringLiteral( "IGNITED_ELEMENTS" ) ) );
 
-  QgsRasterLayer *referenceLayer = parameterAsRasterLayer( parameters, QStringLiteral( "REFERENCE_LAYER" ), context );
-  if ( !referenceLayer )
-    throw QgsProcessingException( invalidRasterError( parameters, QStringLiteral( "REFERENCE_LAYER" ) ) );
+  const bool find_ref_change = parameterAsBoolean( parameters, QStringLiteral( "GENERATE_REFS" ), context );
 
-  const int method = parameterAsInt( parameters, QStringLiteral( "RESAMPLING_METHOD" ), context );
-  const bool rescale = parameterAsBoolean( parameters, QStringLiteral( "RESCALE" ), context );
-
-  Qgis::GdalResampleAlgorithm resampleAlg = Qgis::GdalResampleAlgorithm::RA_NearestNeighbour;
-  switch ( method )
-  {
-    case 0:
-      resampleAlg = Qgis::GdalResampleAlgorithm::RA_NearestNeighbour;
-      break;
-    case 1:
-      resampleAlg = Qgis::GdalResampleAlgorithm::RA_Bilinear;
-      break;
-    case 2:
-      resampleAlg = Qgis::GdalResampleAlgorithm::RA_Cubic;
-      break;
-    case 3:
-      resampleAlg = Qgis::GdalResampleAlgorithm::RA_CubicSpline;
-      break;
-    case 4:
-      resampleAlg = Qgis::GdalResampleAlgorithm::RA_Lanczos;
-      break;
-    case 5:
-      resampleAlg = Qgis::GdalResampleAlgorithm::RA_Average;
-      break;
-    case 6:
-      resampleAlg = Qgis::GdalResampleAlgorithm::RA_Mode;
-      break;
-    case 7:
-      resampleAlg = Qgis::GdalResampleAlgorithm::RA_Max;
-      break;
-    case 8:
-      resampleAlg = Qgis::GdalResampleAlgorithm::RA_Min;
-      break;
-    case 9:
-      resampleAlg = Qgis::GdalResampleAlgorithm::RA_Median;
-      break;
-    case 10:
-      resampleAlg = Qgis::GdalResampleAlgorithm::RA_Q1;
-      break;
-    case 11:
-      resampleAlg = Qgis::GdalResampleAlgorithm::RA_Q3;
-      break;
-    default:
-      break;
-  }
-
-  QgsAlignRasterData::RasterItem item( inputLayer->source(), outputFile );
-  item.resampleMethod = resampleAlg;
-  item.rescaleValues = rescale;
-
-  QgsAlignRaster::List items;
-  items << item;
-
-  QgsAlignRaster rasterAlign;
-  rasterAlign.setRasters( items );
-
-  QString customCRSWkt;
-  QSizeF customCellSize;
-  QPointF customGridOffset( -1, -1 );
-
-  if ( parameters.value( QStringLiteral( "CRS" ) ).isValid() )
-  {
-    QgsCoordinateReferenceSystem crs = parameterAsCrs( parameters, QStringLiteral( "CRS" ), context );
-    customCRSWkt = crs.toWkt( Qgis::CrsWktVariant::PreferredGdal );
-  }
 
   bool hasXValue = parameters.value( QStringLiteral( "CELL_SIZE_X" ) ).isValid();
   bool hasYValue = parameters.value( QStringLiteral( "CELL_SIZE_Y" ) ).isValid();
+  double xSize, ySize;
   if ( ( hasXValue && !hasYValue ) || ( !hasXValue && hasYValue ) )
   {
     throw QgsProcessingException( QObject::tr( "Either set both X and Y cell size values or keep both as 'Not set'." ) );
   }
   else if ( hasXValue && hasYValue )
   {
-    double xSize = parameterAsDouble( parameters, QStringLiteral( "CELL_SIZE_X" ), context );
-    double ySize = parameterAsDouble( parameters, QStringLiteral( "CELL_SIZE_Y" ), context );
-    customCellSize = QSizeF( xSize, ySize );
+    xSize = parameterAsDouble( parameters, QStringLiteral( "CELL_SIZE_X" ), context );
+    ySize = parameterAsDouble( parameters, QStringLiteral( "CELL_SIZE_Y" ), context );
+  } else {
+    throw QgsProcessingException( QObject::tr( "Invalid CELL_SIZE" ) );
+  }
+  if (xSize <= 0) {
+    throw QgsProcessingException( QObject::tr( "Invalid CELL_SIZE_X" ) );
+  }
+  if (ySize <= 0) {
+    throw QgsProcessingException( QObject::tr( "Invalid CELL_SIZE_Y" ) );
   }
 
-  hasXValue = parameters.value( QStringLiteral( "GRID_OFFSET_X" ) ).isValid();
-  hasYValue = parameters.value( QStringLiteral( "GRID_OFFSET_Y" ) ).isValid();
-  if ( ( hasXValue && !hasYValue ) || ( !hasXValue && hasYValue ) )
-  {
-    throw QgsProcessingException( QObject::tr( "Either set both X and Y grid offset values or keep both as 'Not set'." ) );
-  }
-  else if ( hasXValue && hasYValue )
-  {
-    double xSize = parameterAsDouble( parameters, QStringLiteral( "GRID_OFFSET_X" ), context );
-    double ySize = parameterAsDouble( parameters, QStringLiteral( "GRID_OFFSET_Y" ), context );
-    customGridOffset = QPointF( xSize, ySize );
-  }
-
+  QgsRectangle extent;
   if ( parameters.value( QStringLiteral( "EXTENT" ) ).isValid() )
   {
-    QgsRectangle extent = parameterAsExtent( parameters, QStringLiteral( "EXTENT" ), context );
-    rasterAlign.setClipExtent( extent );
+    extent = parameterAsExtent( parameters, QStringLiteral( "EXTENT" ), context );
+  } else {
+    throw QgsProcessingException( QObject::tr( "Invalid EXTENT" ) );
   }
 
-  struct QgsAlignRasterProgress : public QgsAlignRaster::ProgressHandler
+  double max_time;
+  if ( parameters.value( QStringLiteral( "MAX_SIMULATION_MINUTES" ) ).isValid() )
   {
-      explicit QgsAlignRasterProgress( QgsFeedback *feedback )
-        : mFeedback( feedback ) {}
-      bool progress( double complete ) override
-      {
-        mFeedback->setProgress( complete * 100 );
-        return true;
-      }
-
-    protected:
-      QgsFeedback *mFeedback = nullptr;
-  };
-
-  rasterAlign.setProgressHandler( new QgsAlignRasterProgress( feedback ) );
-
-  bool result = rasterAlign.setParametersFromRaster( referenceLayer->source(), customCRSWkt, customCellSize, customGridOffset );
-  if ( !result )
-  {
-    throw QgsProcessingException( QObject::tr( "It is not possible to reproject reference raster to target CRS." ) );
+    max_time = parameterAsDouble( parameters, QStringLiteral( "MAX_SIMULATION_MINUTES" ), context ) * 60.0;
+  } else {
+    throw QgsProcessingException( QObject::tr( "Invalid MAX_SIMULATION_MINUTES" ) );
+  }
+  if (max_time <= 0) {
+    throw QgsProcessingException( QObject::tr( "MAX_SIMULATION_MINUTES must be > 0" ) );
   }
 
-  result = rasterAlign.run();
-  if ( !result )
-  {
-    throw QgsProcessingException( QObject::tr( "Failed to align rasters: %1" ).arg( rasterAlign.errorMessage() ) );
+  GeoReference geo_ref;
+  if (!GeoReference_south_up(extent.xMinimum(), extent.yMinimum(), extent.xMaximum(), extent.yMaximum(), xSize, ySize, 9999, &geo_ref)) {
+    throw QgsProcessingException( QObject::tr( "Could not create a valid GeoReference with given CELL_SIZE_? and EXTENT" ) );
   }
 
-  */
+  Settings settings(geo_ref, max_time, find_ref_change);
+
+  QByteArray outputFile_ba = outputFile.toLocal8Bit();
+  const char *output_path = outputFile_ba.data();
+
+  FFITimeFeature *initial_ignited_elements = NULL;
+  size_t initial_ignited_elements_len = 0;
+  QgsPropagLoader loader;
+  FFITerrainLoader terrain_loader(&load_terrain, &loader);
+
+  FFIPropagation propagation(settings, output_path, initial_ignited_elements, initial_ignited_elements_len, terrain_loader);
+
+  FFIPropagation_run(propagation);
+
   QVariantMap outputs;
-  outputs.insert( QStringLiteral( "OUTPUT" ), outputFile );
+  outputs.insert( QStringLiteral( "TIMES" ), outputFile );
   return outputs;
 }
 

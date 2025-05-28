@@ -2,8 +2,8 @@ pkgs:
 pkgs.mkShell {
   inputsFrom = [
     pkgs.propag
-    pkgs.py-propag
-    pkgs.qgis-propag-algo
+    #pkgs.py-propag
+    #pkgs.qgis-propag-algo
   ];
   shellHook = ''
     ${pkgs.pre-commit.shellHook}
@@ -25,6 +25,7 @@ pkgs.mkShell {
       ;
   };
   packages = with pkgs; [
+    cmake
     linuxPackages.nvidia_x11
     linuxPackages.nvidia_x11.bin
     git

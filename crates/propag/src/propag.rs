@@ -287,13 +287,13 @@ pub unsafe extern "C" fn FFIPropagation_run(
     match std::panic::catch_unwind(|| {
         let propag: Propagation = propag.try_into().map_err(PropagGdalError)?;
         let geo_ref = propag.settings.geo_ref;
-        let mut time = rasterize_times(
+        let time = rasterize_times(
             &propag.initial_ignited_elements,
             propag.initial_ignited_elements_crs.clone(),
             &geo_ref,
         )
         .map_err(PropagGdalError)?;
-        let propag_result = propagate(&propag, &mut time)?;
+        let propag_result = propagate(&propag, time)?;
         println!(
             "block_size={:?}, grid_size={:?}, super_grid_size={:?}",
             &propag_result.block_size, &propag_result.grid_size, &propag_result.super_grid_size
@@ -336,7 +336,7 @@ pub struct PropagResults {
     pub super_grid_size: GridSize,
 }
 
-fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<PropagResults, PropagError> {
+fn propagate(propag: &Propagation, mut time: Vec<f32>) -> Result<PropagResults, PropagError> {
     let settings = propag.settings;
     let geo_ref = settings.geo_ref;
     let len = geo_ref.len() as usize;
@@ -496,7 +496,7 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<PropagResults,
             }
             stream.synchronize()?;
         };
-        time_buf.copy_to(time)?;
+        time_buf.copy_to(&mut time)?;
         if propag.settings.find_ref_change {
             boundary_change_buf.copy_to(&mut boundary_change)?;
             refs_x_buf.copy_to(&mut refs_x)?;
@@ -504,7 +504,7 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<PropagResults,
             refs_time_buf.copy_to(&mut refs_time)?;
         };
         Ok(PropagResults {
-            time: time.clone(),
+            time,
             boundary_change,
             refs_x,
             refs_y,

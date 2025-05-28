@@ -244,12 +244,12 @@ impl TerrainLoader for FFITerrainLoader {
 }
 
 pub fn rasterize_times(
-    times: &Vec<TimeFeature>,
+    times: &[TimeFeature],
     geo_ref: &GeoReference,
 ) -> gdal::errors::Result<Vec<f32>> {
     let d = DriverManager::get_driver_by_name("MEM")?;
     let mut ds = d.create("in-memory", geo_ref.width as _, geo_ref.height as _, 1)?;
-    ds.set_spatial_ref(&SpatialRef::from_epsg(geo_ref.epsg.clone())?)?;
+    ds.set_spatial_ref(&SpatialRef::from_epsg(geo_ref.epsg)?)?;
     ds.set_geo_transform(&geo_ref.transform.as_array_64())?;
     let mut b = ds.rasterband(1)?;
     let no_data: f32 = Max::MAX;

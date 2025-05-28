@@ -31,6 +31,16 @@ impl Settings {
     }
 }
 
+pub struct Propagation {
+    pub max_time: f32,
+    pub find_ref_change: bool,
+    pub epsg: u32,
+    pub res_x: f32,
+    pub res_y: f32,
+    pub ignited_elements: Vec<TimeFeature>,
+    pub terrain_loader: Box<dyn TerrainLoader>,
+}
+
 #[cfg_attr(not(target_os = "cuda"), derive(StructOfArray), soa_derive(Debug))]
 #[derive(Copy, Clone, Debug, PartialEq, cust_core::DeviceCopy)]
 #[repr(C)]
@@ -98,6 +108,7 @@ pub struct TimeFeature {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone)]
 struct FFITimeFeature {
     time: float::T,
     geom_wkb: *const u8,
@@ -115,10 +126,33 @@ impl TryFrom<FFITimeFeature> for TimeFeature {
 
 #[repr(C)]
 pub struct FFIPropagation {
-    settings: Settings,
+    max_time: f32,
+    find_ref_change: bool,
+    epsg: u32,
+    pub res_x: f32,
+    pub res_y: f32,
     ignited_elements: *const FFITimeFeature,
     ignited_elements_len: usize,
-    loader: *mut FFITerrainLoader,
+    terrain_loader: FFITerrainLoader,
+}
+
+impl From<FFIPropagation> for Propagation {
+    fn from(p: FFIPropagation) -> Self {
+        let is = unsafe { std::slice::from_raw_parts(p.ignited_elements, p.ignited_elements_len) };
+        let ignited_elements = is
+            .iter()
+            .filter_map(|x| TimeFeature::try_from(*x).ok())
+            .collect();
+        Propagation {
+            max_time: p.max_time,
+            find_ref_change: p.find_ref_change,
+            epsg: p.epsg,
+            res_x: p.res_x,
+            res_y: p.res_y,
+            ignited_elements,
+            terrain_loader: Box::new(p.terrain_loader),
+        }
+    }
 }
 
 #[unsafe(no_mangle)]

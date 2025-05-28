@@ -187,9 +187,9 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
                              features.size(), ie_proj_ba.data(),
                              terrain_loader);
 
-  std::string err(1024, 0);
-  const char *err_c = err.c_str();
-  if (!FFIPropagation_run(propagation, &err_c)) {
+  char err_c[1024];
+  memset(&err_c, 0, 1024);
+  if (!FFIPropagation_run(propagation, err_c)) {
     throw QgsProcessingException(err_c);
   }
 

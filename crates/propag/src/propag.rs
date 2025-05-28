@@ -179,7 +179,7 @@ impl TryFrom<FFIPropagation> for Propagation {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn FFIPropagation_run(propag: FFIPropagation, err_msg: *mut *const c_char) -> bool {
+pub extern "C" fn FFIPropagation_run(propag: FFIPropagation, err_msg: *mut c_char) -> bool {
     match (|| {
         let propag: Propagation = propag.try_into()?;
         let geo_ref = propag.settings.geo_ref;
@@ -193,9 +193,9 @@ pub extern "C" fn FFIPropagation_run(propag: FFIPropagation, err_msg: *mut *cons
         Ok(()) => true,
         Err(err) => {
             let err = format!("{}", err);
-            let err = std::ffi::CString::new(err).unwrap();
+            let c_err = std::ffi::CString::new(err).unwrap();
             unsafe {
-                *err_msg = err.as_ptr();
+                libc::strncpy(err_msg, c_err.as_ptr(), 1024); //FIXME un-hardcode buffer len
             };
             false
         }

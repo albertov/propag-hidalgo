@@ -27,7 +27,7 @@ pub const FOOT_TO_M: f64 = 3.048_E-1;
 pub const POUND_TO_KG: f64 = 4.535_924_E-1;
 pub const BTU: f64 = 1.054_350_E3;
 use const_soft_float::soft_f64::SoftF64;
-use std::marker::PhantomData;
+use uom::lib::marker::PhantomData;
 use uom::si::f64::*;
 
 pub const fn load_to_imperial(x: &ArealMassDensity) -> f64 {

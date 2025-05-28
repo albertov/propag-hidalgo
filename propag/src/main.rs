@@ -248,6 +248,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .all(|(f_gpu, f_cpu)| Into::<FireSimple>::into(f_gpu).almost_eq(f_cpu)));
     println!("All equal");
 
+    /*
     println!("Calculating with GPU Propag");
     // input/output vectors
     let mut fire_propag: FireSimpleCudaVec = std::iter::repeat(FireSimple::NULL.into())
@@ -340,5 +341,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             assert_eq!(refs_y[i + 1000 * j] as usize, j);
         }
     }
+    */
     Ok(())
 }

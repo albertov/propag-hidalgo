@@ -10,6 +10,9 @@ use uom::si::velocity::meter_per_second;
 #[macro_use]
 extern crate timeit;
 
+mod geometry;
+mod loader;
+
 /// How many elems to generate
 const NUMBERS_LEN: usize = 1_000_000;
 

@@ -441,7 +441,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "firelib-rs"
+name = "firelib"
 version = "0.1.0"
 dependencies = [
  "const_soft_float",
@@ -995,7 +995,7 @@ dependencies = [
  "cust",
  "cust_core",
  "dlmalloc",
- "firelib-rs",
+ "firelib",
  "fortanix-sgx-abi",
  "gdal",
  "gdal-sys",

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members=["firelib-rs", "propag", "geometry"]
+members=["firelib", "propag", "geometry"]
 
 
 [profile.release]

@@ -64,12 +64,12 @@
             default = self'.packages.propag;
             inherit (pkgs)
               propag
-              firelib-rs
+              firelib
               ;
           };
           devShells.default = pkgs.mkShell {
             inputsFrom = [
-              pkgs.firelib-rs
+              pkgs.firelib
               pkgs.propag
             ];
             env = {
@@ -79,7 +79,7 @@
               GDAL_DATA = "${pkgs.gdal}/share/gdal";
               PROJ_DATA = "${pkgs.proj}/share/proj";
 
-              inherit (pkgs.firelib-rs)
+              inherit (pkgs.firelib)
                 BINDGEN_EXTRA_CLANG_ARGS
                 LIBCLANG_PATH
                 ;

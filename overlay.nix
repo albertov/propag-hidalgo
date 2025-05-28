@@ -36,11 +36,11 @@ let
   };
 in
 {
-  firelib-rs = final.myRustPlatform.buildRustPackage (
+  firelib = final.myRustPlatform.buildRustPackage (
     workspaceArgs
     // {
-      pname = "firelib-rs";
-      buildAndTestSubdir = "firelib-rs";
+      pname = "firelib";
+      buildAndTestSubdir = "firelib";
     }
   );
 

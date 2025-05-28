@@ -11,7 +11,7 @@ path = "src/main.rs"
 cust = { git = "https://github.com/albertov/Rust-CUDA", branch = "cuda_12" }
 cust_core = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }
 rand = "0.9.0"
-firelib-rs = { path = "../firelib-rs", default-features=false  }
+firelib = { path = "../firelib" }
 geometry = { path = "../geometry" }
 uom = "0.36.0"
 timeit = "0.1.2"

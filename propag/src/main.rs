@@ -3,7 +3,7 @@ use ::geometry::*;
 use cust::device::DeviceAttribute;
 use cust::function::{BlockSize, GridSize};
 use cust::prelude::*;
-use firelib_rs::float;
+use firelib::float;
 use gdal::raster::*;
 use gdal::spatial_ref::SpatialRef;
 use gdal::vector::*;

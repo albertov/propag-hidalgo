@@ -1,12 +1,12 @@
+use ::firelib::float;
+use ::firelib::float::*;
+use ::firelib::*;
 use core::ops::Div;
 use core::ptr::NonNull;
 use core::sync::atomic::Ordering;
 use cuda_std::shared::dynamic_shared_mem;
 use cuda_std::thread::*;
 use cuda_std::*;
-use firelib_rs::float;
-use firelib_rs::float::*;
-use firelib_rs::*;
 use geometry::GeoReference;
 use glam::f32::*;
 use glam::i32::*;

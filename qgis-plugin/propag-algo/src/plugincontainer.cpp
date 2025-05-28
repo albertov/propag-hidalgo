@@ -12,14 +12,14 @@ PluginContainer::PluginContainer(const std::string &path) : _library(0) {
   dlerror(); // reset errors;
 
   // load run function
-  _run = (propagation_run_t)dlsym(_library, "FFIPropagation_run");
+  _run = (RunFn)dlsym(_library, "FFIPropagation_run");
   const char *dlsym_error = dlerror();
   if (dlsym_error)
     throw std::string(dlerror());
 
   // load run function
   _rasterize_fuels =
-      (rasterize_fuels_t)dlsym(_library, "propag_rasterize_fuels");
+      (RasterizeFuelsFn)dlsym(_library, "propag_rasterize_fuels");
   dlsym_error = dlerror();
   if (dlsym_error)
     throw std::string(dlerror());

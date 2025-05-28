@@ -619,6 +619,34 @@ struct FFITerrainLoader {
 }
 
 type LoadFn = unsafe extern "C" fn(*mut core::ffi::c_void, &GeoReference, &mut FFITerrain) -> bool;
+pub type RunFn = unsafe extern "C" fn(FFIPropagation, usize, *mut c_char) -> bool;
+
+pub type RasterizeFuelsFn = unsafe extern "C" fn(
+    *const FFIFuelFeature,
+    usize,
+    *const c_char,
+    &GeoReference,
+    *mut u8,
+    *mut c_char,
+    usize,
+) -> bool;
+
+/// This is so the type aliases are axported
+#[repr(C)]
+pub struct PluginT {
+    run: RunFn,
+    rasterize_fuels: RasterizeFuelsFn,
+}
+impl PluginT {
+    #[unsafe(no_mangle)]
+    // This one is so cbindgen exports PluginT
+    pub extern "C" fn create_plugin(run: RunFn, rasterize_fuels: RasterizeFuelsFn) -> Self {
+        Self {
+            run,
+            rasterize_fuels,
+        }
+    }
+}
 
 impl TerrainLoader for FFITerrainLoader {
     fn load_extent(&self, geo_ref: &geometry::GeoReference) -> Option<TerrainCudaVec> {

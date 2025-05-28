@@ -3,7 +3,6 @@
 
 #define SIP_NO_FILE
 
-#include "plugin_base.h"
 #include "propag_host.h"
 #include "qgis_sip.h"
 #include "qgsapplication.h"

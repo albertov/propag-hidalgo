@@ -1,7 +1,7 @@
 #ifndef PLUGINCONTAINER_H
 #define PLUGINCONTAINER_H
 
-#include "plugin_base.h"
+#include "propag_host.h"
 
 class PluginContainer {
 public:
@@ -14,8 +14,8 @@ public:
 
 private:
   void *_library;
-  propagation_run_t _run;
-  rasterize_fuels_t _rasterize_fuels;
+  RunFn _run;
+  RasterizeFuelsFn _rasterize_fuels;
 };
 
 #endif // PLUGINCONTAINER_H

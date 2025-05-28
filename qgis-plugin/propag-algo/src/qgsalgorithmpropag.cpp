@@ -1,5 +1,4 @@
 #include "qgsalgorithmpropag.h"
-#include "plugin_base.h"
 #include "plugincontainer.h"
 #include "qgis.h"
 #include "qgspropagloader.h"

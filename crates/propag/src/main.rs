@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let len = geo_ref.len();
 
     println!("Generating input data");
-    let mut model: Vec<usize> = (0..len).map(|_n| 1).collect();
+    let mut model: Vec<u8> = (0..len).map(|_n| 1).collect();
     let d1hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
     let d10hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
     let d100hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();

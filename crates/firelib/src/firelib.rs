@@ -80,6 +80,7 @@ pub struct Particle {
 #[cfg_attr(not(target_os = "cuda"), derive(StructOfArray), soa_derive(Debug))]
 #[repr(C)]
 pub struct Terrain {
+    pub fuel_code: u8,
     pub d1hr: Ratio,
     pub d10hr: Ratio,
     pub d100hr: Ratio,
@@ -95,6 +96,7 @@ pub struct Terrain {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
 pub struct TerrainCuda {
+    pub fuel_code: u8,
     pub d1hr: float::T,
     pub d10hr: float::T,
     pub d100hr: float::T,
@@ -127,6 +129,7 @@ macro_rules! from_quantity {
 impl From<TerrainCuda> for Terrain {
     fn from(f: TerrainCuda) -> Self {
         Self {
+            fuel_code: f.fuel_code,
             d1hr: to_quantity!(Ratio, f.d1hr),
             d10hr: to_quantity!(Ratio, f.d10hr),
             d100hr: to_quantity!(Ratio, f.d100hr),
@@ -142,6 +145,7 @@ impl From<TerrainCuda> for Terrain {
 impl From<Terrain> for TerrainCuda {
     fn from(f: Terrain) -> Self {
         Self {
+            fuel_code: f.fuel_code,
             d1hr: from_quantity!(Ratio, &f.d1hr),
             d10hr: from_quantity!(Ratio, &f.d10hr),
             d100hr: from_quantity!(Ratio, &f.d100hr),
@@ -367,12 +371,14 @@ impl Catalog {
         }
     }
     #[inline]
-    pub fn burn(&self, model: usize, terrain: &Terrain) -> Option<Fire> {
-        self.get(model).and_then(|f| f.burn(terrain))
+    pub fn burn(&self, terrain: &Terrain) -> Option<Fire> {
+        self.get(terrain.fuel_code as _)
+            .and_then(|f| f.burn(terrain))
     }
     #[inline]
-    pub fn burn_simple(&self, model: usize, terrain: &Terrain) -> Option<FireSimple> {
-        self.get(model).and_then(|f| f.burn_simple(terrain))
+    pub fn burn_simple(&self, terrain: &Terrain) -> Option<FireSimple> {
+        self.get(terrain.fuel_code as _)
+            .and_then(|f| f.burn_simple(terrain))
     }
 }
 

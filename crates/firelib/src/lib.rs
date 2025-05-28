@@ -197,19 +197,15 @@ mod tests {
     use test::Bencher;
 
     quickcheck::quickcheck! {
-        fn we_produce_the_same_output_as_firelib_c(terrain: Terrain, model: ValidModel, azimuth: ValidAzimuth) -> bool {
+        fn we_produce_the_same_output_as_firelib_c(terrain: Terrain, azimuth: ValidAzimuth) -> bool {
             let az = Angle::new::<degree>(azimuth.0);
-            let (firelib_sp, firelib_sp_az) = firelib_rs_spread(model.0, &terrain, az);
-            let (c_sp, c_sp_az) = firelib_c_spread(model.0, &terrain, az);
+            let (firelib_sp, firelib_sp_az) = firelib_rs_spread(&terrain, az);
+            let (c_sp, c_sp_az) = firelib_c_spread(&terrain, az);
             Fire::almost_eq(&firelib_sp, &c_sp) && SpreadAtAzimuth::almost_eq(&firelib_sp_az, &c_sp_az)
         }
     }
-    fn firelib_rs_spread(
-        model: usize,
-        terrain: &Terrain,
-        azimuth: Angle,
-    ) -> (Fire, SpreadAtAzimuth) {
-        if let Some(fire) = Catalog::STANDARD.burn(model, terrain) {
+    fn firelib_rs_spread(terrain: &Terrain, azimuth: Angle) -> (Fire, SpreadAtAzimuth) {
+        if let Some(fire) = Catalog::STANDARD.burn(terrain) {
             let spread_az = SpreadAtAzimuth::from_spread(&fire.spread(azimuth));
             (fire, spread_az)
         } else {
@@ -217,11 +213,7 @@ mod tests {
         }
     }
 
-    fn firelib_c_spread(
-        model: usize,
-        terrain: &Terrain,
-        azimuth: Angle,
-    ) -> (Fire, SpreadAtAzimuth) {
+    fn firelib_c_spread(terrain: &Terrain, azimuth: Angle) -> (Fire, SpreadAtAzimuth) {
         unsafe {
             let name = CString::new("standard").unwrap();
             let catalog = Fire_FuelCatalogCreateStandard(name.as_ptr(), 13);
@@ -233,19 +225,20 @@ mod tests {
                 terrain.herb.get::<ratio>().into(),
                 terrain.wood.get::<ratio>().into(),
             ];
-            Fire_SpreadNoWindNoSlope(catalog, model, m.as_mut_ptr());
+            Fire_SpreadNoWindNoSlope(catalog, terrain.fuel_code as _, m.as_mut_ptr());
             Fire_SpreadWindSlopeMax(
                 catalog,
-                model,
+                terrain.fuel_code as _,
                 terrain.wind_speed.get::<foot_per_minute>().into(),
                 terrain.wind_azimuth.get::<degree>().into(),
                 terrain.slope.get::<ratio>().into(),
                 terrain.aspect.get::<degree>().into(),
             );
-            let fuel: *mut fuelModelDataStruct = *(*catalog).modelPtr.wrapping_add(model);
+            let fuel: *mut fuelModelDataStruct =
+                *(*catalog).modelPtr.wrapping_add(terrain.fuel_code as _);
             Fire_SpreadAtAzimuth(
                 catalog,
-                model,
+                terrain.fuel_code as _,
                 (*fuel).azimuthMax,
                 (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
             );
@@ -262,7 +255,7 @@ mod tests {
             };
             Fire_SpreadAtAzimuth(
                 catalog,
-                model,
+                terrain.fuel_code as _,
                 azimuth.get::<degree>().into(),
                 (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
             );
@@ -287,10 +280,7 @@ mod tests {
         bench_spread_fn(b, firelib_c_spread)
     }
 
-    fn bench_spread_fn(
-        b: &mut Bencher,
-        f: impl Fn(usize, &Terrain, Angle) -> (Fire, SpreadAtAzimuth),
-    ) {
+    fn bench_spread_fn(b: &mut Bencher, f: impl Fn(&Terrain, Angle) -> (Fire, SpreadAtAzimuth)) {
         use rand::prelude::*;
         let rng = &mut rand::rng();
         let mut mkratio =
@@ -299,13 +289,13 @@ mod tests {
         let mut azimuth =
             { || Angle::new::<degree>(rng.random_range(0..36000) as float::T / 100.0) };
         let rng = &mut rand::rng();
-        let args: Vec<(usize, Terrain, Angle)> = (0..1000)
+        let args: Vec<(Terrain, Angle)> = (0..1000)
             .map(|_n| {
-                let model = rng.random_range(0..14);
                 let wind_speed = Velocity::new::<meter_per_second>(
                     rng.random_range(0..30000) as float::T / 1000.0,
                 );
                 let terrain = Terrain {
+                    fuel_code: rng.random_range(0..13),
                     d1hr: mkratio(),
                     d10hr: mkratio(),
                     d100hr: mkratio(),
@@ -316,20 +306,20 @@ mod tests {
                     slope: mkratio(),
                     aspect: azimuth(),
                 };
-                (model, terrain, azimuth())
+                (terrain, azimuth())
             })
             .collect();
         b.iter(|| {
             args.iter()
-                .map(|(model, terrain, az)| {
-                    f(*model, terrain, *az).1.speed.get::<meter_per_second>()
-                })
+                .map(|(terrain, az)| f(terrain, *az).1.speed.get::<meter_per_second>())
                 .sum::<float::T>()
         })
     }
 
     impl Arbitrary for Terrain {
         fn arbitrary(g: &mut Gen) -> Self {
+            let fuel_codes = &(0..13).collect::<Vec<_>>()[..];
+            let fuel_code = *g.choose(fuel_codes).unwrap();
             let humidities = &(0..101).map(|x| x as float::T / 100.0).collect::<Vec<_>>()[..];
             let wind_speeds = &(0..101).map(|x| x as float::T / 10.0).collect::<Vec<_>>()[..];
             let slopes = &(0..1001)
@@ -337,6 +327,7 @@ mod tests {
                 .collect::<Vec<_>>()[..];
             let mut choose_humidity = || Ratio::new::<ratio>(*g.choose(humidities).unwrap());
             Self {
+                fuel_code,
                 d1hr: choose_humidity(),
                 d10hr: choose_humidity(),
                 d100hr: choose_humidity(),
@@ -360,15 +351,6 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Clone)]
-    struct ValidModel(usize);
-
-    impl Arbitrary for ValidModel {
-        fn arbitrary(g: &mut Gen) -> Self {
-            let models = &(0..13).collect::<Vec<_>>()[..];
-            Self(*g.choose(models).unwrap())
-        }
-    }
     #[derive(Debug)]
     struct SpreadAtAzimuth {
         speed: Velocity,

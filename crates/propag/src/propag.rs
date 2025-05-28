@@ -132,6 +132,7 @@ pub trait TerrainLoader {
 
 #[repr(C)]
 struct FFITerrain {
+    fuel_code: *mut u8,
     d1hr: *mut float::T,
     d10hr: *mut float::T,
     d100hr: *mut float::T,
@@ -155,6 +156,7 @@ impl TerrainLoader for FFITerrainLoader {
     fn load_extent(&self, geo_ref: &geometry::GeoReference) -> Option<TerrainCudaVec> {
         let mut ret = TerrainCudaVec::with_capacity(geo_ref.len() as _);
         let mut chunk = FFITerrain {
+            fuel_code: ret.fuel_code.as_mut_ptr(),
             d1hr: ret.d1hr.as_mut_ptr(),
             d10hr: ret.d10hr.as_mut_ptr(),
             d100hr: ret.d100hr.as_mut_ptr(),

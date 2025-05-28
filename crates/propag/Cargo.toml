@@ -11,8 +11,8 @@ name = "propag"
 path = "src/main.rs"
 
 [dependencies]
-cust = { git = "https://github.com/albertov/Rust-CUDA", branch = "cuda_12" }
-cust_core = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }
+cust = { git = "https://github.com/albertov/Rust-CUDA", branch = "cuda_12_2" }
+cust_core = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12_2" }
 rand = "0.9.0"
 firelib = { path = "../firelib" }
 geometry = { path = "../geometry" }
@@ -23,13 +23,13 @@ gdal-sys = "0.10.0"
 num-traits = "0.2.19"
 approx = "0.5.1"
 min_max_traits = "0.1.0"
-cuda_std = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }
+cuda_std = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12_2" }
 glam = { version = "0.30.1", default-features = false, features = ["approx", "cuda"] }
 soa_derive = "0.14.0"
 libc = "=0.2.169"
 
 [build-dependencies]
-cuda_builder = { git = "https://github.com/albertov/Rust-CUDA", branch = "cuda_12" }
+cuda_builder = { git = "https://github.com/albertov/Rust-CUDA", branch = "cuda_12_2" }
 cc = "1.2.16"
 cbindgen = "0.28.0"
 

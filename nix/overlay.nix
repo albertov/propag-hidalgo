@@ -1,8 +1,7 @@
 self: inputs: system: final: prev:
 let
 
-  rust_cuda_sha256 = "sha256-3cpFOdAdoKLnd5HB9ryNWIUOXlF/g1cm8RA+0nAQDK0=";
-  cargoDepsHash = "sha256-NLY3TkUO5Kz0tvA2z2tXeDmeTKGFoC3cDa8Vg6uRNBM=";
+  rust_cuda_sha256 = "sha256-sqkQ1LsqDr9ZeEa1ixSLZ8P7TRJxlOY4CKYLYAmrhQo=";
 
   inherit (final) lib buildPackages stdenv;
   libclang = buildPackages.llvmPackages.libclang.lib;

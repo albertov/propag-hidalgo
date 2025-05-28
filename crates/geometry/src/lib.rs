@@ -3,8 +3,6 @@
 #[cfg(not(target_os = "cuda"))]
 extern crate std;
 
-use approx::abs_diff_ne;
-
 pub use approx::AbsDiffEq;
 
 use core::ffi::c_char;
@@ -19,13 +17,10 @@ extern crate cust_core;
 #[cfg(target_os = "cuda")]
 use cuda_std::GpuFloat;
 
-#[cfg(not(target_os = "cuda"))]
-use num_traits::Float;
-
 #[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
 #[repr(C)]
 pub struct GT {
-    pub x0: f32,
+    x0: f32,
     dx: f32,
     rx: f32,
     y0: f32,
@@ -73,6 +68,61 @@ impl GT {
         } = *self;
         [x0, dx, rx, y0, ry, dy]
     }
+    /// Converts (pixel, line) coords into (geo_x, geo_y0) coords
+    pub fn apply(&self, Vec2 { x, y }: Vec2) -> Vec2 {
+        let GT {
+            x0,
+            dx,
+            rx,
+            y0,
+            ry,
+            dy,
+        } = self;
+        Vec2 {
+            x: x0 + x * dx + y * rx,
+            y: y0 + x * ry + y * dy,
+        }
+    }
+    pub fn invert(self) -> Option<GT> {
+        let GT {
+            x0,
+            dx,
+            rx,
+            y0,
+            ry,
+            dy,
+        } = self;
+        // Special case - no rotation - to avoid computing determinate
+        // and potential precision issues.
+        if rx == 0.0 && ry == 0.0 && dx != 0.0 && dy != 0.0 {
+            Some(GT {
+                x0: -x0 / dx,
+                dx: dx.recip(),
+                rx: 0.0,
+                y0: -y0 / dy,
+                ry: 0.0,
+                dy: dy.recip(),
+            })
+        } else {
+            // Compute determinate. Assume a 3rd row that is [1 0 0].
+            let det = dx * dy - rx * ry;
+            let mag = dx.abs().max(rx.abs()).max(ry.abs()).max(dy.abs());
+
+            if det.abs() <= 1e-9 * mag * mag {
+                None
+            } else {
+                let inv_det = det.recip();
+                Some(GT {
+                    x0: (rx * y0 - x0 * dy) * inv_det,
+                    dx: dy * inv_det,
+                    rx: -rx * inv_det,
+                    y0: (-dx * y0 + x0 * ry) * inv_det,
+                    ry: -ry * inv_det,
+                    dy: dx * inv_det,
+                })
+            }
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
@@ -84,9 +134,10 @@ pub struct GeoTransform {
 
 impl GeoTransform {
     pub fn new(xs: [f32; 6]) -> Option<Self> {
+        let gt = GT::new(xs);
         Some(Self {
-            gt: GT::new(xs),
-            inv: Self::invert(xs)?,
+            gt,
+            inv: gt.invert()?,
         })
     }
     pub fn is_north_up(&self) -> bool {
@@ -111,15 +162,10 @@ impl GeoTransform {
         self.gt.as_array()
     }
     pub fn forward(&self, p: Vec2) -> USizeVec2 {
-        let Vec2 { x, y } = p - self.origin();
-        let GT { dx, rx, ry, dy, .. } = self.inv;
-        let p = Vec2 {
-            x: x * dx + y * rx,
-            y: x * ry + y * dy,
-        };
+        let Vec2 { x, y } = self.inv.apply(p);
         USizeVec2 {
-            x: NumCast::from(p.x.trunc()).expect("T to usize failed"),
-            y: NumCast::from(p.y.trunc()).expect("T to usize failed"),
+            x: NumCast::from(x.trunc()).expect("T to usize failed"),
+            y: NumCast::from(y.trunc()).expect("T to usize failed"),
         }
     }
     pub fn backward(&self, p: USizeVec2) -> Vec2 {
@@ -127,26 +173,7 @@ impl GeoTransform {
             x: <f32 as NumCast>::from(p.x).expect("T from usize failed"),
             y: <f32 as NumCast>::from(p.y).expect("T to from failed"),
         };
-        let Vec2 { x, y } = p + self.origin();
-        let GT { dx, rx, ry, dy, .. } = self.gt;
-        Vec2 {
-            x: x * dx + y * rx,
-            y: x * ry + y * dy,
-        }
-    }
-    fn invert(gt: [f32; 6]) -> Option<GT> {
-        let [x0, a, c, y0, b, d] = gt;
-        let det = a * d - b * c;
-        if abs_diff_ne!(det.abs(), 0.0) {
-            let f = det.recip();
-            let a2 = d * f;
-            let b2 = -b * f;
-            let c2 = -c * f;
-            let d2 = a * f;
-            Some(GT::new([x0, a2, c2, y0, b2, d2]))
-        } else {
-            None
-        }
+        self.gt.apply(p)
     }
 }
 

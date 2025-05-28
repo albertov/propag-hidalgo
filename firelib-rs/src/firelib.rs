@@ -6,7 +6,6 @@ use crate::units::linear_power_density::btu_foot_sec;
 use crate::units::radiant_exposure::btu_sq_foot;
 use crate::units::*;
 use const_soft_float::soft_f64::SoftF64;
-use uom::si::angle::degree;
 use uom::si::angle::radian;
 use uom::si::f64::*;
 use uom::si::length::foot;
@@ -211,14 +210,15 @@ impl Terrain {
 }
 
 impl<'a> Fire {
-    pub fn null() -> Self {
+    #[cfg(test)]
+    pub(crate) fn null() -> Self {
         Self {
             rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(0.0),
             speed0: Velocity::new::<foot_per_minute>(0.0),
             hpua: RadiantExposure::new::<btu_sq_foot>(0.0),
             phi_eff_wind: Ratio::new::<ratio>(0.0),
             speed_max: Velocity::new::<foot_per_minute>(0.0),
-            azimuth_max: Angle::new::<degree>(0.0),
+            azimuth_max: Angle::new::<radian>(0.0),
             eccentricity: Ratio::new::<ratio>(0.0),
             residence_time: Time::new::<minute>(0.0),
         }
@@ -634,11 +634,11 @@ impl FuelDef {
 }
 
 impl Fuel {
-    pub(crate) const SENTINEL: Self = Self::standard(*b"", *b"", 0.0, 0.0, []);
+    pub(crate) const SENTINEL: Self = Self::standard(b"", b"", 0.0, 0.0, []);
 
     pub const fn standard<const N: usize, const M: usize, const F: usize>(
-        name: [u8; N],
-        desc: [u8; M],
+        name: &[u8; N],
+        desc: &[u8; M],
         depth: f64,
         mext: f64,
         particles: [ParticleDef; F],
@@ -669,8 +669,8 @@ impl Fuel {
             };
         }
         Self::make(FuelDef {
-            name: init_arr(0, name),
-            desc: init_arr(0, desc),
+            name: init_arr(0, *name),
+            desc: init_arr(0, *desc),
             depth: length_from_imperial(depth),
             mext: mk_ratio(mext),
             adjust: mk_ratio(1.0),
@@ -743,15 +743,15 @@ impl Fuel {
         }
     }
 
-    pub fn burn(&self, terrain: &Terrain) -> Fire {
+    pub fn burn(&self, terrain: &Terrain) -> Option<Fire> {
         if !self.has_particles() {
-            Fire::null()
+            None
         } else {
             let rx_int = self.rx_int(terrain);
             let speed0 = self.speed0(terrain, rx_int);
             let (phi_eff_wind, eff_wind, speed_max, azimuth_max) =
                 self.calculate_wind_dependent_vars(terrain, speed0, rx_int);
-            Fire {
+            Some(Fire {
                 rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(rx_int),
                 speed0: Velocity::new::<foot_per_minute>(speed0),
                 hpua: RadiantExposure::new::<btu_sq_foot>(self.hpua(rx_int)),
@@ -760,7 +760,7 @@ impl Fuel {
                 azimuth_max: Angle::new::<radian>(azimuth_max),
                 eccentricity: Ratio::new::<ratio>(Self::eccentricity(eff_wind)),
                 residence_time: Time::new::<minute>(self.residence_time),
-            }
+            })
         }
     }
     fn particles(&self) -> impl Iterator<Item = &Particle> {

@@ -17,17 +17,17 @@ pub static STANDARD_CATALOG: Catalog = {
     init_arr(
         Fuel::SENTINEL,
         [
-            Fuel::standard(*b"NoFuel", *b"No Combustible Fuel", 0.1, 0.01, []),
+            Fuel::standard(b"NoFuel", b"No Combustible Fuel", 0.1, 0.01, []),
             Fuel::standard(
-                *b"NFFL01",
-                *b"Short Grass (1 ft)",
+                b"NFFL01",
+                b"Short Grass (1 ft)",
                 1.0,
                 0.12,
                 [ParticleDef::standard(ParticleType::Dead, 0.0340, 3500.0)],
             ),
             Fuel::standard(
-                *b"NFFL02",
-                *b"Timber (grass & understory)",
+                b"NFFL02",
+                b"Timber (grass & understory)",
                 1.0,
                 0.15,
                 [
@@ -38,15 +38,15 @@ pub static STANDARD_CATALOG: Catalog = {
                 ],
             ),
             Fuel::standard(
-                *b"NFFL03",
-                *b"Tall Grass (2.5 ft)",
+                b"NFFL03",
+                b"Tall Grass (2.5 ft)",
                 2.5,
                 0.25,
                 [ParticleDef::standard(ParticleType::Dead, 0.1380, 1500.0)],
             ),
             Fuel::standard(
-                *b"NFFL04",
-                *b"Chaparral (6 ft)",
+                b"NFFL04",
+                b"Chaparral (6 ft)",
                 6.0,
                 0.2,
                 [
@@ -57,8 +57,8 @@ pub static STANDARD_CATALOG: Catalog = {
                 ],
             ),
             Fuel::standard(
-                *b"NFFL05",
-                *b"Brush (2 ft)",
+                b"NFFL05",
+                b"Brush (2 ft)",
                 2.0,
                 0.2,
                 [
@@ -68,8 +68,8 @@ pub static STANDARD_CATALOG: Catalog = {
                 ],
             ),
             Fuel::standard(
-                *b"NFFL06",
-                *b"Dormant Brush & Hardwood Slash",
+                b"NFFL06",
+                b"Dormant Brush & Hardwood Slash",
                 2.5,
                 0.25,
                 [
@@ -79,8 +79,8 @@ pub static STANDARD_CATALOG: Catalog = {
                 ],
             ),
             Fuel::standard(
-                *b"NFFL07",
-                *b"Southern Rough",
+                b"NFFL07",
+                b"Southern Rough",
                 2.5,
                 0.40,
                 [
@@ -91,8 +91,8 @@ pub static STANDARD_CATALOG: Catalog = {
                 ],
             ),
             Fuel::standard(
-                *b"NFFL08",
-                *b"Closed Timber Litter",
+                b"NFFL08",
+                b"Closed Timber Litter",
                 0.2,
                 0.30,
                 [
@@ -102,8 +102,8 @@ pub static STANDARD_CATALOG: Catalog = {
                 ],
             ),
             Fuel::standard(
-                *b"NFFL09",
-                *b"Hardwood Litter",
+                b"NFFL09",
+                b"Hardwood Litter",
                 0.2,
                 0.25,
                 [
@@ -113,8 +113,8 @@ pub static STANDARD_CATALOG: Catalog = {
                 ],
             ),
             Fuel::standard(
-                *b"NFFL10",
-                *b"Timber (litter & understory)",
+                b"NFFL10",
+                b"Timber (litter & understory)",
                 1.0,
                 0.25,
                 [
@@ -125,8 +125,8 @@ pub static STANDARD_CATALOG: Catalog = {
                 ],
             ),
             Fuel::standard(
-                *b"NFFL11",
-                *b"Light Logging Slash",
+                b"NFFL11",
+                b"Light Logging Slash",
                 1.0,
                 0.15,
                 [
@@ -136,8 +136,8 @@ pub static STANDARD_CATALOG: Catalog = {
                 ],
             ),
             Fuel::standard(
-                *b"NFFL12",
-                *b"Medium Logging Slash",
+                b"NFFL12",
+                b"Medium Logging Slash",
                 2.3,
                 0.20,
                 [
@@ -147,8 +147,8 @@ pub static STANDARD_CATALOG: Catalog = {
                 ],
             ),
             Fuel::standard(
-                *b"NFFL13",
-                *b"Heavy Logging Slash",
+                b"NFFL13",
+                b"Heavy Logging Slash",
                 3.0,
                 0.25,
                 [
@@ -248,11 +248,13 @@ mod tests {
         azimuth: Angle,
     ) -> (Fire, SpreadAtAzimuth) {
         match crate::STANDARD_CATALOG.get(model) {
-            Some(fuel) if fuel.has_particles() => {
-                let fire = fuel.burn(terrain);
-                let spread_az = SpreadAtAzimuth::from_spread(&fire.at_azimuth(azimuth));
-                (fire, spread_az)
-            }
+            Some(fuel) => match fuel.burn(terrain) {
+                Some(fire) => {
+                    let spread_az = SpreadAtAzimuth::from_spread(&fire.at_azimuth(azimuth));
+                    (fire, spread_az)
+                }
+                _ => (Fire::null(), SpreadAtAzimuth::null()),
+            },
             _ => (Fire::null(), SpreadAtAzimuth::null()),
         }
     }

@@ -11,7 +11,7 @@ fn main() {
     let zero = Ratio::new::<ratio>(0.0);
     let zero_ms = Velocity::new::<meter_per_second>(0.0);
     let zero_deg = Angle::new::<degree>(0.0);
-    let fire = fuel.burn(&Terrain {
+    if let Some(fire) = fuel.burn(&Terrain {
         d1hr: zero,
         d10hr: zero,
         d100hr: zero,
@@ -21,11 +21,12 @@ fn main() {
         wind_azimuth: zero_deg,
         slope: zero,
         aspect: zero_deg,
-    });
-    println!(
-        "fuel={}\nfire={:?}\nspeedAtAz={:?}",
-        std::str::from_utf8(&fuel.name).unwrap(),
-        fire,
-        fire.at_azimuth(Angle::new::<degree>(25.0)).speed()
-    )
+    }) {
+        println!(
+            "fuel={}\nfire={:?}\nspeedAtAz={:?}",
+            std::str::from_utf8(&fuel.name).unwrap(),
+            fire,
+            fire.at_azimuth(Angle::new::<degree>(25.0)).speed()
+        )
+    }
 }

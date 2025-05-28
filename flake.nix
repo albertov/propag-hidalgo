@@ -75,6 +75,7 @@
               inherit (pkgs.firelib-cuda)
                 CUDA_PATH
                 LLVM_CONFIG
+                LLVM_LINK_SHARED
                 ;
             };
             packages = with pkgs; [

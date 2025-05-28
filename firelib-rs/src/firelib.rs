@@ -1,6 +1,9 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+#[cfg(feature = "cuda")]
+extern crate cuda_std;
+
 use crate::units::heat_flux_density::btu_sq_foot_min;
 use crate::units::linear_power_density::btu_foot_sec;
 use crate::units::radiant_exposure::btu_sq_foot;
@@ -13,6 +16,35 @@ use uom::si::ratio::ratio;
 use uom::si::time::minute;
 use uom::si::velocity::foot_per_minute;
 use uom::si::velocity::meter_per_second;
+
+#[cfg(feature = "std")]
+mod f64 {
+    use std::f64::*;
+}
+
+#[cfg(feature = "cuda")]
+mod f64 {
+    pub(crate) fn powf(x: f64, y: f64) -> f64 {
+        use cuda_std::intrinsics::*;
+        unsafe { pow(x, y) }
+    }
+    pub(crate) fn cos(x: f64) -> f64 {
+        use cuda_std::intrinsics::*;
+        unsafe { cos(x) }
+    }
+    pub(crate) fn sin(x: f64) -> f64 {
+        use cuda_std::intrinsics::*;
+        unsafe { sin(x) }
+    }
+    pub(crate) fn asin(x: f64) -> f64 {
+        use cuda_std::intrinsics::*;
+        unsafe { asin(x) }
+    }
+    pub(crate) fn sqrt(x: f64) -> f64 {
+        use cuda_std::intrinsics::*;
+        unsafe { sqrt(x) }
+    }
+}
 
 pub(crate) const SMIDGEN: f64 = 1e-6;
 const PI: f64 = 3.141592653589793;
@@ -223,7 +255,7 @@ impl<'a> Fire {
     }
     fn flame_length(byrams: f64) -> f64 {
         if byrams > SMIDGEN {
-            0.45 * byrams.powf(0.46)
+            0.45 * f64::powf(byrams, 0.46)
         } else {
             0.0
         }
@@ -255,7 +287,7 @@ impl<'a> Fire {
         let factor = if (azimuth - azimuth_max).abs() < SMIDGEN {
             1.0
         } else {
-            safe_div(1.0 - ecc, 1.0 - ecc * angle.cos())
+            safe_div(1.0 - ecc, 1.0 - ecc * f64::cos(angle))
         };
         Spread {
             fire: self,
@@ -770,14 +802,14 @@ impl Fuel {
         let upslope = terrain.upslope();
         let wind_speed = terrain.wind_speed.get::<foot_per_minute>();
         let wind_az = terrain.wind_azimuth.get::<radian>();
-        let ew_from_phi_ew = |p: f64| (p * self.wind_e).powf(1.0 / self.wind_b);
+        let ew_from_phi_ew = |p: f64| f64::powf(p * self.wind_e, 1.0 / self.wind_b);
         let max_wind = 0.9 * rx_int;
         let check_wind_limit = |pew: f64, ew: f64, s: f64, a: f64| {
             if ew > max_wind {
                 let phi_ew_max_wind = if max_wind < SMIDGEN {
                     0.0
                 } else {
-                    self.wind_k * max_wind.powf(self.wind_b)
+                    self.wind_k * f64::powf(max_wind, self.wind_b)
                 };
                 let speed_max_wind = speed0 * (1.0 + phi_ew_max_wind);
                 (phi_ew_max_wind, max_wind, speed_max_wind, a)
@@ -801,9 +833,9 @@ impl Fuel {
                 } else {
                     2.0 * PI - upslope + wind_az
                 };
-                let x = slope_rate + wind_rate * split.cos();
-                let y = wind_rate * split.sin();
-                let rv = (x * x + y * y).sqrt();
+                let x = slope_rate + wind_rate * f64::cos(split);
+                let y = wind_rate * f64::sin(split);
+                let rv = f64::sqrt(x * x + y * y);
                 let speed_max2 = speed0 + rv;
                 let phi_ew2 = speed_max2 / speed0 - 1.0;
                 let eff_wind = {
@@ -813,7 +845,7 @@ impl Fuel {
                         0.0
                     }
                 };
-                let al = (y.abs() / rv).asin();
+                let al = f64::asin(y.abs() / rv);
                 let split2 = {
                     if x >= 0.0 && y >= 0.0 {
                         al
@@ -881,7 +913,7 @@ impl Fuel {
     fn eccentricity(eff_wind: f64) -> f64 {
         let lw_ratio = 1.0 + 0.002840909 * eff_wind;
         if eff_wind > SMIDGEN && lw_ratio > 1.0 + SMIDGEN {
-            (lw_ratio * lw_ratio - 1.0).sqrt() / lw_ratio
+            f64::sqrt(lw_ratio * lw_ratio - 1.0) / lw_ratio
         } else {
             0.0
         }
@@ -934,7 +966,7 @@ impl Fuel {
     fn phi_wind(&self, terrain: &Terrain) -> f64 {
         let ws = terrain.wind_speed.get::<foot_per_minute>();
         if ws > SMIDGEN {
-            self.wind_k * ws.powf(self.wind_b)
+            self.wind_k * f64::powf(ws, self.wind_b)
         } else {
             0.0
         }

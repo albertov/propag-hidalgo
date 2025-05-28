@@ -1,11 +1,12 @@
-use firelib_rs::*;
-use rand::prelude::*;
-use uom::si::angle::degree;
-use uom::si::f64::*;
-use uom::si::ratio::ratio;
-use uom::si::velocity::meter_per_second;
-
+#[cfg(feature = "std")]
 fn main() {
+    use firelib_rs::*;
+    use rand::prelude::*;
+    use uom::si::angle::degree;
+    use uom::si::f64::*;
+    use uom::si::ratio::ratio;
+    use uom::si::velocity::meter_per_second;
+
     let mut rng = rand::rng();
     let fuel = Catalog::STANDARD.get(rng.random_range(1..14)).unwrap();
     let zero = Ratio::new::<ratio>(0.0);

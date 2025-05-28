@@ -8,7 +8,9 @@ use const_soft_float::soft_f64::SoftF64;
 pub use uom::si::f64::*;
 
 #[derive(Copy, Clone)]
+#[allow(non_snake_case)]
 pub struct _SoftFloat(SoftF64);
+#[allow(non_snake_case)]
 pub const fn SoftFloat(v: T) -> _SoftFloat {
     _SoftFloat(SoftF64(v))
 }

@@ -1,10 +1,19 @@
+#![no_std]
+
+#[cfg(test)]
+extern crate std;
+
 use approx::AbsDiffEq;
-pub use gdal::spatial_ref::SpatialRef;
 
 pub use geo::*;
-use num_traits::cast::ToPrimitive;
-use num_traits::*;
-use std::ops::*;
+use heapless::String;
+use num_traits::NumCast;
+
+pub enum Crs {
+    Epsg(u32),
+    Wkt(String<1024>),
+    Proj4(String<1024>),
+}
 
 pub struct GeoReference<T>
 where
@@ -13,25 +22,38 @@ where
     pub transform: AffineTransform<T>,
     inv_transform: AffineTransform<T>,
     pub size: Coord<i32>,
-    pub crs: SpatialRef,
+    pub crs: Crs,
 }
 
 impl<T> GeoReference<T>
 where
     T: CoordFloat + Clone + From<i32>,
 {
+    pub fn forward(&self, p: Coord<T>) -> Coord<i32> {
+        let p = self.inv_transform.apply(p);
+        Coord {
+            x: NumCast::from(p.x.trunc()).expect("T to i32 failed"),
+            y: NumCast::from(p.y.trunc()).expect("T to i32 failed"),
+        }
+    }
+    pub fn backward(&self, p: Coord<i32>) -> Coord<T> {
+        self.transform.apply(Coord {
+            x: NumCast::from(p.x).expect("i32 to T failed"),
+            y: NumCast::from(p.y).expect("i32 to T failed"),
+        })
+    }
     pub fn new_south_up(
         extent: Rect<T>,
         pixel_size: Coord<T>,
-        crs: SpatialRef,
+        crs: Crs,
     ) -> Option<GeoReference<T>> {
         let Coord { x: dx, y: dy } = pixel_size;
         let Coord { x: x0, y: y0 } = extent.min();
         let transform = AffineTransform::new(dx, T::zero(), x0, T::zero(), dy, y0);
         let inv_transform = transform.inverse()?;
         let size = Coord {
-            x: <i32 as num_traits::NumCast>::from(extent.width() / dx)?,
-            y: <i32 as num_traits::NumCast>::from(extent.height() / dy)?,
+            x: NumCast::from(extent.width() / dx)?,
+            y: NumCast::from(extent.height() / dy)?,
         };
         Some(GeoReference {
             transform,
@@ -64,10 +86,12 @@ where
     }
 }
 
+/*
 pub struct Raster<'a, T> {
     geo_ref: GeoReference<f64>,
     data: &'a [T],
 }
+*/
 
 struct DDA<T>
 where
@@ -118,7 +142,7 @@ where
     T: CoordFloat,
 {
     fn new(origin: Coord<T>, dest: Coord<T>) -> Self {
-        let t_max = recip(abs((dest - origin)));
+        let t_max = recip(abs(dest - origin));
         let step = signum(dest - origin);
         let cur = if step.x == T::zero() && step.y == T::zero() {
             None
@@ -209,6 +233,9 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+
+    use std::vec::*;
+    use std::*;
 
     #[test]
     fn can_line_to_self() {

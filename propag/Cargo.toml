@@ -7,6 +7,7 @@ edition = "2021"
 cust = { git = "https://github.com/albertov/Rust-CUDA", branch = "cuda_12" }
 rand = "0.9.0"
 firelib-rs = { path = "../firelib-rs" }
+geometry = { path = "../geometry" }
 uom = "0.36.0"
 timeit = "0.1.2"
 gdal = "0.17.1"

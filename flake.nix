@@ -95,6 +95,7 @@
               cargo-watch
               rustup
               gdb
+              (enableDebugging gdal)
             ];
           };
           # for `nix fmt`

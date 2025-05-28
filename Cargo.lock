@@ -499,6 +499,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "geometry"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "geo",
+ "heapless",
+ "num-traits",
+]
+
+[[package]]
 name = "getopts"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1001,6 +1011,7 @@ dependencies = [
  "gdal",
  "gdal-sys",
  "geo",
+ "geometry",
  "getopts",
  "hashbrown",
  "hermit-abi",

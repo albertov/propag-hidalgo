@@ -45,6 +45,7 @@ fn main() {
         .args([
             "-arch",
             "compute_62",
+            //"--expt-relaxed-constexpr",
             "-ptx",
             "-I",
             &include_dir,

@@ -18,6 +18,8 @@ use uom::si::ratio::ratio;
 use uom::si::velocity::meter_per_second;
 
 pub const HALO_RADIUS: usize = 4;
+#[cfg(not(target_os = "cuda"))]
+pub const PI : f32 = 3.141592653589793;
 
 #[kernel]
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
@@ -92,7 +94,7 @@ pub unsafe fn propag(
             (Some(shared_off), Some(global_off)) => {
                 let p = Point::load(
                     &geo_ref,
-                    pos,
+                    pos, //FIXME: Esta mal,hay que sumar offset!
                     global_off,
                     speed_max,
                     azimuth_max,

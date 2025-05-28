@@ -182,16 +182,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                 launch!(
                     // slices are passed as two parameters, the pointer and the length.
                     propag_c<<<grid_size, block_size, shmem_bytes, stream>>>(
-                        Settings {
+                        (DeviceVariable::new(Settings {
                             geo_ref,
                             max_time,
-                        },
+                        })?.as_device_ptr()),
                         speed_max_buf.as_device_ptr(),
-                        speed_max_buf.len(),
                         azimuth_max_buf.as_device_ptr(),
-                        azimuth_max_buf.len(),
                         eccentricity_buf.as_device_ptr(),
-                        eccentricity_buf.len(),
                         time_buf.as_device_ptr(),
                         refs_x_buf.as_device_ptr(),
                         refs_y_buf.as_device_ptr(),

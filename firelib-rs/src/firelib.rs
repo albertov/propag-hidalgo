@@ -17,6 +17,9 @@ use uom::si::velocity::meter_per_second;
 
 pub(crate) const SMIDGEN: f64 = 1e-6;
 const PI: f64 = 3.141592653589793;
+const MAX_PARTICLES: usize = 5;
+const MAX_FUELS: usize = 20;
+
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Life {
@@ -98,15 +101,12 @@ pub enum SizeClass {
 pub struct FuelDef {
     pub name: [u8; 16],
     pub desc: [u8; 64],
-    pub depth: f64,
-    pub mext: f64,
-    pub adjust: f64,
+    pub depth: Length,
+    pub mext: Ratio,
+    pub adjust: Ratio,
     pub alive_particles: Particles,
     pub dead_particles: Particles,
 }
-
-pub const MAX_PARTICLES: usize = 20;
-pub const MAX_FUELS: usize = 20;
 
 pub type ParticleDefs = [ParticleDef; MAX_PARTICLES];
 
@@ -141,6 +141,14 @@ pub struct Fuel {
 pub type Particles = [Particle; MAX_PARTICLES];
 
 pub type Catalog = [Fuel; MAX_FUELS];
+
+#[inline]
+pub fn get_fuel(catalog: &Catalog, idx: usize) -> Option<&Fuel> {
+    match catalog.get(idx).as_ref() {
+        Some(x) if x.has_particles() => Some(x),
+        _ => None,
+    }
+}
 
 pub(crate) const fn init_arr<T: Copy, const N: usize, const M: usize>(
     def: T,
@@ -451,48 +459,6 @@ impl Particle {
     }
 }
 impl FuelDef {
-    pub const fn standard<const N: usize, const M: usize, const F: usize>(
-        name: [u8; N],
-        desc: [u8; M],
-        depth: f64,
-        mext: f64,
-        particles: [ParticleDef; F],
-    ) -> Self {
-        let particles = init_arr(ParticleDef::SENTINEL, particles);
-        let mut alive_particles = [Particle::SENTINEL; MAX_PARTICLES];
-        let mut dead_particles = [Particle::SENTINEL; MAX_PARTICLES];
-        let mut i = 0;
-        let mut i_a = 0;
-        let mut i_d = 0;
-        while i < MAX_PARTICLES {
-            let p = &particles[i];
-            if !p.is_sentinel() {
-                let p2 = Particle::make(p, &particles);
-                match p.life() {
-                    Life::Alive => {
-                        alive_particles[i_a] = p2;
-                        i_a += 1;
-                    }
-                    Life::Dead => {
-                        dead_particles[i_d] = p2;
-                        i_d += 1;
-                    }
-                };
-                i += 1
-            } else {
-                break;
-            };
-        }
-        Self {
-            name: init_arr(0, name),
-            desc: init_arr(0, desc),
-            depth,
-            mext,
-            adjust: 1.0,
-            alive_particles,
-            dead_particles,
-        }
-    }
     const fn life_particles(&self, life: Life) -> &Particles {
         match life {
             Life::Alive => &self.alive_particles,
@@ -660,7 +626,7 @@ impl FuelDef {
             r += safe_div(p.load, p.density);
             i += 1
         }
-        safe_div(r, self.depth)
+        safe_div(r, length_to_imperial(&self.depth))
     }
     const fn gamma(&self, sigma: f64, beta: f64) -> f64 {
         let rt = SoftF64(self.ratio(sigma, beta));
@@ -696,7 +662,7 @@ impl FuelDef {
             if p.is_sentinel() {
                 break;
             }
-            r += safe_div(p.load, self.depth);
+            r += safe_div(p.load, length_to_imperial(&self.depth));
             i += 1
         }
         let mut i = 0;
@@ -706,7 +672,7 @@ impl FuelDef {
             if p.is_sentinel() {
                 break;
             }
-            r += safe_div(p.load, self.depth);
+            r += safe_div(p.load, length_to_imperial(&self.depth));
             i += 1
         }
         r
@@ -772,18 +738,18 @@ impl Fuel {
         Self::make(FuelDef {
             name: init_arr(0, name),
             desc: init_arr(0, desc),
-            depth,
-            mext,
-            adjust: 1.0,
+            depth: length_from_imperial(depth),
+            mext: mk_ratio(mext),
+            adjust: mk_ratio(1.0),
             alive_particles,
             dead_particles,
         })
     }
 
     pub const fn make(fuel: FuelDef) -> Fuel {
-        let depth = fuel.depth;
-        let mext = fuel.mext;
-        let adjust = fuel.adjust;
+        let depth = length_to_imperial(&fuel.depth);
+        let mext = extract_ratio(&fuel.mext);
+        let adjust = extract_ratio(&fuel.adjust);
         let sigma = fuel.sigma();
         let beta = fuel.beta();
         let (wind_b, wind_k, wind_e) = fuel.wind_bke(sigma, beta);
@@ -793,8 +759,8 @@ impl Fuel {
         Self {
             name: fuel.name,
             desc: fuel.desc,
-            adjust: adjust,
-            depth: depth,
+            adjust,
+            depth,
             live_area_weight: fuel.life_area_weight(Life::Alive),
             live_rx_factor: fuel.life_rx_factor(Life::Alive, sigma, beta),
             dead_area_weight: fuel.life_area_weight(Life::Dead),
@@ -816,6 +782,31 @@ impl Fuel {
             beta,
             life_rx_factor_alive,
             life_rx_factor_dead,
+        }
+    }
+    const fn life_particles(&self, life: Life) -> &Particles {
+        match life {
+            Life::Alive => &self.alive_particles,
+            Life::Dead => &self.dead_particles,
+        }
+    }
+    #[inline]
+    pub(crate) const fn has_particles(&self) -> bool {
+        self.has_live_particles() || self.has_dead_particles()
+    }
+    #[inline]
+    const fn has_live_particles(&self) -> bool {
+        !self.alive_particles[0].is_sentinel()
+    }
+    #[inline]
+    const fn has_dead_particles(&self) -> bool {
+        !self.dead_particles[0].is_sentinel()
+    }
+    #[inline]
+    const fn life_area_weight(&self, life: Life) -> f64 {
+        match  life {
+            Life::Alive => self.live_area_weight,
+            Life::Dead => self.dead_area_weight,
         }
     }
 
@@ -841,13 +832,6 @@ impl Fuel {
     }
     fn particles(&self) -> impl Iterator<Item = &Particle> {
         iter_particles(&self.dead_particles).chain(iter_particles(&self.alive_particles))
-    }
-
-    const fn life_particles(&self, life: Life) -> &Particles {
-        match life {
-            Life::Alive => &self.alive_particles,
-            Life::Dead => &self.dead_particles,
-        }
     }
     fn rx_int(&self, terrain: &Terrain) -> f64 {
         self.life_rx_factor_alive * self.life_eta_m(Life::Alive, terrain)
@@ -986,18 +970,6 @@ impl Fuel {
             .sum()
     }
 
-    #[inline]
-    pub(crate) const fn has_particles(&self) -> bool {
-        self.has_live_particles() || self.has_dead_particles()
-    }
-    #[inline]
-    const fn has_live_particles(&self) -> bool {
-        !self.alive_particles[0].is_sentinel()
-    }
-    #[inline]
-    const fn has_dead_particles(&self) -> bool {
-        !self.dead_particles[0].is_sentinel()
-    }
 
     fn life_mext(&self, life: Life, terrain: &Terrain) -> f64 {
         match life {
@@ -1050,44 +1022,6 @@ impl Fuel {
     fn phi_ew(&self, terrain: &Terrain) -> f64 {
         self.phi_slope(terrain) + self.phi_wind(terrain)
     }
-    const fn total_area(&self) -> f64 {
-        let mut r = 0.0;
-        let mut i = 0;
-        let particles = self.life_particles(Life::Alive);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += p.surface_area;
-            i += 1
-        }
-        i = 0;
-        let particles = self.life_particles(Life::Dead);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += p.surface_area;
-            i += 1
-        }
-        r
-    }
-    const fn life_area_weight(&self, life: Life) -> f64 {
-        let mut r = 0.0;
-        let mut i = 0;
-        let particles = self.life_particles(life);
-        while i < particles.len() {
-            let p = particles[i];
-            if p.is_sentinel() {
-                break;
-            }
-            r += p.surface_area / self.total_area();
-            i += 1
-        }
-        r
-    }
 }
 
 fn flame_length(byrams: f64) -> f64 {
@@ -1111,12 +1045,4 @@ enum WindSlopeSituation {
 #[inline]
 fn iter_particles<const N: usize>(particles: &[Particle; N]) -> impl Iterator<Item = &Particle> {
     particles.iter().take_while(|p| !p.is_sentinel())
-}
-
-#[inline]
-pub fn get_fuel(catalog: &Catalog, idx: usize) -> Option<&Fuel> {
-    match catalog.get(idx).as_ref() {
-        Some(x) if x.has_particles() => Some(x),
-        _ => None,
-    }
 }

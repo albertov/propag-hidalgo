@@ -380,6 +380,7 @@ dependencies = [
  "cuda_std",
  "firelib-rs",
  "geometry",
+ "uom",
 ]
 
 [[package]]

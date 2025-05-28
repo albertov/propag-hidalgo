@@ -19,17 +19,16 @@ extern crate cust;
 #[cfg(target_os = "cuda")]
 use cuda_std::GpuFloat;
 
-#[cfg_attr(not(target_os = "cuda"), derive(Copy, Clone, Debug, cust::DeviceCopy))]
+#[cfg_attr(not(target_os = "cuda"), derive(cust::DeviceCopy))]
+#[derive(Copy, Clone, Debug)]
 pub enum Crs {
     Epsg(u32),
     Wkt([u8; 1024]),
     Proj4([u8; 1024]),
 }
 
-#[cfg_attr(
-    not(target_os = "cuda"),
-    derive(Copy, Clone, Debug, PartialEq, cust::DeviceCopy)
-)]
+#[cfg_attr(not(target_os = "cuda"), derive(cust::DeviceCopy))]
+#[derive(Copy, Clone, Debug)]
 pub struct GeoTransform<T>([T; 6], [T; 6]);
 
 impl<T> GeoTransform<T>
@@ -100,7 +99,8 @@ where
     }
 }
 
-#[cfg_attr(not(target_os = "cuda"), derive(Copy, Clone, Debug, cust::DeviceCopy))]
+#[cfg_attr(not(target_os = "cuda"), derive(cust::DeviceCopy))]
+#[derive(Copy, Clone, Debug)]
 pub struct GeoReference<T>
 where
     T: CoordFloat,

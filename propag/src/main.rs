@@ -1,7 +1,10 @@
+use ::geometry::*;
+use cust::function::{BlockSize, GridSize};
 use cust::prelude::*;
 use firelib_rs::float;
 use firelib_rs::float::*;
 use firelib_rs::*;
+use num_traits::Float;
 use std::error::Error;
 use uom::si::angle::degree;
 use uom::si::ratio::ratio;
@@ -11,6 +14,7 @@ use uom::si::velocity::meter_per_second;
 extern crate timeit;
 
 mod loader;
+const THREAD_BLOCK_AXIS_LENGTH: u32 = 16;
 
 /// How many elems to generate
 const NUMBERS_LEN: usize = 1_000_000;
@@ -243,5 +247,98 @@ fn main() -> Result<(), Box<dyn Error>> {
         .zip(fire_simple_rs.iter())
         .all(|(f_gpu, f_cpu)| Into::<FireSimple>::into(f_gpu).almost_eq(f_cpu)));
     println!("All equal");
+
+    println!("Calculating with GPU Propag");
+    // input/output vectors
+    let mut fire_propag: FireSimpleCudaVec = std::iter::repeat(FireSimple::NULL.into())
+        .take(model.len())
+        .collect();
+    let mut time: Vec<f32> = std::iter::repeat(f32::infinity())
+        .take(model.len())
+        .collect();
+    let mut refs_x: Vec<u32> = std::iter::repeat(99999).take(model.len()).collect();
+    let mut refs_y: Vec<u32> = std::iter::repeat(99999).take(model.len()).collect();
+    unsafe {
+        let speed_max_buf = fire_propag.speed_max.as_slice().as_dbuf()?;
+        let azimuth_max_buf = fire_propag.azimuth_max.as_slice().as_dbuf()?;
+        let eccentricity_buf = fire_propag.eccentricity.as_slice().as_dbuf()?;
+        let refs_x_buf = refs_x.as_slice().as_dbuf()?;
+        let refs_y_buf = refs_y.as_slice().as_dbuf()?;
+        let time_buf = time.as_slice().as_dbuf()?;
+
+        let func = module.get_function("propag")?;
+        let (_, block_size) = func.suggested_launch_configuration(0, 0.into())?;
+        let grid_size = (model.len() as u32).div_ceil(block_size);
+        let grid_size = GridSize {
+            x: 1000_u32.div_ceil(THREAD_BLOCK_AXIS_LENGTH),
+            y: 1000_u32.div_ceil(THREAD_BLOCK_AXIS_LENGTH),
+            z: 1,
+        };
+        let block_size = BlockSize {
+            x: THREAD_BLOCK_AXIS_LENGTH,
+            y: THREAD_BLOCK_AXIS_LENGTH,
+            z: 1,
+        };
+        let geo_ref = GeoReference::<f64>::south_up(
+            Rect::new(
+                Coord { x: 0.0, y: 0.0 },
+                Coord {
+                    x: 1000.0,
+                    y: 1000.0,
+                },
+            ),
+            Coord { x: 1.0, y: 1.0 },
+            Crs::Epsg(25830),
+        )
+        .unwrap();
+        timeit!({
+            launch!(
+                // slices are passed as two parameters, the pointer and the length.
+                func<<<grid_size, block_size, 0, stream>>>(
+                    geo_ref,
+                    (60.0*60.0*5.0 as float::T),
+                    model_gpu.as_device_ptr(),
+                    model_gpu.len(),
+                    d1hr_gpu.as_device_ptr(),
+                    d1hr_gpu.len(),
+                    d10hr_gpu.as_device_ptr(),
+                    d10hr_gpu.len(),
+                    d100hr_gpu.as_device_ptr(),
+                    d100hr_gpu.len(),
+                    herb_gpu.as_device_ptr(),
+                    herb_gpu.len(),
+                    wood_gpu.as_device_ptr(),
+                    wood_gpu.len(),
+                    wind_speed_gpu.as_device_ptr(),
+                    wind_speed_gpu.len(),
+                    wind_azimuth_gpu.as_device_ptr(),
+                    wind_azimuth_gpu.len(),
+                    slope_gpu.as_device_ptr(),
+                    slope_gpu.len(),
+                    aspect_gpu.as_device_ptr(),
+                    aspect_gpu.len(),
+                    speed_max_buf.as_device_ptr(),
+                    azimuth_max_buf.as_device_ptr(),
+                    eccentricity_buf.as_device_ptr(),
+                    time_buf.as_device_ptr(),
+                    refs_x_buf.as_device_ptr(),
+                    refs_y_buf.as_device_ptr(),
+                )
+            )?;
+            stream.synchronize()?;
+        });
+
+        // copy back the data from the GPU.
+        time_buf.copy_to(&mut time)?;
+        refs_x_buf.copy_to(&mut refs_x)?;
+        refs_y_buf.copy_to(&mut refs_y)?;
+    }
+
+    for j in 0..1000 {
+        for i in 0..1000 {
+            assert_eq!(refs_x[i + 1000 * j] as usize, i);
+            assert_eq!(refs_y[i + 1000 * j] as usize, j);
+        }
+    }
     Ok(())
 }

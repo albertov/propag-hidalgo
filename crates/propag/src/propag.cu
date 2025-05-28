@@ -22,6 +22,7 @@ class ALIGN Propagator {
   volatile float *__restrict__ time_;
   volatile unsigned short *__restrict__ refs_x_;
   volatile unsigned short *__restrict__ refs_y_;
+  volatile float *__restrict__ refs_time_;
   volatile unsigned short *__restrict__ refs_change_;
 
   __shared__ Point *shared_;
@@ -35,6 +36,7 @@ public:
                         float volatile *__restrict__ time,
                         unsigned short volatile *__restrict__ refs_x,
                         unsigned short volatile *__restrict__ refs_y,
+                        float volatile *__restrict__ refs_time,
                         unsigned short volatile *__restrict__ ref_change,
                         __shared__ Point *shared)
       : settings_(settings), gridIx_(make_uint2(grid_x, grid_y)),
@@ -48,8 +50,8 @@ public:
         shared_width_(blockDim.x + HALO_RADIUS * 2),
         local_ix_(local_x_ + local_y_ * shared_width_), speed_max_(speed_max),
         azimuth_max_(azimuth_max), eccentricity_(eccentricity), time_(time),
-        refs_x_(refs_x), refs_y_(refs_y), refs_change_(ref_change),
-        shared_(shared) {
+        refs_x_(refs_x), refs_y_(refs_y), refs_time_(refs_time),
+        refs_change_(ref_change), shared_(shared) {
     ASSERT(block_ix_ < gridDim.x * gridDim.y);
     ASSERT(!(settings_.geo_ref.width < 1 || settings_.geo_ref.height < 1));
   };
@@ -182,8 +184,7 @@ private:
                           neighbor.reference.pos.y &&
                       //  and a similar fire as its reference
                       similar_fires(possible_blockage.fire, neighbor.fire))) {
-                reference =
-                    PointRef(neighbor.time, neighbor_pos);
+                reference = PointRef(neighbor.time, neighbor_pos);
                 break;
               };
             }
@@ -214,6 +215,7 @@ private:
     const Point &me = shared_[local_ix_];
     refs_x_[global_ix_] = me.reference.pos.x;
     refs_y_[global_ix_] = me.reference.pos.y;
+    refs_time_[global_ix_] = me.reference.time;
     // Time must be writen last and after a grid-level memory
     // fence because the time being set denotes the Point being
     // comitted. load_point must take this into account and place
@@ -236,11 +238,9 @@ private:
         // the time happens before reading the reference to ensure
         // that the Pont has been fully comitted to global memory
         __threadfence();
+        p.reference.time = refs_time_[idx];
         p.reference.pos = make_ushort2(refs_x_[idx], refs_y_[idx]);
         ASSERT(p.reference.is_valid(settings_.geo_ref));
-        size_t ref_ix =
-            p.reference.pos.x + p.reference.pos.y * settings_.geo_ref.width;
-        p.reference.time = time_[ref_ix];
         ASSERT(p.reference.time != FLT_MAX);
       };
       return p;
@@ -286,7 +286,8 @@ private:
     shared_[local.x + local.y * shared_width_] = load_point(global);
   }
 
-  __device__ inline float time_from(const PointRef &from, const FireSimpleCuda &fire) const {
+  __device__ inline float time_from(const PointRef &from,
+                                    const FireSimpleCuda &fire) const {
     int2 from_pos = make_int2(from.pos.x, from.pos.y);
     int2 to_pos = make_int2(idx_2d_.x, idx_2d_.y);
     float azimuth;
@@ -404,14 +405,15 @@ __global__ void propag(const Settings settings, const unsigned grid_x,
                        const float *__restrict__ const azimuth_max,
                        const float *__restrict__ const eccentricity,
                        float volatile *__restrict__ time,
-                       unsigned short volatile *__restrict__ refs_x,
-                       unsigned short volatile *__restrict__ refs_y,
+                       unsigned short volatile *__restrict__ ref_x,
+                       unsigned short volatile *__restrict__ ref_y,
+                       float volatile *__restrict__ ref_time,
                        unsigned short volatile *__restrict__ ref_change,
                        unsigned *progress) {
   extern __shared__ Point shared[];
 
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
-                 time, refs_x, refs_y, ref_change, shared);
+                 time, ref_x, ref_y, ref_time, ref_change, shared);
   sim.run(worked, progress);
 }
 

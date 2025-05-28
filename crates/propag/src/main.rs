@@ -16,8 +16,8 @@ use std::error::Error;
 #[macro_use]
 extern crate timeit;
 
-//TODO: Calculate max size that we can use on device. Must be multiple of 8 for best performance
-const THREAD_BLOCK_AXIS_LENGTH: u32 = 24;
+//TODO: Calculate max size that we can use on device
+const THREAD_BLOCK_AXIS_LENGTH: u32 = 25;
 
 static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
 static PTX_C: &str = include_str!("../../target/cuda/propag_c.ptx");
@@ -158,6 +158,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let eccentricity_buf = eccentricity.as_slice().as_dbuf()?;
         let refs_x_buf = refs_x.as_slice().as_dbuf()?;
         let refs_y_buf = refs_y.as_slice().as_dbuf()?;
+        let refs_time_buf = time.as_slice().as_dbuf()?;
         let time_buf = time.as_slice().as_dbuf()?;
         let boundary_change_buf = boundary_change.as_slice().as_dbuf()?;
         let (_, pre_burn_block_size) = pre_burn.suggested_launch_configuration(0, 0.into())?;
@@ -206,6 +207,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 time_buf.as_device_ptr(),
                                 refs_x_buf.as_device_ptr(),
                                 refs_y_buf.as_device_ptr(),
+                                refs_time_buf.as_device_ptr(),
                                 boundary_change_buf.as_device_ptr(),
                                 progress.as_device_ptr(),
                             )

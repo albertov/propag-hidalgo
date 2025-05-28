@@ -40,8 +40,7 @@ public:
 
   __device__ PointRef()
       : time(FLT_MAX), pos(make_ushort2(USHRT_MAX, USHRT_MAX)) {};
-  __device__ PointRef(float time, ushort2 pos)
-      : time(time), pos(pos) {};
+  __device__ PointRef(float time, ushort2 pos) : time(time), pos(pos) {};
   __device__ PointRef(float time, int2 pos)
       : time(time), pos(make_ushort2(pos.x, pos.y)) {};
 

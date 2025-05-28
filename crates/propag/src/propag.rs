@@ -639,11 +639,11 @@ pub struct PluginT {
 }
 impl PluginT {
     #[unsafe(no_mangle)]
-    // This one is so cbindgen exports PluginT
-    pub extern "C" fn create_plugin(run: RunFn, rasterize_fuels: RasterizeFuelsFn) -> Self {
+    // This one is so cbindgen exports PluginT and to ensure RasterizeFuelsFn and RunFn are correct
+    pub extern "C" fn create_plugin() -> Self {
         Self {
-            run,
-            rasterize_fuels,
+            run: FFIPropagation_run,
+            rasterize_fuels: propag_rasterize_fuels,
         }
     }
 }

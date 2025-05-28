@@ -12,6 +12,16 @@ fn main() {
         .build()
         .unwrap();
 
+    let dest = format!("{}/firelib_cuda.h", target_dir);
+    cbindgen::Builder::new()
+      .with_crate("../firelib-cuda")
+      .with_language(cbindgen::Language::C)
+      .with_parse_deps(true)
+      .generate()
+      .expect("Unable to generate bindings")
+      .write_to_file(&dest);
+
+
     let dest = format!("{}/propag_c.ptx", target_dir);
     println!("cargo::rerun-if-changed={}", dest);
     Command::new("nvcc")

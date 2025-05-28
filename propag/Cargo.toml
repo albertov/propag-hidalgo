@@ -31,6 +31,7 @@ approx = "0.5.1"
 [build-dependencies]
 cuda_builder = { git = "https://github.com/albertov/Rust-CUDA", branch = "cuda_12" }
 cc = "1.2.16"
+cbindgen = "0.28.0"
 
 # These are here to help rust-overlay properly generate a vendor dir for the nix
 # build

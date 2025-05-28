@@ -477,7 +477,8 @@ impl Neighbor {
     fn as_reference(&self) -> Option<PointRef> {
         self.point.as_reference(self.pos)
     }
-    fn reference(&self) -> PointRef {
+    #[unsafe(no_mangle)]
+    pub extern fn reference(&self) -> PointRef {
         self.point.reference
     }
 }

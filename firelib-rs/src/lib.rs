@@ -7,6 +7,10 @@ extern crate std;
 #[macro_use]
 extern crate uom;
 
+#[cfg(feature = "std")]
+#[macro_use]
+extern crate soa_derive;
+
 mod firelib;
 #[macro_use]
 pub mod units;

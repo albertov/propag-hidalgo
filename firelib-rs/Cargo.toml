@@ -12,6 +12,7 @@ cuda_std = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" 
 
 [target.'cfg(not(target_os = "cuda"))'.dependencies]
 rand = "0.9.0"
+soa_derive = "0.14.0"
 cust = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }
 
 [dev-dependencies]

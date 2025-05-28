@@ -225,10 +225,79 @@ impl From<FireCudaRef<'_>> for Fire {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct FireSimple {
+    pub speed_max: Velocity,
+    pub azimuth_max: Angle,
+    pub eccentricity: Ratio,
+}
+
+#[cfg_attr(
+    not(target_os = "cuda"),
+    derive(Copy, Clone, Debug, cust::DeviceCopy, StructOfArray),
+    soa_derive(Debug)
+)]
+pub struct FireSimpleCuda {
+    pub speed_max: f64,
+    pub azimuth_max: f64,
+    pub eccentricity: f64,
+}
+
+impl From<FireSimpleCuda> for FireSimple {
+    fn from(f: FireSimpleCuda) -> Self {
+        Self {
+            speed_max: to_quantity!(Velocity, f.speed_max),
+            azimuth_max: to_quantity!(Angle, f.azimuth_max),
+            eccentricity: to_quantity!(Ratio, f.eccentricity),
+        }
+    }
+}
+impl From<FireSimple> for FireSimpleCuda {
+    fn from(f: FireSimple) -> Self {
+        Self {
+            speed_max: from_quantity!(Velocity, f.speed_max),
+            azimuth_max: from_quantity!(Angle, f.azimuth_max),
+            eccentricity: from_quantity!(Ratio, f.eccentricity),
+        }
+    }
+}
+#[cfg(not(target_os = "cuda"))]
+impl From<FireSimpleCudaPtr> for FireSimple {
+    fn from(f: FireSimpleCudaPtr) -> Self {
+        unsafe { f.read().into() }
+    }
+}
+#[cfg(not(target_os = "cuda"))]
+impl From<FireSimpleCudaRef<'_>> for FireSimple {
+    fn from(f: FireSimpleCudaRef<'_>) -> Self {
+        From::<FireSimpleCuda>::from(f.into())
+    }
+}
+
 #[derive(Debug)]
-pub struct Spread<'a> {
-    fire: &'a Fire,
+pub struct Spread<'a, T> {
+    fire: &'a T,
     factor: Ratio,
+}
+
+pub trait CanSpread<'a> {
+    fn azimuth_max(&self) -> Angle;
+    fn eccentricity(&self) -> Ratio;
+
+    fn spread(&'a self, azimuth: Angle) -> Spread<'a, Self>
+    where
+        Self: Sized,
+    {
+        let azimuth = azimuth.get::<radian>();
+        let azimuth_max = self.azimuth_max().get::<radian>();
+        let angle = (azimuth - azimuth_max).abs();
+        let ecc = self.eccentricity().get::<ratio>();
+        let factor = (1.0 - ecc) / (1.0 - ecc * angle.cos());
+        Spread {
+            fire: self,
+            factor: Ratio::new::<ratio>(factor),
+        }
+    }
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -333,10 +402,12 @@ impl Catalog {
         }
     }
     #[inline]
-    pub fn burn(&self, model: usize, terrain: &Terrain) -> Fire {
-        self.get(model)
-            .and_then(|f| f.burn(terrain))
-            .unwrap_or(Fire::NULL)
+    pub fn burn(&self, model: usize, terrain: &Terrain) -> Option<Fire> {
+        self.get(model).and_then(|f| f.burn(terrain))
+    }
+    #[inline]
+    pub fn burn_simple(&self, model: usize, terrain: &Terrain) -> Option<FireSimple> {
+        self.get(model).and_then(|f| f.burn_simple(terrain))
     }
 }
 
@@ -381,18 +452,6 @@ impl<'a> Fire {
     }
     pub fn flame_max(&self) -> Length {
         Length::new::<foot>(Self::flame_length(self.byrams_max().get::<btu_foot_sec>()))
-    }
-
-    pub fn spread(&'a self, azimuth: Angle) -> Spread<'a> {
-        let azimuth = azimuth.get::<radian>();
-        let azimuth_max = self.azimuth_max.get::<radian>();
-        let angle = (azimuth - azimuth_max).abs();
-        let ecc = self.eccentricity.get::<ratio>();
-        let factor = (1.0 - ecc) / (1.0 - ecc * angle.cos());
-        Spread {
-            fire: self,
-            factor: Ratio::new::<ratio>(factor),
-        }
     }
 
     pub fn almost_eq(&self, other: &Self) -> bool {
@@ -445,8 +504,57 @@ impl<'a> Fire {
         )
     }
 }
+impl FireSimple {
+    pub const NULL: Self = {
+        Self {
+            speed_max: to_quantity!(Velocity, 0.0),
+            azimuth_max: to_quantity!(Angle, 0.0),
+            eccentricity: to_quantity!(Ratio, 0.0),
+        }
+    };
+    pub fn almost_eq(&self, other: &Self) -> bool {
+        #[allow(unused)]
+        fn cmp(msg: &str, a: f64, b: f64) -> bool {
+            let r = (a - b).abs() < SMIDGEN;
+            #[cfg(feature = "std")]
+            #[cfg(test)]
+            if !r {
+                std::println!("{}: {} /= {}", msg, a, b);
+            }
+            r
+        }
+        cmp(
+            "speed_max",
+            self.speed_max.get::<foot_per_minute>(),
+            other.speed_max.get::<foot_per_minute>(),
+        ) && cmp(
+            "eccentricity",
+            self.eccentricity.get::<ratio>(),
+            other.eccentricity.get::<ratio>(),
+        ) && cmp(
+            "azimuth_max",
+            self.azimuth_max.get::<radian>(),
+            other.azimuth_max.get::<radian>(),
+        )
+    }
+}
 
-impl<'a> Spread<'a> {
+impl CanSpread<'_> for Fire {
+    fn azimuth_max(&self) -> Angle {
+        self.azimuth_max
+    }
+    fn eccentricity(&self) -> Ratio {
+        self.eccentricity
+    }
+}
+
+impl<'a> Spread<'a, FireSimple> {
+    pub fn speed(&self) -> Velocity {
+        self.fire.speed_max * self.factor
+    }
+}
+
+impl<'a> Spread<'a, Fire> {
     pub fn speed(&self) -> Velocity {
         self.fire.speed_max * self.factor
     }
@@ -899,7 +1007,6 @@ impl Fuel {
         }
     }
 
-    #[inline]
     pub fn burn(&self, terrain: &Terrain) -> Option<Fire> {
         if !self.has_particles() {
             None
@@ -908,7 +1015,6 @@ impl Fuel {
             let speed0 = rx_int * self.flux_ratio / rbqig;
             let (phi_eff_wind, eff_wind, speed_max, azimuth_max) =
                 self.calculate_wind_dependent_vars(terrain, speed0, rx_int);
-            sync_threads();
             Some(Fire {
                 rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(rx_int),
                 speed0: Velocity::new::<foot_per_minute>(speed0),
@@ -918,6 +1024,21 @@ impl Fuel {
                 azimuth_max: Angle::new::<radian>(azimuth_max),
                 eccentricity: Ratio::new::<ratio>(Self::eccentricity(eff_wind)),
                 residence_time: Time::new::<minute>(self.residence_time),
+            })
+        }
+    }
+    pub fn burn_simple(&self, terrain: &Terrain) -> Option<FireSimple> {
+        if !self.has_particles() {
+            None
+        } else {
+            let (rx_int, rbqig) = self.rx_int_rbqig(terrain);
+            let speed0 = rx_int * self.flux_ratio / rbqig;
+            let (_phi_eff_wind, eff_wind, speed_max, azimuth_max) =
+                self.calculate_wind_dependent_vars(terrain, speed0, rx_int);
+            Some(FireSimple {
+                speed_max: Velocity::new::<foot_per_minute>(speed_max),
+                azimuth_max: Angle::new::<radian>(azimuth_max),
+                eccentricity: Ratio::new::<ratio>(Self::eccentricity(eff_wind)),
             })
         }
     }
@@ -943,7 +1064,6 @@ impl Fuel {
                 }
             }
         }
-        sync_threads();
         let eta_m = |life, life_moist| {
             let life_mext = match life {
                 Life::Alive => {
@@ -970,6 +1090,7 @@ impl Fuel {
             self.fuel_bed_bulk_dens * rbqig,
         )
     }
+    #[inline]
     fn calculate_wind_dependent_vars(
         &self,
         terrain: &Terrain,
@@ -1118,7 +1239,6 @@ const fn init_arr<T: Copy, const N: usize, const M: usize>(def: T, src: [T; M]) 
 pub(crate) fn sync_threads() {
     #[cfg(target_os = "cuda")]
     {
-        use cuda_std::thread::sync_threads;
-        sync_threads();
+        cuda_std::thread::sync_threads()
     }
 }

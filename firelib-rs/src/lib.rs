@@ -201,9 +201,12 @@ mod tests {
         terrain: &Terrain,
         azimuth: Angle,
     ) -> (Fire, SpreadAtAzimuth) {
-        let fire = Catalog::STANDARD.burn(model, terrain);
-        let spread_az = SpreadAtAzimuth::from_spread(&fire.spread(azimuth));
-        (fire, spread_az)
+        if let Some(fire) = Catalog::STANDARD.burn(model, terrain) {
+            let spread_az = SpreadAtAzimuth::from_spread(&fire.spread(azimuth));
+            (fire, spread_az)
+        } else {
+            (Fire::NULL, SpreadAtAzimuth::null())
+        }
     }
 
     fn firelib_c_spread(
@@ -361,7 +364,7 @@ mod tests {
     }
 
     impl SpreadAtAzimuth {
-        fn from_spread(s: &Spread) -> Self {
+        fn from_spread(s: &Spread<'_, Fire>) -> Self {
             SpreadAtAzimuth {
                 flame: s.flame(),
                 speed: s.speed(),

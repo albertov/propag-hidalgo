@@ -40,9 +40,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
         .collect();
     let model: Vec<usize> = (0..NUMBERS_LEN).map(|_n| rng.random_range(0..14)).collect();
-    let mut fire: FireCudaVec = std::iter::repeat(Fire::NULL.into())
-        .take(model.len())
-        .collect();
 
     // initialize CUDA, this will pick the first available device and will
     // make a CUDA context from it.
@@ -87,6 +84,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let slope_gpu = terrain.slope.as_slice().as_dbuf()?;
     let aspect_gpu = terrain.aspect.as_slice().as_dbuf()?;
 
+    // output vectors
+    let mut fire: FireCudaVec = std::iter::repeat(Fire::NULL.into())
+        .take(model.len())
+        .collect();
     // Actually launch the GPU kernel. This will queue up the launch on the stream, it will
     // not block the thread until the kernel is finished.
     unsafe {
@@ -160,12 +161,81 @@ fn main() -> Result<(), Box<dyn Error>> {
             .iter()
             .zip(terrain.iter())
             .map(|(m, t)| firelib_rs::Catalog::STANDARD.burn(*m, t))
+            .map(|f| f.unwrap_or(Fire::NULL))
             .collect()
     });
     assert!(fire
         .iter()
         .zip(fire_rs.iter())
         .all(|(f_gpu, f_cpu)| { Into::<Fire>::into(f_gpu).almost_eq(f_cpu) }));
+
+    println!("Calculating with GPU Simple");
+    // output vectors
+    let mut fire_simple: FireSimpleCudaVec = std::iter::repeat(FireSimple::NULL.into())
+        .take(model.len())
+        .collect();
+    unsafe {
+        // allocate our output buffers. You could also use DeviceBuffer::uninitialized() to avoid the
+        // cost of the copy, but you need to be careful not to read from the buffer.
+        let speed_max_buf = DeviceBuffer::uninitialized(model.len())?;
+        let azimuth_max_buf = DeviceBuffer::uninitialized(model.len())?;
+        let eccentricity_buf = DeviceBuffer::uninitialized(model.len())?;
+        let func = module.get_function("standard_simple_burn")?;
+        timeit!({
+            launch!(
+                // slices are passed as two parameters, the pointer and the length.
+                func<<<grid_size, block_size, 0, stream>>>(
+                    model_gpu.as_device_ptr(),
+                    model_gpu.len(),
+                    d1hr_gpu.as_device_ptr(),
+                    d1hr_gpu.len(),
+                    d10hr_gpu.as_device_ptr(),
+                    d10hr_gpu.len(),
+                    d100hr_gpu.as_device_ptr(),
+                    d100hr_gpu.len(),
+                    herb_gpu.as_device_ptr(),
+                    herb_gpu.len(),
+                    wood_gpu.as_device_ptr(),
+                    wood_gpu.len(),
+                    wind_speed_gpu.as_device_ptr(),
+                    wind_speed_gpu.len(),
+                    wind_azimuth_gpu.as_device_ptr(),
+                    wind_azimuth_gpu.len(),
+                    slope_gpu.as_device_ptr(),
+                    slope_gpu.len(),
+                    aspect_gpu.as_device_ptr(),
+                    aspect_gpu.len(),
+                    speed_max_buf.as_device_ptr(),
+                    azimuth_max_buf.as_device_ptr(),
+                    eccentricity_buf.as_device_ptr(),
+                )
+            )?;
+            stream.synchronize()?;
+        });
+
+        // copy back the data from the GPU.
+        speed_max_buf.copy_to(&mut fire_simple.speed_max)?;
+        azimuth_max_buf.copy_to(&mut fire_simple.azimuth_max)?;
+        eccentricity_buf.copy_to(&mut fire_simple.eccentricity)?;
+    }
+
+    println!("Calculating with CPU Simple");
+    let mut fire_simple_rs: Vec<FireSimple> = Vec::new();
+    for _ in 0..fire.len() {
+        fire_simple_rs.push(FireSimple::NULL)
+    }
+    timeit!({
+        fire_simple_rs = model
+            .iter()
+            .zip(terrain.iter())
+            .map(|(m, t)| firelib_rs::Catalog::STANDARD.burn_simple(*m, t))
+            .map(|f| f.unwrap_or(FireSimple::NULL))
+            .collect()
+    });
+    assert!(fire_simple
+        .iter()
+        .zip(fire_simple_rs.iter())
+        .all(|(f_gpu, f_cpu)| { Into::<FireSimple>::into(f_gpu).almost_eq(f_cpu) }));
 
     Ok(())
 }

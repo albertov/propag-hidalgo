@@ -2,6 +2,7 @@
   description = "WildFire Propagator 2025";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/release-24.11";
+    nixpkgs_old.url = "github:NixOS/nixpkgs/release-23.11";
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
@@ -45,12 +46,18 @@
             overlays = [
               rust-overlay.overlays.default
               (import ./overlay.nix)
+              (_:_: {
+                pkgs_2311 = import inputs.nixpkgs_old {
+                  inherit system;
+                };
+              })
             ];
             config.allowUnfree = true;
           };
           treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
         in
         {
+          legacyPackages = pkgs;
           packages = {
             default = self'.packages.firelib-rs;
             inherit (pkgs) firelib-rs;
@@ -58,11 +65,16 @@
           devShells.default = pkgs.mkShell {
             inputsFrom = [
               pkgs.firelib-rs
+              pkgs.firelib-cuda
             ];
             env = {
               inherit (pkgs.firelib-rs)
                 BINDGEN_EXTRA_CLANG_ARGS
                 LIBCLANG_PATH
+                ;
+              inherit (pkgs.firelib-cuda)
+                CUDA_PATH
+                LLVM_CONFIG
                 ;
             };
             packages = with pkgs; [
@@ -72,6 +84,7 @@
               cudatoolkit.lib
               openssl.dev
               pkg-config
+              rustup
             ];
           };
           # for `nix fmt`

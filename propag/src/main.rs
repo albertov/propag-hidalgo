@@ -1,5 +1,6 @@
 #![feature(int_roundings)]
 use ::geometry::*;
+use cust::device::DeviceAttribute;
 use cust::function::{BlockSize, GridSize};
 use cust::prelude::*;
 use firelib_cuda::{Point, Settings, HALO_RADIUS};
@@ -15,7 +16,6 @@ use uom::si::velocity::meter_per_second;
 
 #[macro_use]
 extern crate timeit;
-
 
 mod loader;
 const THREAD_BLOCK_AXIS_LENGTH: u32 = 16;
@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 y: 25000.0,
             },
         ),
-        Vec2 { x: 25.0, y: 25.0 },
+        Vec2 { x: 75.0, y: 75.0 },
         25830,
     )
     .unwrap();
@@ -58,7 +58,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     // initialize CUDA, this will pick the first available device and will
     // make a CUDA context from it.
     // We don't need the context for anything but it must be kept alive.
-    let _ctx = cust::quick_init()?;
+    cust::init(CudaFlags::empty())?;
+    let device = Device::get_device(0)?;
+    let ctx = Context::new(device)?;
+    ctx.set_flags(ContextFlags::SCHED_AUTO)?;
 
     println!("Loading module");
     // Make the CUDA module, modules just house the GPU code for the kernels we created.
@@ -72,34 +75,46 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Getting function");
     // retrieve the add kernel from the module so we can calculate the right launch config.
-    let propag = module.get_function("propag")?;
     let propag_c = module_c.get_function("propag")?;
     let pre_burn = module.get_function("standard_simple_burn")?;
-
-    let grid_size = GridSize {
-        x: geo_ref.width.div_ceil(THREAD_BLOCK_AXIS_LENGTH),
-        y: geo_ref.height.div_ceil(THREAD_BLOCK_AXIS_LENGTH),
-        z: 1,
-    };
-    let linear_grid_size: usize = (grid_size.x * grid_size.y * grid_size.z) as usize;
 
     let block_size = BlockSize {
         x: THREAD_BLOCK_AXIS_LENGTH,
         y: THREAD_BLOCK_AXIS_LENGTH,
         z: 1,
     };
+    let grid_size = GridSize {
+        x: geo_ref.width.div_ceil(block_size.x),
+        y: geo_ref.height.div_ceil(block_size.y),
+        z: 1,
+    };
+    let linear_grid_size: usize = (grid_size.x * grid_size.y * grid_size.z) as usize;
+
     let linear_block_size = block_size.x * block_size.y * block_size.z;
     let radius = HALO_RADIUS as u32;
     let shmem_size = ((block_size.x + radius * 2) * (block_size.y + radius * 2));
     let shmem_bytes = shmem_size * 64; //std::mem::size_of::<Point>() as u32;
                                        //assert_eq!(std::mem::size_of::<Point>(), 64);
 
-    let fire_pos = USizeVec2 { x: 500, y: 100 };
+    let max_active_blocks =
+        propag_c.max_active_blocks_per_multiprocessor(block_size, shmem_bytes as _)?;
+    println!("max_active_blocks_per_multiprocessor={}", max_active_blocks);
+    let mp_count = device.get_attribute(DeviceAttribute::MultiprocessorCount)?;
+    let max_total_blocks = mp_count as u32 * max_active_blocks;
+    println!("max_total_blocks={}", max_total_blocks);
+
+    let grid_w = (max_total_blocks as f64).sqrt().trunc() as u32;
+    let grid_size = (grid_w, grid_w);
+
+    let fire_pos = USizeVec2 {
+        x: geo_ref.width as usize / 2,
+        y: 10,
+    };
     println!(
         "using geo_ref={:?} grid_size={:?} blocks_size={:?} linear_grid_size={} for {} elems",
         geo_ref, grid_size, block_size, linear_grid_size, len
     );
-    //model[fire_pos.x + (fire_pos.y-50) * geo_ref.width as usize] = 4;
+    model[fire_pos.x + (fire_pos.y - 2) * geo_ref.width as usize] = 0;
     // allocate the GPU memory needed to house our numbers and copy them over.
     let model_gpu = model.as_slice().as_dbuf()?;
     let d1hr_gpu = d1hr.as_slice().as_dbuf()?;
@@ -169,55 +184,41 @@ fn main() -> Result<(), Box<dyn Error>> {
             assert!(speed_max.iter().all(|t| *t != 0.0));
             */
             //println!("loop");
-            let mut no_progress_iters = 0;
-            loop {
-                /*
-                let num_times = time.iter().filter(|t| t.is_some()).count();
-                azimuth_max_buf.copy_to(&mut azimuth_max)?;
-                assert!(azimuth_max.iter().all(|t| t.is_some()));
-                eccentricity_buf.copy_to(&mut eccentricity)?;
-                assert!(eccentricity.iter().all(|t| t.is_some()));
-                speed_max_buf.copy_to(&mut speed_max)?;
-                assert!(speed_max.iter().all(|t| t.is_some()));
-                */
-                //println!("propag");
-                launch!(
-                    // slices are passed as two parameters, the pointer and the length.
-                    propag_c<<<grid_size, block_size, shmem_bytes, stream>>>(
-                        (DeviceVariable::new(Settings {
-                            geo_ref,
-                            max_time,
-                        })?.as_device_ptr()),
-                        speed_max_buf.as_device_ptr(),
-                        azimuth_max_buf.as_device_ptr(),
-                        eccentricity_buf.as_device_ptr(),
-                        time_buf.as_device_ptr(),
-                        refs_x_buf.as_device_ptr(),
-                        refs_y_buf.as_device_ptr(),
-                        progress_buf.as_device_ptr(),
-                    )
-                )?;
-                stream.synchronize()?;
-                time_buf.copy_to(&mut time)?;
-                refs_x_buf.copy_to(&mut refs_x)?;
-                refs_y_buf.copy_to(&mut refs_y)?;
-                assert!(refs_x.iter().all(|x| *x == Max::MAX || *x == fire_pos.x),);
-                assert!(refs_y.iter().all(|x| *x == Max::MAX || *x == fire_pos.y),);
-                assert_eq!(
-                    refs_x.iter().filter(|x| *x < &Max::MAX).count(),
-                    refs_y.iter().filter(|x| *x < &Max::MAX).count(),
-                );
-                progress_buf.copy_to(&mut progress)?;
-                /*
-                println!(
-                    "progress={:?}",
-                    progress.as_slice().iter().filter(|p| **p > 0).count(),
-                );
-                */
-                if progress.iter().all(|x| *x == 0) {
-                    break;
-                }
-            }
+            /*
+            let num_times = time.iter().filter(|t| t.is_some()).count();
+            azimuth_max_buf.copy_to(&mut azimuth_max)?;
+            assert!(azimuth_max.iter().all(|t| t.is_some()));
+            eccentricity_buf.copy_to(&mut eccentricity)?;
+            assert!(eccentricity.iter().all(|t| t.is_some()));
+            speed_max_buf.copy_to(&mut speed_max)?;
+            assert!(speed_max.iter().all(|t| t.is_some()));
+            */
+            //println!("propag");
+            cust::launch_cooperative!(
+                // slices are passed as two parameters, the pointer and the length.
+                propag_c<<<grid_size, block_size, shmem_bytes, stream>>>(
+                    (DeviceVariable::new(Settings {
+                        geo_ref,
+                        max_time,
+                    })?.as_device_ptr()),
+                    speed_max_buf.as_device_ptr(),
+                    azimuth_max_buf.as_device_ptr(),
+                    eccentricity_buf.as_device_ptr(),
+                    time_buf.as_device_ptr(),
+                    refs_x_buf.as_device_ptr(),
+                    refs_y_buf.as_device_ptr(),
+                    progress_buf.as_device_ptr(),
+                )
+            )?;
+            stream.synchronize()?;
+            refs_x_buf.copy_to(&mut refs_x)?;
+            refs_y_buf.copy_to(&mut refs_y)?;
+            assert!(refs_x.iter().all(|x| *x == Max::MAX || *x == fire_pos.x),);
+            assert!(refs_y.iter().all(|x| *x == Max::MAX || *x == fire_pos.y),);
+            assert_eq!(
+                refs_x.iter().filter(|x| *x < &Max::MAX).count(),
+                refs_y.iter().filter(|x| *x < &Max::MAX).count(),
+            );
         };
         time_buf.copy_to(&mut time)?;
     });

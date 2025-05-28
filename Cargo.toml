@@ -6,3 +6,10 @@ members=["firelib-rs", "firelib-cuda", "propag", "geometry"]
 [profile.release]
 opt-level = 3
 lto = "fat"
+
+
+#[patch."https://github.com/albertov/Rust-CUDA"]
+#cust = {path="../Rust-CUDA/crates/cust"}
+#cust_core = {path="../Rust-CUDA/crates/cust_core"}
+#cuda_builder = {path="../Rust-CUDA/crates/cuda_builder"}
+

@@ -8,6 +8,7 @@ pub mod areal_mass_density {
     }
 }
 
+
 // HeatOfCombustion es uom::si::available_energy
 
 // ByramsIntensity es uom::si::linear_power_density
@@ -47,6 +48,6 @@ pub mod reciprocal_length {
         system: uom::si;
         quantity: uom::si::reciprocal_length;
 
-        @per_foot: 3.048_E1; "ft⁻¹", "per foot", "per feet";
+        @reciprocal_foot: 3.048_E1; "ft⁻¹", "reciprocal foot", "reciprocal feet";
     }
 }

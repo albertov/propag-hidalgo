@@ -1,10 +1,10 @@
+use crate::units::reciprocal_length::reciprocal_foot;
+use uom::si::inverse_velocity::minute_per_foot;
 use crate::units::areal_mass_density::pound_per_square_foot;
 use crate::units::heat_flux_density::btu_sq_foot_min;
 use crate::units::linear_power_density::btu_foot_sec;
 use crate::units::radiant_exposure::btu_sq_foot;
-use uom::si::absement::foot_second;
 use uom::si::angle::radian;
-use uom::si::area::square_foot;
 use uom::si::available_energy::btu_per_pound;
 use uom::si::f64::*;
 use uom::si::length::{foot, meter};
@@ -31,7 +31,7 @@ pub enum ParticleType {
 pub struct Particle {
     pub type_: ParticleType,
     pub load: ArealMassDensity, // fuel loading
-    pub savr: Length,           // surface area to volume ratio
+    pub savr: ReciprocalLength, // surface area to volume ratio
     pub density: MassDensity,
     pub heat: AvailableEnergy,
     pub si_total: Ratio,     // total silica content
@@ -129,9 +129,9 @@ impl Particle {
         Particle {
             type_: p_type,
             load: ArealMassDensity::new::<pound_per_square_foot>(p_load),
-            savr: Length::new::<meter>(p_savr),
+            savr: ReciprocalLength::new::<reciprocal_foot>(p_savr),
             density: MassDensity::new::<pound_per_cubic_foot>(32.0),
-            heat: AvailableEnergy::new::<btu_per_pound>(8000.0),
+            heat: AvailableEnergy::new::<btu_per_pound>(8002.0),
             si_total: Ratio::new::<ratio>(0.0555),
             si_effective: Ratio::new::<ratio>(0.0100),
         }
@@ -155,20 +155,21 @@ impl Particle {
         }
     }
 
-    pub fn surface_area(&self) -> Area {
+    pub fn surface_area_ratio(&self) -> Ratio {
         if self.density.get::<pound_per_cubic_foot>() > SMIDGEN {
             self.load * self.savr / self.density
         } else {
-            Area::new::<square_foot>(0.0)
+            //Area::new::<square_foot>(0.0)
+            Ratio::new::<ratio>(0.0)
         }
     }
 
     pub fn sigma_factor(&self) -> Ratio {
-        (Length::new::<meter>(-138.0) / self.savr).exp()
+        (ReciprocalLength::new::<reciprocal_foot>(-138.0) / self.savr).exp()
     }
 
     pub fn size_class(&self) -> SizeClass {
-        let savr = self.savr.get::<foot>();
+        let savr = self.savr.get::<reciprocal_foot>();
         if savr > 1200.0 {
             SizeClass::SC0
         } else if savr > 192.0 {
@@ -216,19 +217,19 @@ impl Fuel {
     fn has_live_particles(&self) -> bool {
         self.life_particles(Life::Alive).count() > 0
     }
-    fn total_area(&self) -> Area {
-        self.particles().map(|p| p.surface_area()).sum()
+    fn total_area_ratio(&self) -> Ratio {
+        self.particles().map(|p| p.surface_area_ratio()).sum()
     }
     fn life_area_weight(&self, life: Life) -> Ratio {
         self.life_particles(life)
-            .map(|p| p.surface_area() / self.total_area())
+            .map(|p| p.surface_area_ratio() / self.total_area_ratio())
             .sum()
     }
     fn life_fine_load(&self, life: Life) -> ArealMassDensity {
         match life {
             Life::Alive => self
                 .life_particles(life)
-                .map(|p| p.load * (Length::new::<meter>(-500.0) / p.savr).exp())
+                .map(|p| p.load * (ReciprocalLength::new::<reciprocal_foot>(-500.0) / p.savr).exp())
                 .sum(),
             Life::Dead => self
                 .life_particles(life)
@@ -243,7 +244,7 @@ impl Fuel {
             })
             .sum()
     }
-    fn life_savr(&self, life: Life) -> Length {
+    fn life_savr(&self, life: Life) -> ReciprocalLength {
         self.life_particles(life)
             .map(|p| self.part_area_weight(p) * p.savr)
             .sum()
@@ -271,17 +272,17 @@ impl Fuel {
             Ratio::new::<ratio>(0.0)
         }
     }
-    fn sigma(&self) -> Length {
+    fn sigma(&self) -> ReciprocalLength {
         self.life_area_weight(Life::Alive) * self.life_savr(Life::Alive)
             + self.life_area_weight(Life::Dead) * self.life_savr(Life::Dead)
     }
     fn ratio(&self) -> f64 {
-        let sigma = self.sigma().get::<foot>();
+        let sigma = self.sigma().get::<reciprocal_foot>();
         let beta = self.beta().get::<ratio>();
         beta / (3.348 / (sigma.powf(0.8189)))
     }
     fn flux_ratio(&self) -> Ratio {
-        let sigma = self.sigma().get::<foot>();
+        let sigma = self.sigma().get::<reciprocal_foot>();
         let beta = self.beta().get::<ratio>();
         Ratio::new::<ratio>(
             ((0.792 + 0.681 * sigma.sqrt()) * (beta.sqrt() + 0.1)).exp() / (192.0 + 0.2595 * sigma),
@@ -296,7 +297,7 @@ impl Fuel {
         }
     }
     fn gamma(&self) -> Ratio {
-        let sigma = self.sigma().get::<foot>();
+        let sigma = self.sigma().get::<reciprocal_foot>();
         let sigma15 = sigma.powf(1.5);
         let gamma_max = sigma15 / (495.0 + 0.0594 * sigma15);
         let aa = 133.0 / sigma.powf(0.7913);
@@ -309,12 +310,12 @@ impl Fuel {
             / Time::new::<second>(1.0)
     }
     fn part_area_weight(&self, particle: &Particle) -> Ratio {
-        let total_area_life: Area = self
+        let total_area_ratio_life: Ratio = self
             .life_particles(particle.life())
-            .map(|p| p.surface_area())
+            .map(|p| p.surface_area_ratio())
             .sum();
-        if total_area_life.get::<square_foot>() > SMIDGEN {
-            particle.surface_area() / total_area_life
+        if total_area_ratio_life.get::<ratio>() > SMIDGEN {
+            particle.surface_area_ratio() / total_area_ratio_life
         } else {
             Ratio::new::<ratio>(0.0)
         }
@@ -337,7 +338,7 @@ impl Fuel {
     }
 
     fn residence_time(&self) -> Time {
-        Absement::new::<foot_second>(384.0 / 60.0) / self.sigma()
+        InverseVelocity::new::<minute_per_foot>(384.0) / self.sigma()
     }
 
     fn slope_k(&self) -> f64 {
@@ -346,7 +347,7 @@ impl Fuel {
     }
 
     fn wind_bke(&self) -> (f64, f64, f64) {
-        let sigma = self.sigma().get::<foot>();
+        let sigma = self.sigma().get::<reciprocal_foot>();
         let wind_b = 0.02526 * sigma.powf(0.54);
         let r = self.ratio();
         let c = 7.47 * ((-0.133) * (sigma.powf(0.55))).exp();

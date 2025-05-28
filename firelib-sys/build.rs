@@ -12,7 +12,7 @@ fn main() {
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
-	.allowlist_file("fireLib.h")
+        .allowlist_file("fireLib.h")
         // Finish the builder and generate the bindings.
         .generate()
         // Unwrap the Result and panic on failure.
@@ -23,7 +23,5 @@ fn main() {
     bindings
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
-    cc::Build::new()
-        .file("fireLib.c")
-        .compile("fireLib");
+    cc::Build::new().file("fireLib.c").compile("fireLib");
 }

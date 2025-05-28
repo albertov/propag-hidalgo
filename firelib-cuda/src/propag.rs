@@ -462,3 +462,48 @@ unsafe fn iter_neighbors(
             }
         })
 }
+
+#[kernel]
+#[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
+pub unsafe fn pre_burn(
+    model: &[Option<usize>],
+    d1hr: &[Option<float::T>],
+    d10hr: &[Option<float::T>],
+    d100hr: &[Option<float::T>],
+    herb: &[Option<float::T>],
+    wood: &[Option<float::T>],
+    wind_speed: &[Option<float::T>],
+    wind_azimuth: &[Option<float::T>],
+    slope: &[Option<float::T>],
+    aspect: &[Option<float::T>],
+    speed_max: *mut Option<float::T>,
+    azimuth_max: *mut Option<float::T>,
+    eccentricity: *mut Option<float::T>,
+) {
+    let i = thread::index_1d() as usize;
+    if i < model.len() {
+        let terrainModel = (|| Some((TerrainCuda {
+            d1hr: d1hr[i]?,
+            d10hr: d10hr[i]?,
+            d100hr: d100hr[i]?,
+            herb: herb[i]?,
+            wood: wood[i]?,
+            wind_speed: wind_speed[i]?,
+            wind_azimuth: wind_azimuth[i]?,
+            slope: slope[i]?,
+            aspect: aspect[i]?,
+        }, model[i]?)))();
+        if let Some(fire) = terrainModel.and_then(|(terrain, model)|
+            Catalog::STANDARD.burn_simple(model, &terrain.into()))
+        {
+            let fire = Into::<FireSimpleCuda>::into(fire);
+            *speed_max.wrapping_add(i) = Some(fire.speed_max);
+            *azimuth_max.wrapping_add(i) = Some(fire.azimuth_max);
+            *eccentricity.wrapping_add(i) = Some(fire.eccentricity);
+        } else {
+            *speed_max.wrapping_add(i) = None;
+            *azimuth_max.wrapping_add(i) = None;
+            *eccentricity.wrapping_add(i) = None;
+        }
+    }
+}

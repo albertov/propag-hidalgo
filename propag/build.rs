@@ -22,10 +22,11 @@ fn main() {
         .with_language(cbindgen::Language::C)
         .with_after_include(
             "
-            #define T float
-            #define Max_MAX SIZE_MAX",
+#include \"geometry.h\"
+typedef float T;
+#define Max_MAX SIZE_MAX
+",
         )
-        .with_trailer("#undef T")
         .with_include_guard("FIRELIB_H")
         //.with_parse_deps(true)
         .generate()
@@ -53,6 +54,8 @@ fn main() {
             "-ptx",
             "-I",
             &include_dir,
+            "-I",
+            "./src",
             "-o",
             &dest,
             "src/propag.cu",

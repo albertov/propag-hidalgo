@@ -23,7 +23,10 @@ static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
 static PTX_C: &str = include_str!("../../target/cuda/propag_c.ptx");
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("Calculating with GPU Propag");
+    println!(
+        "Calculating with GPU Propag {}",
+        std::mem::size_of::<Point>()
+    );
     let geo_ref: GeoReference = GeoReference::south_up(
         (
             Vec2 { x: 0.0, y: 0.0 },
@@ -87,7 +90,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let linear_block_size = block_size.x * block_size.y * block_size.z;
     let radius = HALO_RADIUS as u32;
     let shmem_size = ((block_size.x + radius * 2) * (block_size.y + radius * 2));
-    let shmem_bytes = shmem_size * std::mem::size_of::<Point>() as u32;
+    let shmem_bytes = shmem_size * 64; //std::mem::size_of::<Point>() as u32;
+                                       //assert_eq!(std::mem::size_of::<Point>(), 64);
 
     println!(
         "using grid_size={:?} blocks_size={:?} linear_grid_size={} for {} elems",
@@ -154,7 +158,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 )
             )?;
             stream.synchronize()?;
-            stream.synchronize()?;
+            azimuth_max_buf.copy_to(&mut azimuth_max)?;
+            assert!(azimuth_max.iter().all(|t| *t != 0.0));
+            eccentricity_buf.copy_to(&mut eccentricity)?;
+            assert!(eccentricity.iter().all(|t| *t != 0.0));
+            speed_max_buf.copy_to(&mut speed_max)?;
+            assert!(speed_max.iter().all(|t| *t != 0.0));
             //println!("loop");
             let mut no_progress_iters = 0;
             loop {

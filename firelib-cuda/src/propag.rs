@@ -335,7 +335,7 @@ impl PointRef {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug, cust_core::DeviceCopy)]
-#[repr(C)]
+#[repr(C, align(16))]
 pub struct PointRef {
     pub time: f32,
     pub pos_x: usize,
@@ -353,7 +353,7 @@ impl PointRef {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, cust_core::DeviceCopy)]
-#[repr(C)]
+#[repr(C, align(16))]
 pub struct Point {
     pub time: f32,
     pub fire: FireSimpleCuda,
@@ -413,14 +413,7 @@ impl Point {
         }
     }
 
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn save(
-        &self,
-        idx: usize,
-        time: *mut f32,
-        ref_x: *mut usize,
-        ref_y: *mut usize,
-    ) {
+    pub unsafe fn save(&self, idx: usize, time: *mut f32, ref_x: *mut usize, ref_y: *mut usize) {
         write_volatile(time.add(idx), self.time);
         write_volatile(ref_x.add(idx), self.reference.pos_x);
         write_volatile(ref_y.add(idx), self.reference.pos_y);
@@ -459,7 +452,7 @@ fn load_fire(
 }
 
 #[derive(Debug)]
-#[repr(C)]
+#[repr(C, align(16))]
 struct Neighbor {
     point: Point,
     pos: USizeVec2,
@@ -475,15 +468,14 @@ impl Neighbor {
 }
 
 #[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
-#[repr(C)]
+#[repr(C, align(16))]
 pub struct Settings {
     pub geo_ref: GeoReference,
     pub max_time: f32,
 }
 
 impl Settings {
-    #[unsafe(no_mangle)]
-    pub extern "C" fn create(geo_ref: GeoReference, max_time: f32) -> Self {
+    pub fn create(geo_ref: GeoReference, max_time: f32) -> Self {
         Self { geo_ref, max_time }
     }
 }
@@ -572,7 +564,7 @@ pub unsafe fn pre_burn(
 
 #[cfg_attr(not(target_os = "cuda"), derive(StructOfArray), soa_derive(Debug))]
 #[derive(Copy, Clone, Debug, PartialEq, cust_core::DeviceCopy)]
-#[repr(C)]
+#[repr(C, align(16))]
 pub struct FireSimpleCuda {
     pub speed_max: float::T,
     pub azimuth_max: float::T,

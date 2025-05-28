@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let rng = &mut rand::rng();
     let mut azimuth = { || Angle::new::<degree>(rng.random_range(0..36000) as f64 / 100.0) };
     let rng = &mut rand::rng();
-    let terrains: Vec<TerrainCuda> = (0..NUMBERS_LEN)
+    let terrains: TerrainCudaVec = (0..NUMBERS_LEN)
         .map(|_n| {
             let wind_speed =
                 Velocity::new::<meter_per_second>(rng.random_range(0..10000) as f64 / 1000.0);
@@ -43,7 +43,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
         .collect();
     let models: Vec<usize> = (0..NUMBERS_LEN).map(|_n| rng.random_range(0..14)).collect();
-    let mut fires: Vec<FireCuda> = vec![Fire::null().into(); NUMBERS_LEN];
+    let mut fires: Vec<FireCuda> =
+        std::iter::repeat(Fire::null().into()).take(NUMBERS_LEN).collect();
 
     // initialize CUDA, this will pick the first available device and will
     // make a CUDA context from it.
@@ -82,8 +83,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Calculating with GPU");
     timeit!({
         // allocate the GPU memory needed to house our numbers and copy them over.
-        let models_gpu = models.as_slice().as_dbuf()?;
-        let terrains_gpu = terrains.as_slice().as_dbuf()?;
+        let model_gpu = models.as_slice().as_dbuf()?;
+        let d1hr_gpu = terrains.d1hr.as_slice().as_dbuf()?;
+        let d10hr_gpu = terrains.d10hr.as_slice().as_dbuf()?;
+        let d100hr_gpu = terrains.d100hr.as_slice().as_dbuf()?;
+        let herb_gpu = terrains.herb.as_slice().as_dbuf()?;
+        let wood_gpu = terrains.wood.as_slice().as_dbuf()?;
+        let wind_speed_gpu = terrains.wind_speed.as_slice().as_dbuf()?;
+        let wind_azimuth_gpu = terrains.wind_azimuth.as_slice().as_dbuf()?;
+        let slope_gpu = terrains.slope.as_slice().as_dbuf()?;
+        let aspect_gpu = terrains.aspect.as_slice().as_dbuf()?;
 
         // allocate our output buffer. You could also use DeviceBuffer::uninitialized() to avoid the
         // cost of the copy, but you need to be careful not to read from the buffer.
@@ -95,10 +104,26 @@ fn main() -> Result<(), Box<dyn Error>> {
             launch!(
                 // slices are passed as two parameters, the pointer and the length.
                 func<<<grid_size, block_size, 0, stream>>>(
-                    models_gpu.as_device_ptr(),
-                    models_gpu.len(),
-                    terrains_gpu.as_device_ptr(),
-                    terrains_gpu.len(),
+                    model_gpu.as_device_ptr(),
+                    model_gpu.len(),
+                    d1hr_gpu.as_device_ptr(),
+                    d1hr_gpu.len(),
+                    d10hr_gpu.as_device_ptr(),
+                    d10hr_gpu.len(),
+                    d100hr_gpu.as_device_ptr(),
+                    d100hr_gpu.len(),
+                    herb_gpu.as_device_ptr(),
+                    herb_gpu.len(),
+                    wood_gpu.as_device_ptr(),
+                    wood_gpu.len(),
+                    wind_speed_gpu.as_device_ptr(),
+                    wind_speed_gpu.len(),
+                    wind_azimuth_gpu.as_device_ptr(),
+                    wind_azimuth_gpu.len(),
+                    slope_gpu.as_device_ptr(),
+                    slope_gpu.len(),
+                    aspect_gpu.as_device_ptr(),
+                    aspect_gpu.len(),
                     fires_buf.as_device_ptr(),
                 )
             )?;
@@ -110,7 +135,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         fires_buf.copy_to(&mut fires)?;
     });
 
-    let terrains: Vec<Terrain> = terrains.iter().map(|t| (*t).into()).collect();
+    let terrains: Vec<Terrain> = terrains.iter().map(|t| t.into()).collect();
     let mut fires_rs: Vec<Fire> = vec![Fire::null(); NUMBERS_LEN];
 
     println!("Calculating with CPU");

@@ -35,6 +35,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     .unwrap();
     let len = geo_ref.len();
 
+    println!("Generating input data");
     type OptionalVec<T> = Vec<Option<T>>;
     let model: OptionalVec<usize> = (0..len).map(|_n| Some(1)).collect();
     let d1hr: OptionalVec<float::T> = (0..len).map(|_n| Some(0.1)).collect();
@@ -52,6 +53,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // We don't need the context for anything but it must be kept alive.
     let _ctx = cust::quick_init()?;
 
+    println!("Loading module");
     // Make the CUDA module, modules just house the GPU code for the kernels we created.
     // they can be made from PTX code, cubins, or fatbins.
     let module = Module::from_ptx(PTX, &[])?;
@@ -60,6 +62,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // GPU calls.
     let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
 
+    println!("Getting function");
     // retrieve the add kernel from the module so we can calculate the right launch config.
     let propag = module.get_function("propag")?;
     let pre_burn = module.get_function("pre_burn")?;

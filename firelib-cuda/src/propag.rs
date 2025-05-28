@@ -20,16 +20,6 @@ const BLOCK_HEIGHT: usize = 16;
 const BUFFER_RADIUS: usize = 1;
 const SHARED_SIZE: usize = (BLOCK_WIDTH + BUFFER_RADIUS * 2) * (BLOCK_HEIGHT + BUFFER_RADIUS * 2);
 
-#[inline(always)]
-unsafe fn read_volatile<T: Copy>(p: *const T) -> T {
-    *p
-    //core::intrinsics::volatile_load(p)
-}
-#[inline(always)]
-unsafe fn write_volatile<T: Copy>(p: *mut T, v: T) {
-    *p = v
-    //core::intrinsics::volatile_store(p, v)
-}
 
 #[kernel]
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
@@ -70,7 +60,7 @@ pub unsafe fn propag(
     let block_ix = (thread::block_idx_x() + thread::block_idx_y() * thread::grid_dim_x()) as usize;
     if !block_ix < num_blocks {
         println!("caca improved: {:?}", block_ix);
-        panic!("jhjklh");
+        //panic!("jhjklh");
     };
     write_volatile(progress.add(block_ix), 0);
 
@@ -172,44 +162,35 @@ pub unsafe fn propag(
             let reference = (|| {
                 let candidate = neighbor.reference();
                 if candidate.pos() == pos {
-                    return None;
+                    return None
                 };
+                return Some(candidate);
                 let pos = IVec2 {
                     x: pos.x as _,
                     y: pos.y as _,
                 };
-                Some(candidate)
-                /*
                 let candidate_pos = IVec2 {
                     x: candidate.pos().x as _,
                     y: candidate.pos().y as _,
                 };
-                let possible_blockage_pos = geometry::line_to(pos, candidate_pos).nth(1).expect({
-                    println!("caca: {:?} {:?} {:?}", pos, candidate_pos, geometry::line_to(pos, candidate_pos).count());
-                    ""
-                });
-                let possible_blockage_pos = USizeVec2 {
-                    x: possible_blockage_pos.x as _,
-                    y: possible_blockage_pos.y as _,
-                };
-                let shared_blockage_ix = compute_shared_ix(&possible_blockage_pos).expect({
-                    println!("coco");
-                    ""
-                });
-                let possible_blockage = (*shared.add(shared_blockage_ix)).expect({
-                    println!("kiko");
-                    ""
-                });
-                let blockage_fire = possible_blockage.fire.expect({
-                    println!("kuko");
-                    ""
-                });
-                if similar_fires(blockage_fire, candidate.fire) {
-                    Some(candidate)
+                let possible_blockage_pos = geometry::neighbor_in_direction(pos, candidate_pos);
+                if possible_blockage_pos != pos {
+                    let possible_blockage_pos = USizeVec2 {
+                        x: possible_blockage_pos.x as _,
+                        y: possible_blockage_pos.y as _,
+                    };
+                    let shared_blockage_ix = compute_shared_ix(&possible_blockage_pos)?;
+                    let possible_blockage = (*shared.add(shared_blockage_ix))?;
+                    let blockage_fire = possible_blockage.fire;
+                    if blockage_fire.map(|f|similar_fires(f, candidate.fire)).unwrap_or(false) {
+                        Some(candidate)
+                    } else {
+                        None
+                    }
                 } else {
-                    None
+                    println!("caca");
+                    Some(candidate)
                 }
-                */
             })();
             //self::println!("vecino con fuego! {:?} {:?} {:?} {:?}", pos, me.is_some(), reference.is_some(), neighbor.reference().pos());
             let point = (|| match (fire, reference) {
@@ -224,8 +205,8 @@ pub unsafe fn propag(
                             reference: reference,
                         })
                     } else {
-                        panic!("caca"); //FIXME
-                                        //self::println!("case 1.2");
+                        self::println!("case 1.2");
+                        //panic!("caca"); //FIXME
                                         // Reference is not valid, use the neighbor
                         match neighbor.as_reference() {
                             Some(reference)
@@ -248,7 +229,7 @@ pub unsafe fn propag(
                 // We assign an access time but a None fire
                 (None, Some(reference)) => {
                     self::println!("case 3");
-                    panic!("caca"); //FIXME
+                    //panic!("caca"); //FIXME
                     let time = reference.time_to(&geo_ref, pos)?;
                     when_lt_max_time(Point {
                         time,
@@ -264,7 +245,7 @@ pub unsafe fn propag(
             if let Some(point) = point {
                 if point.reference.pos() == pos {
                     println!("caca punto: {:?}", pos);
-                    panic!("jhjklh");
+                    //panic!("jhjklh");
                 };
             };
             best_fire = match (point, best_fire) {
@@ -304,7 +285,7 @@ pub unsafe fn propag(
             (thread::block_idx_x() + thread::block_idx_y() * thread::grid_dim_x()) as usize;
         if !block_ix < num_blocks {
             println!("caca improved: {:?}", block_ix);
-            panic!("jhjklh");
+            //panic!("jhjklh");
         };
         //println!("progress {} {}", thread::block_idx_x(), thread::block_idx_y());
         write_volatile(progress.add(block_ix), 1);
@@ -325,7 +306,7 @@ fn compute_shared_ix(pos: &USizeVec2) -> Option<usize> {
         let ix = shared_x + shared_y * (BLOCK_WIDTH + BUFFER_RADIUS * 2);
         if !ix < SHARED_SIZE {
             println!("caca ix shared: {:?}", ix);
-            panic!("jhjklh");
+            //panic!("jhjklh");
         };
         Some(ix)
     } else {
@@ -501,8 +482,7 @@ unsafe fn iter_neighbors(
     // Index of this thread into total area
     let idx_2d = thread::index_2d();
     (-1..2)
-        .map(|dj| (-1..2).map(move |di| (di, dj)))
-        .flatten()
+        .flat_map(|dj| (-1..2).map(move |di| (di, dj)))
         .filter(|(di, dj)| !(*di == 0 && *dj == 0))
         .filter_map(move |(di, dj)| {
             // Neighbor position in global pixel coords
@@ -573,4 +553,15 @@ pub unsafe fn pre_burn(
             *eccentricity.add(i) = None;
         }
     }
+}
+
+#[inline(always)]
+unsafe fn read_volatile<T: Copy>(p: *const T) -> T {
+    *p
+    //core::intrinsics::volatile_load(p)
+}
+#[inline(always)]
+unsafe fn write_volatile<T: Copy>(p: *mut T, v: T) {
+    *p = v
+    //core::intrinsics::volatile_store(p, v)
 }

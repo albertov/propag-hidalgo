@@ -7,12 +7,13 @@ pkgs.mkShell {
   ];
   shellHook = ''
     ${pkgs.pre-commit.shellHook}
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(pwd)/crates/target/debug
   '';
   env = {
     # So we can link against CUDA runtime API while developing
     LD_LIBRARY_PATH = "${pkgs.linuxPackages.nvidia_x11}/lib";
 
-    QGIS_PREFIX_PATH = pkgs.qgis;
+    QGIS_PREFIX_PATH = pkgs.qgis-orig;
 
     inherit (pkgs.propag)
       GDAL_DATA
@@ -35,7 +36,7 @@ pkgs.mkShell {
     valgrind
     rustup
     gdb
-    qgis
+    qgis-orig
     python3
     python3.pkgs.ipython
     python3.pkgs.gdal

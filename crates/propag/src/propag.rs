@@ -631,7 +631,7 @@ pub type RasterizeFuelsFn = unsafe extern "C" fn(
     usize,
 ) -> bool;
 
-/// This is so the type aliases are axported
+/// This is so the type aliases are exported
 #[repr(C)]
 pub struct PluginT {
     run: RunFn,

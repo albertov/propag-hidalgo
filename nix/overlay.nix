@@ -54,7 +54,11 @@ in
 
   qgis-propag-algo = final.callPackage ./pkgs/qgis-propag-algo.nix { };
 
-  qgis = prev.qgis.override {
+  qgis-orig = prev.qgis;
+
+  qgis = final.callPackage ./pkgs/qgis.nix {
+    qgis = prev.qgis;
+    extraPlugins = [ (final.qgis-propag-algo.override { qgis = prev.qgis; }) ];
     extraPythonPackages =
       ps: with ps; [
         ipython

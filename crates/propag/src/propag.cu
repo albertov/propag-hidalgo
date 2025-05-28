@@ -80,19 +80,20 @@ public:
       // we only need load this pixel's data once. On the rest of iterations
       // we just load the halo into shared mem because it's the only place
       // things could have changed outside of this thread.
-      load_points_into_shared_memory(first_iteration);
+      load_points_into_shared_memory(true);
       first_iteration = false;
 
       // Sync here to wait for the shared Point data to have been
       // updated by other threads
       __syncthreads();
       // Begin neighbor analysys
-      Point best = find_neighbor_with_least_access_time(boundaries);
+      Point best;
+      bool retry = find_neighbor_with_least_access_time(boundaries, best);
 
       cooperative_groups::this_grid().sync();
       // End of neighbor analysys, update point in global and shared memory
       // if it improves
-      bool improved = update_point(best);
+      bool improved = retry || update_point(best);
       // Sync to wait for other threads to end their analysis and
       // check if any has improved. Then if we're the first
       // thread of the block mark progress
@@ -141,8 +142,8 @@ public:
   }
 
 private:
-  __device__ inline Point find_neighbor_with_least_access_time(
-      const unsigned int *__restrict__ boundaries) {
+  __device__ inline bool find_neighbor_with_least_access_time(
+      const unsigned int *__restrict__ boundaries, Point &result) {
     if (in_bounds_) {
       Point best = shared_[local_ix_];
 #pragma unroll
@@ -168,8 +169,8 @@ private:
             continue;
           };
 
-          // The neighbor's reference is me, refuse to burn myself again
           PointRef reference = neighbor.reference;
+          // The neighbor's reference is me, refuse to burn myself again
           ASSERT(reference.is_valid(settings_.geo_ref));
           if ((reference.pos.x == idx_2d_.x && reference.pos.y == idx_2d_.y)) {
             continue;
@@ -191,11 +192,22 @@ private:
               if (is_boundary(boundaries, blockage_idx)) {
                 Point ref_p = load_point(prev_pos);
                 if (ref_p.time < FLT_MAX) {
+                  /*
+                  if (idx_2d_.x==182 && idx_2d_.y==settings_.geo_ref.height-57)
+                  { printf("%d %d\n", prev_pos.x, prev_pos.y);
+                  }
+                  */
                   reference = PointRef(ref_p.time, prev_pos);
+                  break;
                 } else {
-                  reference = PointRef(neighbor.time, neighbor_pos);
+                  /*
+                  if (idx_2d_.x==182 && idx_2d_.y==settings_.geo_ref.height-57)
+                  { printf("retry %d %d\n", possible_blockage_pos.x,
+                  possible_blockage_pos.y);
+                  }
+                  */
+                  return true;
                 }
-                break;
               };
               prev_pos = possible_blockage_pos;
             }
@@ -208,9 +220,10 @@ private:
           };
         };
       };
-      return best;
+      result = best;
+      return false;
     };
-    return Point_NULL;
+    return false;
   }
 
   __device__ inline bool update_point(Point p) {
@@ -227,11 +240,11 @@ private:
     ASSERT(me.reference.is_valid(settings_.geo_ref));
     refs_x_[global_ix_] = me.reference.pos.x;
     refs_y_[global_ix_] = me.reference.pos.y;
-    refs_time_[global_ix_] = me.reference.time;
-    // Time must be writen last and after a grid-level memory
-    // fence because the time being set denotes the Point being
-    // comitted. load_point must take this into account and place
-    // a memory barrier too
+    // refs_time_[global_ix_] = me.reference.time;
+    //  Time must be writen last and after a grid-level memory
+    //  fence because the time being set denotes the Point being
+    //  comitted. load_point must take this into account and place
+    //  a memory barrier too
     __threadfence();
     time_[global_ix_] = me.time;
   }
@@ -254,7 +267,7 @@ private:
         ASSERT(p.reference.is_valid(settings_.geo_ref));
         int reference_ix =
             p.reference.pos.x + p.reference.pos.y * settings_.geo_ref.width;
-        p.reference.time = refs_time_[idx];
+        p.reference.time = time_[reference_ix];
         ASSERT(p.reference.time != FLT_MAX);
       };
       return p;

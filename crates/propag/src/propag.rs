@@ -700,7 +700,9 @@ fn write_refs(
                 let ix = (i + j * geo_ref.width) as usize;
                 let byte_ix = ix.div(32);
                 let bit_ix = ix % 32;
-                if time[ix] < Max::MAX && (boundary_change[byte_ix] & (1 << bit_ix)) != 0 {
+                if time[ix] < Max::MAX
+                /*&& (boundary_change[byte_ix] & (1 << bit_ix)) != 0*/
+                {
                     let dst = geo_ref.backward(USizeVec2 {
                         x: i as usize,
                         y: j as usize,

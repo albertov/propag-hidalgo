@@ -340,12 +340,12 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
         .unwrap_or(Err(PropagLoadExtentError))?;
 
     println!("initializing MPI");
-    let universe =
+    let (universe, threading) =
         mpi::initialize_with_threading(Threading::Serialized).ok_or(PropagMPIInitError)?;
     let world = universe.world();
     let size = world.size();
     let rank = world.rank();
-    println!("Node {}/{}", rank, size);
+    println!("Node {}/{} with threading {:?}", rank, size, threading);
 
     println!("initializing CUDA");
     cust::init(CudaFlags::empty()).map_err(PropagCudaError)?;

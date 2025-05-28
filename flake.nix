@@ -27,6 +27,10 @@
     nix-utils = {
       url = "github:albertov/nix-utils";
     };
+    devour-flake = {
+      url = "github:srid/devour-flake";
+      flake = false;
+    };
   };
 
   outputs =
@@ -98,9 +102,7 @@
           legacyPackages = pkgs;
           packages = {
             default = self'.packages.propag;
-            inherit (pkgs)
-              propag
-              ;
+            propag = pkgs.propag;
           };
           apps.make_deb = flake-utils.lib.mkApp {
             drv = pkgs.writeShellApplication {
@@ -123,6 +125,45 @@
               '';
             };
           };
+          apps.pushAll = flake-utils.lib.mkApp {
+            drv = pkgs.writeShellApplication {
+              name = "nix-push-all";
+              runtimeInputs = with pkgs; [
+                nix
+                attic-client
+              ];
+              text = ''
+                # Make sure that flake.lock is sync
+                nix flake lock --no-update-lock-file
+
+                # Do a full nix build (all outputs)
+                # This uses https://github.com/srid/devour-flake
+                for f in $(nix run .#buildAll -- "$@"); do
+                  (nix-store -qR --include-outputs "$(nix-store -qd "$f")" \
+                    | grep -v '\.drv$' \
+                    | grep -v 'unknown-deriver$' \
+                    | xargs -n1000 attic push propag25) || true
+                done
+              '';
+            };
+          };
+          apps.buildAll = flake-utils.lib.mkApp {
+            drv = pkgs.writeShellApplication {
+              name = "nix-build-all";
+              runtimeInputs = [
+                pkgs.nix
+                (pkgs.callPackage inputs.devour-flake { })
+              ];
+              text = ''
+                # Make sure that flake.lock is sync
+                nix flake lock --no-update-lock-file
+
+                # Do a full nix build (all outputs)
+                # This uses https://github.com/srid/devour-flake
+                devour-flake . "$@"
+              '';
+            };
+          };
 
           # Development shell
           devShells.default = import ./nix/devshell.nix pkgs;
@@ -131,7 +172,7 @@
           formatter = treefmtEval.config.build.wrapper;
           # for `nix flake check`
           checks = {
-            formatting = treefmtEval.config.build.check self';
+            formatting = treefmtEval.config.build.check self;
           };
         };
     };

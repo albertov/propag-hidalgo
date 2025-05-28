@@ -367,9 +367,10 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
         let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
 
         // retrieve the add kernel from the module so we can calculate the right launch config.
-        let propag_c = module_c.get_function("propag")?;
-        let fixup = module_c.get_function("fixup")?;
-        let pre_burn = module.get_function("cuda_standard_simple_burn")?;
+        let propagate = module_c.get_function("propag")?;
+        let pre_propagate = module_c.get_function("pre_propagate")?;
+        let post_propagate = module_c.get_function("post_propagate")?;
+        let burn = module.get_function("cuda_standard_simple_burn")?;
 
         let block_size = BlockSize {
             x: THREAD_BLOCK_AXIS_LENGTH,
@@ -383,7 +384,7 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
                                            //assert_eq!(std::mem::size_of::<Point>(), 64);
 
         let max_active_blocks: u32 =
-            propag_c.max_active_blocks_per_multiprocessor(block_size, shmem_bytes as _)?;
+            propagate.max_active_blocks_per_multiprocessor(block_size, shmem_bytes as _)?;
         let mp_count: i32 = device.get_attribute(DeviceAttribute::MultiprocessorCount)?;
         let max_total_blocks: u32 = mp_count as u32 * max_active_blocks;
 
@@ -439,11 +440,11 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
         let refs_time_buf = refs_time.as_slice().as_dbuf()?;
         let time_buf = time.as_slice().as_dbuf()?;
         let boundary_change_buf = boundary_change.as_slice().as_dbuf()?;
-        let (_, pre_burn_block_size) = pre_burn.suggested_launch_configuration(0, 0.into())?;
-        let pre_burn_grid_size = geo_ref.len().div_ceil(pre_burn_block_size);
+        let (_, burn_block_size) = burn.suggested_launch_configuration(0, 0.into())?;
+        let burn_grid_size = geo_ref.len().div_ceil(burn_block_size);
         unsafe {
             launch!(
-                pre_burn<<<pre_burn_grid_size, pre_burn_block_size, 0, stream>>>(
+                burn<<<burn_grid_size, burn_block_size, 0, stream>>>(
                     len,
                     model_gpu.as_device_ptr(),
                     d1hr_gpu.as_device_ptr(),
@@ -461,16 +462,36 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
                 )
             )?;
             stream.synchronize()?;
+            for grid_y in 0..super_grid_size.y {
+                for grid_x in 0..super_grid_size.x {
+                    cust::launch!(
+                        pre_propagate<<<grid_size, block_size, shmem_bytes, stream>>>(
+                            settings,
+                            grid_x,
+                            grid_y,
+                            speed_max_buf.as_device_ptr(),
+                            azimuth_max_buf.as_device_ptr(),
+                            eccentricity_buf.as_device_ptr(),
+                            time_buf.as_device_ptr(),
+                            refs_x_buf.as_device_ptr(),
+                            refs_y_buf.as_device_ptr(),
+                            refs_time_buf.as_device_ptr(),
+                            boundary_change_buf.as_device_ptr(),
+                        )
+                    )?;
+                }
+            }
+            stream.synchronize()?;
             loop {
                 let mut worked: Vec<DeviceVariable<u32>> =
                     Vec::with_capacity((super_grid_size.x * super_grid_size.y) as usize);
-                for grid_x in 0..super_grid_size.x {
-                    for grid_y in 0..super_grid_size.y {
+                for grid_y in 0..super_grid_size.y {
+                    for grid_x in 0..super_grid_size.x {
                         let this_worked = DeviceVariable::new(0)?;
                         let progress = DeviceVariable::new(0)?;
                         cust::launch_cooperative!(
                             // slices are passed as two parameters, the pointer and the length.
-                            propag_c<<<grid_size, block_size, shmem_bytes, stream>>>(
+                            propagate<<<grid_size, block_size, shmem_bytes, stream>>>(
                                 settings,
                                 grid_x,
                                 grid_y,
@@ -498,10 +519,10 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
                 }
             }
             stream.synchronize()?;
-            for grid_x in 0..super_grid_size.x {
-                for grid_y in 0..super_grid_size.y {
+            for grid_y in 0..super_grid_size.y {
+                for grid_x in 0..super_grid_size.x {
                     cust::launch!(
-                        fixup<<<grid_size, block_size, shmem_bytes, stream>>>(
+                        post_propagate<<<grid_size, block_size, shmem_bytes, stream>>>(
                             settings,
                             grid_x,
                             grid_y,

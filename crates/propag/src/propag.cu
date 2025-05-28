@@ -110,7 +110,7 @@ public:
       // Analysys ends when grid has not improved
     } while (grid_improved); // end grid loop
   }
-  __device__ void fixup() {
+  __device__ void post_propagate() {
     if (in_bounds_) {
       load_points_into_shared_memory(true);
     }
@@ -123,6 +123,14 @@ public:
       if (fire_is_null(me.fire) || me.time > settings_.max_time) {
         time_[global_ix_] = FLT_MAX;
       };
+    };
+  }
+  __device__ void pre_propagate() {
+    if (in_bounds_) {
+      load_points_into_shared_memory(true);
+    }
+    __syncthreads();
+    if (in_bounds_) {
     };
   }
 
@@ -416,21 +424,38 @@ __global__ void propag(const Settings settings, const unsigned grid_x,
   sim.run(worked, progress);
 }
 
-__global__ void fixup(const Settings settings, const unsigned grid_x,
-                      const unsigned grid_y,
-                      const float *__restrict__ const speed_max,
-                      const float *__restrict__ const azimuth_max,
-                      const float *__restrict__ const eccentricity,
-                      float volatile *__restrict__ time,
-                      unsigned short volatile *__restrict__ ref_x,
-                      unsigned short volatile *__restrict__ ref_y,
-                      volatile float *__restrict__ ref_time,
-                      unsigned short volatile *__restrict__ ref_change) {
+__global__ void
+post_propagate(const Settings settings, const unsigned grid_x,
+               const unsigned grid_y, const float *__restrict__ const speed_max,
+               const float *__restrict__ const azimuth_max,
+               const float *__restrict__ const eccentricity,
+               float volatile *__restrict__ time,
+               unsigned short volatile *__restrict__ ref_x,
+               unsigned short volatile *__restrict__ ref_y,
+               volatile float *__restrict__ ref_time,
+               unsigned short volatile *__restrict__ ref_change) {
   extern __shared__ Point shared[];
 
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
                  time, ref_x, ref_y, ref_time, ref_change, shared);
-  sim.fixup();
+  sim.post_propagate();
+}
+
+__global__ void
+pre_propagate(const Settings settings, const unsigned grid_x,
+              const unsigned grid_y, const float *__restrict__ const speed_max,
+              const float *__restrict__ const azimuth_max,
+              const float *__restrict__ const eccentricity,
+              float volatile *__restrict__ time,
+              unsigned short volatile *__restrict__ ref_x,
+              unsigned short volatile *__restrict__ ref_y,
+              volatile float *__restrict__ ref_time,
+              unsigned short volatile *__restrict__ ref_change) {
+  extern __shared__ Point shared[];
+
+  Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
+                 time, ref_x, ref_y, ref_time, ref_change, shared);
+  sim.pre_propagate();
 }
 
 #ifdef __cplusplus

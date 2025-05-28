@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let settings = Settings {
         geo_ref,
         max_time,
-        find_ref_change: true,
+        find_ref_change: false,
     };
     let fire_pos = USizeVec2 {
         x: geo_ref.width as usize / 2 - 24_usize / 2,

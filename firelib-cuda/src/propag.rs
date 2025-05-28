@@ -40,6 +40,9 @@ pub unsafe fn propag(
     // Arrays in shared memory for fast analysis within block
     let shared = shared_array![Option<Point<float::T>>; SHARED_SIZE];
 
+    let when_lt_max_time = |p: Point<float::T>| if p.time < max_time {
+        Some(p) } else { None };
+
     // Dimensions of the total area
     let width = geo_ref.size[0] as u32;
     let height = geo_ref.size[1] as u32;
@@ -108,6 +111,19 @@ pub unsafe fn propag(
                 },
                 |p| p.fire,
             );
+            let neighbor_as_reference = || {
+                match neighbor.as_reference() {
+                    Some(reference) => {
+                        let time = reference.time_to(&geo_ref, pos);
+                        when_lt_max_time(Point {
+                            time,
+                            fire,
+                            reference: Some(reference),
+                        })
+                    }
+                    None => None,
+                }
+            };
             let reference = (|| {
                 let neigh_ref = neighbor.point.effective_ref(pos)?;
                 let pos = Coord {
@@ -142,38 +158,37 @@ pub unsafe fn propag(
                 }
             })();
             let point = match (fire, reference) {
+                // We are combustible and reference can be used
                 (Some(fire), Some(reference)) => {
                     if similar_fires(&fire, &reference.fire) {
-                        let time = reference.access_time(&geo_ref, pos);
-                        Some(Point {
+                        let time = reference.time_to(&geo_ref, pos);
+                        when_lt_max_time(Point {
                             time,
                             fire: Some(fire),
                             reference: Some(reference),
                         })
                     } else {
-                        match neighbor.as_reference() {
-                            Some(reference) => {
-                                let time = reference.access_time(&geo_ref, pos);
-                                Some(Point {
-                                    time,
-                                    fire: Some(fire),
-                                    reference: Some(reference),
-                                })
-                            }
-                            None => None,
-                        }
+                        // Reference is not valid, use the neighbor
+                        neighbor_as_reference()
                     }
-                }
+                },
+                // We are combustible but reference is not valid, use the neighbor
+                (Some(_), None) =>
+                    neighbor_as_reference(),
+                // We are not combustible but reference can be used.
+                // We assign an acces time but a None fire
                 (None, Some(reference)) => {
-                    let time = reference.access_time(&geo_ref, pos);
-                    Some(Point {
+                    let time = reference.time_to(&geo_ref, pos);
+                    when_lt_max_time(Point {
                         time,
                         fire: None,
                         reference: Some(reference),
                     })
                 }
-                (_, None) => None,
+                // Not combustible and invalid reference
+                (None, None) => None,
             };
+            // Update the best_fire with the one with closes access time
             best_fire = match (point, best_fire) {
                 (Some(point), Some(best_fire)) if point.time < best_fire.time => Some(point),
                 _ => best_fire,
@@ -204,7 +219,7 @@ fn similar_fires(a: &FireSimple, b: &FireSimple) -> bool {
 }
 
 impl<T:CoordFloat> PointRef<T> {
-    fn access_time(
+    fn time_to(
         &self,
         geo_ref: &GeoReference<f64>,
         to: Coord<usize>,
@@ -220,8 +235,8 @@ impl<T:CoordFloat> PointRef<T> {
         let bearing = Angle::new::<radian>(geo_ref.bearing(from_pos, to) as _);
         let speed = self.fire.spread(bearing).speed().get::<meter_per_second>();
         let distance: float::T  = NumCast::from(geo_ref.distance(from_pos, to)).expect("conversion failed");
-        <float::T as NumCast>::from(self.time).expect("conversion failed")
-            + (distance / speed)
+        let time = <float::T as NumCast>::from(self.time).expect("conversion failed");
+        time + (distance / speed)
     }
 }
 

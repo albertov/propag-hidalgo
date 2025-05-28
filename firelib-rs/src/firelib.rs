@@ -1,18 +1,14 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-use crate::units::areal_mass_density::pound_per_square_foot;
 use crate::units::heat_flux_density::btu_sq_foot_min;
 use crate::units::linear_power_density::btu_foot_sec;
 use crate::units::radiant_exposure::btu_sq_foot;
-use crate::units::reciprocal_length::reciprocal_foot;
 use crate::units::*;
 use uom::si::angle::degree;
 use uom::si::angle::radian;
-use uom::si::available_energy::btu_per_pound;
 use uom::si::f64::*;
 use uom::si::length::foot;
-use uom::si::mass_density::pound_per_cubic_foot;
 use uom::si::ratio::ratio;
 use uom::si::time::minute;
 use uom::si::velocity::foot_per_minute;
@@ -326,7 +322,7 @@ impl FuelDef {
         mext: f64,
         particles: [ParticleDef; F],
     ) -> Self {
-        use std::marker::PhantomData;
+        
         Self {
             name: init_arr(0, name),
             desc: init_arr(0, desc),
@@ -378,18 +374,6 @@ impl Fuel {
             alive_particles,
             dead_particles,
         }
-    }
-    #[inline]
-    const fn has_particles(&self) -> bool {
-        !self.alive_particles[0].is_sentinel() || !self.dead_particles[0].is_sentinel()
-    }
-    #[inline]
-    const fn has_live_particles(&self) -> bool {
-        !self.alive_particles[0].is_sentinel()
-    }
-    #[inline]
-    const fn has_dead_particles(&self) -> bool {
-        !self.dead_particles[0].is_sentinel()
     }
     fn particles(&self) -> impl Iterator<Item = &Particle> {
         iter_particles(&self.dead_particles).chain(iter_particles(&self.alive_particles))
@@ -711,28 +695,17 @@ impl Combustion {
             .sum()
     }
 
+    #[inline]
     const fn has_particles(&self) -> bool {
         self.has_live_particles() || self.has_dead_particles()
     }
+    #[inline]
     const fn has_live_particles(&self) -> bool {
-        let mut i = 0;
-        while i < 1 || i < self.alive_particles.len() {
-            if self.alive_particles[i].is_sentinel() {
-                break;
-            }
-            i += 1
-        }
-        i > 0
+        !self.alive_particles[0].is_sentinel()
     }
+    #[inline]
     const fn has_dead_particles(&self) -> bool {
-        let mut i = 0;
-        while i < 1 || i < self.dead_particles.len() {
-            if self.dead_particles[i].is_sentinel() {
-                break;
-            }
-            i += 1
-        }
-        i > 0
+        !self.dead_particles[0].is_sentinel()
     }
 
     fn life_mext(&self, life: Life, terrain: &Terrain) -> f64 {
@@ -992,12 +965,6 @@ mod tests {
 }
 #[inline]
 fn iter_particles<const N: usize>(particles: &[Particle; N]) -> impl Iterator<Item = &Particle> {
-    particles.iter().take_while(|p| !p.is_sentinel())
-}
-#[inline]
-fn iter_particle_defs<const N: usize>(
-    particles: &[ParticleDef; N],
-) -> impl Iterator<Item = &ParticleDef> {
     particles.iter().take_while(|p| !p.is_sentinel())
 }
 

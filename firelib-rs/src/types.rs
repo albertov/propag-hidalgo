@@ -1,8 +1,4 @@
-use heapless::String;
-use heapless::Vec;
 use uom::si::f64::*;
-use uom::si::length::foot;
-use uom::si::ratio::ratio;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Life {

@@ -278,7 +278,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Write times raster
     println!("Generating times geotiff");
     let gtiff = DriverManager::get_driver_by_name("GTIFF")?;
-    let options = RasterCreationOptions::from_iter(["TILED=YES", "BLOCKXSIZE=16", "BLOCKYSIZE=16"]);
+    let options =
+        RasterCreationOptions::from_iter(["TILED=YES", "BLOCKXSIZE=256", "BLOCKYSIZE=256"]);
     let mut ds = gtiff.create_with_band_type_with_options::<f32, _>(
         "tiempos.tif",
         geo_ref.width as usize,

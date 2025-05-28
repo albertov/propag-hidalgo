@@ -80,7 +80,9 @@ public:
       // thread of the block mark progress
       bool block_improved = __syncthreads_or(improved);
       if (block_improved && threadIdx.x == 0 && threadIdx.y == 0) {
-        atomicAdd(progress, 1);
+        // No need for atomic here because it's enough to flip
+        // it != 0
+        *progress = 1;
       }
 
       // Block has finished. Check if others have too and set grid_improved.
@@ -214,6 +216,9 @@ private:
       // printf("best time %f\n", best.time);
       refs_x_[global_ix_] = p.reference.pos.x;
       refs_y_[global_ix_] = p.reference.pos.y;
+      // Time must be writen last and after a grid-level memory
+      // fence because the time being set denotes the Point being
+      // comitted
       __threadfence();
       time_[global_ix_] = p.time;
       shared_[local_ix_] = p;
@@ -266,6 +271,9 @@ private:
                       PointRef());
 
       if (p.time < MAX_TIME) {
+        // This grid-level memory fence is to ensure that reading
+        // the time happens before reading the reference to ensure
+        // that the Pont has been fully comitted to global memory
         __threadfence();
         p.reference.pos = make_ushort2(refs_x_[idx], refs_y_[idx]);
         ASSERT(!(p.reference.pos.x == USHRT_MAX ||

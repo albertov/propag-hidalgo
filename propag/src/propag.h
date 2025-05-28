@@ -53,8 +53,6 @@ public:
     pos.x = other.pos.x;
     pos.y = other.pos.y;
     fire = other.fire;
-    // time must be written last
-    __threadfence();
     time = other.time;
     return *this;
   }
@@ -80,8 +78,6 @@ public:
   __device__ volatile Point &operator=(const Point &other) volatile {
     fire = other.fire;
     reference = other.reference;
-    // time must be written last
-    __threadfence();
     time = other.time;
     return *this;
   }

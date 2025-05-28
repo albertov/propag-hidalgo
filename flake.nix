@@ -40,6 +40,10 @@
           ...
         }:
         let
+          pkgs = import inputs.nixpkgs {
+            inherit system;
+            config.allowUnfree = true;
+          };
           treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
           pkgs = import inputs.nixpkgs {
             inherit system;
@@ -67,10 +71,11 @@
             };
             packages = with pkgs; [
               git
-              #cargo
               cargo-watch
-              #rust-bindgen
-              #rustfmt
+              cudatoolkit
+              cudatoolkit.lib
+              openssl.dev
+              pkg-config
             ];
           };
           # for `nix fmt`

@@ -128,14 +128,14 @@ class DDA {
   const float2 delta_;
 
 public:
-  __device__ DDA(uint2 from, uint2 to)
+  __device__ inline DDA(uint2 from, uint2 to)
       : from_(make_int2(from.x, from.y)), to_(make_int2(to.x, to.y)),
         step_(make_int2(signum(to_.x - from_.x), signum(to_.y - from_.y))),
         cur_(from_), tmax_(make_float2(1.0 / float(abs(to_.x - from_.x)),
                                        1.0 / float(abs(to_.y - from_.y)))),
-        delta_(tmax_) {};
+        delta_(tmax_){};
 
-  __device__ bool next(int2 &result) {
+  __device__ inline bool next(int2 &result) {
     result = cur_;
     if (result.x == to_.x && result.y == to_.y) {
       cur_.x += step_.x;

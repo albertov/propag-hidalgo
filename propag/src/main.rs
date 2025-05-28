@@ -203,23 +203,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             //println!("propag");
             //println!("propag");
             loop {
-                let mut worked: Vec<UnifiedBox<u32>> =
+                let mut worked: Vec<DeviceVariable<u32>> =
                     Vec::with_capacity((super_grid_size.0 * super_grid_size.1) as usize);
                 for grid_x in (0..super_grid_size.0) {
                     for grid_y in (0..super_grid_size.1) {
                         let linear_grid_size: usize =
                             (grid_size.x * grid_size.y * grid_size.z) as usize;
-                        let mut progress: Vec<u32> =
-                            std::iter::repeat(0).take(linear_grid_size).collect();
-                        let mut progress_buf = progress.as_slice().as_dbuf()?;
-                        let this_worked = UnifiedBox::new(0)?;
+                        let this_worked = DeviceVariable::new(0)?;
+                        let progress = DeviceVariable::new(0)?;
                         cust::launch_cooperative!(
                             // slices are passed as two parameters, the pointer and the length.
                             propag_c<<<grid_size, block_size, shmem_bytes, stream>>>(
                                 settings,
                                 grid_x,
                                 grid_y,
-                                this_worked.as_unified_ptr(),
+                                this_worked.as_device_ptr(),
                                 speed_max_buf.as_device_ptr(),
                                 azimuth_max_buf.as_device_ptr(),
                                 eccentricity_buf.as_device_ptr(),
@@ -227,14 +225,17 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 refs_x_buf.as_device_ptr(),
                                 refs_y_buf.as_device_ptr(),
                                 boundary_change_buf.as_device_ptr(),
-                                progress_buf.as_device_ptr(),
+                                progress.as_device_ptr(),
                             )
                         )?;
                         worked.push(this_worked);
                     }
                 }
                 stream.synchronize()?;
-                if worked.iter().all(|x| **x == 0) {
+                if worked.iter_mut().all(|x| {
+                    let _ = x.copy_dtoh();
+                    **x == 0
+                }) {
                     break;
                 }
             }

@@ -15,24 +15,27 @@ class ALIGN Propagator {
   const int shared_width_;
   const int local_ix_;
 
-  const float *speed_max_;
-  const float *azimuth_max_;
-  const float *eccentricity_;
+  const float *__restrict__ speed_max_;
+  const float *__restrict__ azimuth_max_;
+  const float *__restrict__ eccentricity_;
 
-  volatile float *time_;
-  volatile unsigned short *refs_x_;
-  volatile unsigned short *refs_y_;
-  volatile unsigned short *refs_change_;
+  volatile float *__restrict__ time_;
+  volatile unsigned short *__restrict__ refs_x_;
+  volatile unsigned short *__restrict__ refs_y_;
+  volatile unsigned short *__restrict__ refs_change_;
 
   __shared__ Point *shared_;
 
 public:
   __device__ Propagator(const Settings settings, const unsigned grid_x,
-                        const unsigned grid_y, const float *speed_max,
-                        const float *azimuth_max, const float *eccentricity,
-                        float volatile *time, unsigned short volatile *refs_x,
-                        unsigned short volatile *refs_y,
-                        unsigned short volatile *ref_change,
+                        const unsigned grid_y,
+                        const float *__restrict__ speed_max,
+                        const float *__restrict__ azimuth_max,
+                        const float *__restrict__ eccentricity,
+                        float volatile *__restrict__ time,
+                        unsigned short volatile *__restrict__ refs_x,
+                        unsigned short volatile *__restrict__ refs_y,
+                        unsigned short volatile *__restrict__ ref_change,
                         __shared__ Point *shared)
       : settings_(settings), gridIx_(make_uint2(grid_x, grid_y)),
         idx_2d_(index_2d(gridIx_)),
@@ -50,13 +53,16 @@ public:
     ASSERT(block_ix_ < gridDim.x * gridDim.y);
   };
 
-  __device__ void run(unsigned *worked, volatile unsigned *progress) {
+  __device__ void run(unsigned *worked, unsigned *progress) {
     __shared__ bool grid_improved;
     bool first_iteration = true;
     ASSERT(!(settings_.geo_ref.width < 1 || settings_.geo_ref.height < 1));
     do { // Grid loop
       if (threadIdx.x == 0 && threadIdx.y == 0) {
         grid_improved = false;
+        if (blockIdx.x == 0 && blockIdx.y == 0) {
+          *progress = 0;
+        }
       };
       // First phase, load data from global to shared memory
       load_points_into_shared_memory(first_iteration);
@@ -73,17 +79,17 @@ public:
       // check if any has improved. Then if we're the first
       // thread of the block mark progress
       bool block_improved = __syncthreads_or(improved);
-      mark_progress(progress, block_improved);
+      if (block_improved && threadIdx.x == 0 && threadIdx.y == 0) {
+        atomicAdd(progress, 1);
+      }
 
       // Block has finished. Check if others have too and set grid_improved.
       // Analysys ends when grid has not improved
       cooperative_groups::grid_group grid = cooperative_groups::this_grid();
       grid.sync();
       if (threadIdx.x == 0 && threadIdx.y == 0) {
-        grid_improved = block_improved;
-        int i=0;
-        while (!grid_improved && i<gridDim.x*gridDim.y) {
-          grid_improved |= progress[i++];
+        if (block_improved || *progress > 0) {
+          grid_improved = true;
         }
         if (grid_improved && blockIdx.x == 0 && blockIdx.y == 0) {
           *worked = 1;
@@ -143,6 +149,7 @@ private:
 
           int2 possible_blockage_pos;
           iter.next(possible_blockage_pos); // skip self
+#pragma unroll
           for (int i = 0; i < HALO_RADIUS; i++) {
             if (iter.next(possible_blockage_pos)) {
               int2 dir = make_int2(possible_blockage_pos.x - int(idx_2d_.x),
@@ -200,18 +207,6 @@ private:
     };
     *result = best;
   }
-  __device__ inline void mark_progress(volatile unsigned *progress,
-                                       unsigned v) {
-    if (threadIdx.x == 0 && threadIdx.y == 0) {
-      progress[block_ix_] = v;
-    }
-  }
-  __device__ inline void mark_progress_or(volatile unsigned *progress,
-                                          unsigned v) {
-    if (threadIdx.x == 0 && threadIdx.y == 0) {
-      progress[block_ix_] |= v;
-    }
-  }
 
   __device__ inline bool update_point(Point p) {
     Point &me = shared_[local_ix_];
@@ -237,17 +232,17 @@ private:
       // Load the halo regions
       bool x_near_x0 = threadIdx.x < HALO_RADIUS;
       bool y_near_y0 = threadIdx.y < HALO_RADIUS;
-      if (y_near_y0) {
-        // Top halo
-        load_point_at_offset(make_int2(0, -HALO_RADIUS));
-        // Bottom halo
-        load_point_at_offset(make_int2(0, blockDim.y));
-      }
       if (x_near_x0) {
         // Left halo
         load_point_at_offset(make_int2(-HALO_RADIUS, 0));
         // Right halo
         load_point_at_offset(make_int2(blockDim.x, 0));
+      }
+      if (y_near_y0) {
+        // Top halo
+        load_point_at_offset(make_int2(0, -HALO_RADIUS));
+        // Bottom halo
+        load_point_at_offset(make_int2(0, blockDim.y));
       }
       if (x_near_x0 && y_near_y0) {
         // corners
@@ -295,6 +290,7 @@ private:
       shared_[local.x + local.y * shared_width_] = Point_NULL;
     }
   }
+
   __device__ void print_info(const char msg[]) const {
     static const char true_[] = "true";
     static const char false_[] = "false";
@@ -369,18 +365,20 @@ private:
 extern "C" {
 #endif
 
-__global__ void
-propag(const Settings settings, unsigned grid_x, unsigned grid_y,
-       unsigned *worked, const float *speed_max, const float *azimuth_max,
-       const float *eccentricity, float volatile *time,
-       unsigned short volatile *refs_x, unsigned short volatile *refs_y,
-       unsigned short volatile *ref_change, unsigned volatile *progress) {
+__global__ void propag(const Settings settings, unsigned grid_x,
+                       unsigned grid_y, unsigned *__restrict__ worked,
+                       const float *__restrict__ speed_max,
+                       const float *__restrict__ azimuth_max,
+                       const float *__restrict__ eccentricity,
+                       float volatile *__restrict__ time,
+                       unsigned short volatile *__restrict__ refs_x,
+                       unsigned short volatile *__restrict__ refs_y,
+                       unsigned short volatile *__restrict__ ref_change,
+                       unsigned *progress) {
   extern __shared__ Point shared[];
 
-  Propagator sim =
-      Propagator(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
+  Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
                  time, refs_x, refs_y, ref_change, shared);
-
   sim.run(worked, progress);
 }
 

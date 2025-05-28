@@ -13,28 +13,40 @@
 #define ALIGN __align__(16)
 #define ASSERT(X) assert(X)
 
+typedef struct Settings {
+  const GeoReference geo_ref;
+  const float max_time;
+  const bool find_ref_change;
+} Settings;
+
 class FireSimpleCuda {
 public:
-  T speed_max;
+  T inv_speed_max;
   T azimuth_max;
   T eccentricity;
 
   __device__ FireSimpleCuda()
-      : speed_max(0.0), azimuth_max(0.0), eccentricity(0.0) {}
+      : inv_speed_max(0.0), azimuth_max(0.0), eccentricity(0.0) {}
 
-  __device__ FireSimpleCuda(T speed_max, T azimuth_max, T eccentricity)
-      : speed_max(speed_max), azimuth_max(azimuth_max),
+  __device__ FireSimpleCuda(T inv_speed_max, T azimuth_max, T eccentricity)
+      : inv_speed_max(inv_speed_max), azimuth_max(azimuth_max),
         eccentricity(eccentricity) {};
 
   __device__ volatile FireSimpleCuda &
   operator=(const FireSimpleCuda &other) volatile {
-    speed_max = other.speed_max;
+    inv_speed_max = other.inv_speed_max;
     azimuth_max = other.azimuth_max;
     eccentricity = other.eccentricity;
     return *this;
   }
 
-  __device__ inline bool is_null() const { return speed_max == 0.0; }
+  __device__ inline FireSimpleCuda(size_t idx, const float *inv_speed_max,
+                                   const float *azimuth_max,
+                                   const float *eccentricity)
+      : FireSimpleCuda(inv_speed_max[idx], azimuth_max[idx],
+                       eccentricity[idx]){};
+
+  __device__ inline bool is_null() const { return inv_speed_max == 0.0; }
 };
 #define FireSimpleCuda_NULL FireSimpleCuda()
 
@@ -58,14 +70,13 @@ public:
     time = other.time;
     return *this;
   }
+
+  __device__ inline bool is_valid(const GeoReference &geo_ref) const {
+    return !(pos.x == USHRT_MAX || pos.y == USHRT_MAX ||
+             pos.x >= geo_ref.width || pos.y >= geo_ref.height);
+  }
 };
 #define PointRef_NULL PointRef()
-
-typedef struct Settings {
-  const GeoReference geo_ref;
-  const float max_time;
-  const bool find_ref_change;
-} Settings;
 
 class ALIGN Point {
 public:
@@ -93,12 +104,6 @@ __device__ inline uint2 index_2d(uint2 gridIx) {
                         gridIx.x * gridDim.x * blockDim.x,
                     threadIdx.y + blockIdx.y * blockDim.y +
                         gridIx.y * gridDim.y * blockDim.y);
-}
-
-__device__ inline FireSimpleCuda load_fire(size_t idx, const float *speed_max,
-                                           const float *azimuth_max,
-                                           const float *eccentricity) {
-  return FireSimpleCuda(speed_max[idx], azimuth_max[idx], eccentricity[idx]);
 }
 
 __device__ inline int signum(int val) { return int(0 < val) - int(val < 0); }

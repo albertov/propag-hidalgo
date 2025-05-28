@@ -160,8 +160,8 @@ __global__ void propag(const Settings &settings, const float *speed_max,
   // Calculate local (shared memory) indices
   int local_x = threadIdx.x + HALO_RADIUS;
   int local_y = threadIdx.y + HALO_RADIUS;
-  int local_ix = local_x + local_y * shared_width;
   int shared_width = blockDim.x + HALO_RADIUS * 2;
+  int local_ix = local_x + local_y * shared_width;
 
   //////////////////////////////////////////////////////
   // First phase, load data from global to shared memory
@@ -211,6 +211,7 @@ __global__ void propag(const Settings &settings, const float *speed_max,
 
   __syncthreads();
 
+  /*
   if (in_bounds) {
     FireSimpleCuda f = shared[local_x + local_y * shared_width].fire;
     assert(!is_fire_null(f));
@@ -258,6 +259,7 @@ __global__ void propag(const Settings &settings, const float *speed_max,
     assert(good);
   };
   return;
+  */
 
   ////////////////////////////////////////////////////////////////////////
   // Begin neighbor analysys
@@ -306,32 +308,24 @@ __global__ void propag(const Settings &settings, const float *speed_max,
         }
 
         assert(!(reference.pos.x == idx_2d.x && reference.pos.y == idx_2d.y));
+
         int2 dir = neighbor_direction(
             idx_2d, make_uint2(reference.pos.x, reference.pos.y));
-        if (idx_2d.x + dir.x && idx_2d.x + dir.x < width && idx_2d.y + dir.y &&
-            idx_2d.y + dir.y < height && HALO_RADIUS <= local_x + dir.x &&
-            local_x + dir.x < blockDim.x + HALO_RADIUS &&
-            HALO_RADIUS <= local_y + dir.y &&
-            local_y + dir.y < blockDim.y + HALO_RADIUS) {
+        if (idx_2d.x + dir.x >= 0 && idx_2d.x + dir.x < width &&
+            idx_2d.y + dir.y >= 0 && idx_2d.y + dir.y < height) {
           Point possible_blockage =
               shared[(local_x + dir.x) + (local_y + dir.y) * shared_width];
-          if (is_point_null(possible_blockage) ||
-              is_fire_null(possible_blockage.fire) ||
-              !similar_fires_(possible_blockage.fire, reference.fire)) {
-
-            printf("referencia roita %d %d %f %f %d %d %d %d %d %f %f %f\n",
-                   reference.pos.x, reference.pos.y, possible_blockage.time,
-                   reference.time, idx_2d.x, idx_2d.y,
-                   is_point_null(possible_blockage),
-                   is_fire_null(possible_blockage.fire),
-                   !similar_fires_(possible_blockage.fire, reference.fire),
-                   reference.fire.speed_max, reference.fire.azimuth_max,
-                   reference.fire.eccentricity);
-            assert(false);
-            reference = PointRef_NULL;
+          if (is_point_null(possible_blockage))
+          {
+              // If we haven't analyzed the blockage point yet then we can't use
+              // the reference in this iteration
+              reference = PointRef_NULL;
+          } else {
+              assert(!is_fire_null(possible_blockage.fire));
+              if (!similar_fires_(possible_blockage.fire, reference.fire)) {
+                reference = PointRef_NULL;
+              };
           };
-        } else {
-          reference = PointRef_NULL;
         };
 
         // Look for a new candidate for best time
@@ -341,7 +335,6 @@ __global__ void propag(const Settings &settings, const float *speed_max,
           if (!similar_fires_(fire, reference.fire)) {
             // we can't reuse reference because fire is different to ours.
             // Try to use neighbor as reference
-            /*
             printf("%d %d %d %d %f %f %f %f %f %f %f\n",
                   idx_2d.x, idx_2d.y,
                    reference.pos.x,
@@ -354,7 +347,6 @@ __global__ void propag(const Settings &settings, const float *speed_max,
                    reference.fire.eccentricity,
                    reference.time
                    );
-            */
             PointRef r = PointRef(neighbor_point.time, neighbor_pos,
                                   neighbor_point.fire);
             if (!(r.pos.x == idx_2d.x && r.pos.y == idx_2d.y) &&
@@ -395,7 +387,7 @@ __global__ void propag(const Settings &settings, const float *speed_max,
   bool improved = false;
   if (in_bounds && best.time < MAX_TIME) {
     // printf("best time %f\n", best.time);
-    shared[local_x + local_y * shared_width] = best;
+    //shared[local_x + local_y * shared_width] = best;
     assert(global_ix < settings.geo_ref.width * settings.geo_ref.height);
     time[global_ix] = best.time;
     refs_x[global_ix] = best.reference.pos.x;

@@ -1,9 +1,9 @@
 #[cfg(feature = "std")]
 fn main() {
+    use firelib_rs::float::*;
     use firelib_rs::*;
     use rand::prelude::*;
     use uom::si::angle::degree;
-    use uom::si::f64::*;
     use uom::si::ratio::ratio;
     use uom::si::velocity::meter_per_second;
 

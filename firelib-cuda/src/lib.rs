@@ -1,28 +1,29 @@
 use cuda_std::prelude::*;
 use cuda_std::thread::sync_threads;
+use firelib_rs::float;
 use firelib_rs::*;
 
 #[kernel]
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
 pub unsafe fn standard_burn(
     model: &[usize],
-    d1hr: &[f64],
-    d10hr: &[f64],
-    d100hr: &[f64],
-    herb: &[f64],
-    wood: &[f64],
-    wind_speed: &[f64],
-    wind_azimuth: &[f64],
-    slope: &[f64],
-    aspect: &[f64],
-    rx_int: *mut f64,
-    speed0: *mut f64,
-    hpua: *mut f64,
-    phi_eff_wind: *mut f64,
-    speed_max: *mut f64,
-    azimuth_max: *mut f64,
-    eccentricity: *mut f64,
-    residence_time: *mut f64,
+    d1hr: &[float::T],
+    d10hr: &[float::T],
+    d100hr: &[float::T],
+    herb: &[float::T],
+    wood: &[float::T],
+    wind_speed: &[float::T],
+    wind_azimuth: &[float::T],
+    slope: &[float::T],
+    aspect: &[float::T],
+    rx_int: *mut float::T,
+    speed0: *mut float::T,
+    hpua: *mut float::T,
+    phi_eff_wind: *mut float::T,
+    speed_max: *mut float::T,
+    azimuth_max: *mut float::T,
+    eccentricity: *mut float::T,
+    residence_time: *mut float::T,
 ) {
     let i = thread::index_1d() as usize;
     if i < model.len() {
@@ -55,18 +56,18 @@ pub unsafe fn standard_burn(
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
 pub unsafe fn standard_simple_burn(
     model: &[usize],
-    d1hr: &[f64],
-    d10hr: &[f64],
-    d100hr: &[f64],
-    herb: &[f64],
-    wood: &[f64],
-    wind_speed: &[f64],
-    wind_azimuth: &[f64],
-    slope: &[f64],
-    aspect: &[f64],
-    speed_max: *mut f64,
-    azimuth_max: *mut f64,
-    eccentricity: *mut f64,
+    d1hr: &[float::T],
+    d10hr: &[float::T],
+    d100hr: &[float::T],
+    herb: &[float::T],
+    wood: &[float::T],
+    wind_speed: &[float::T],
+    wind_azimuth: &[float::T],
+    slope: &[float::T],
+    aspect: &[float::T],
+    speed_max: *mut float::T,
+    azimuth_max: *mut float::T,
+    eccentricity: *mut float::T,
 ) {
     let i = thread::index_1d() as usize;
     if i < model.len() {

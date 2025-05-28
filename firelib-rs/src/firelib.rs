@@ -24,52 +24,9 @@ use uom::si::time::minute;
 use uom::si::velocity::foot_per_minute;
 use uom::si::velocity::meter_per_second;
 
+use crate::float;
+use crate::float::*;
 
-pub mod float {
-    pub type T = f64;
-    pub const PI: T = 3.141592653589793;
-    pub use uom::si::f64::*;
-    pub use const_soft_float::soft_f64::SoftF64;
-    #[derive(Copy, Clone)]
-    pub struct _SoftFloat(SoftF64);
-    pub const fn SoftFloat(v: T) -> _SoftFloat {
-        _SoftFloat(SoftF64(v))
-    }
-    impl _SoftFloat {
-        pub const fn to_float(&self) -> T {
-            self.0.to_f64()
-        }
-        pub const fn sqrt(&self) -> Self {
-            _SoftFloat(self.0.sqrt())
-        }
-        pub const fn exp(&self) -> Self {
-            _SoftFloat(self.0.exp())
-        }
-        pub const fn powi(&self, other: i32) -> Self {
-            _SoftFloat(self.0.powi(other))
-        }
-        pub const fn powf(&self, other: Self) -> Self {
-            _SoftFloat(self.0.powf(other.0))
-        }
-        pub const fn mul(&self, other: Self) -> Self {
-            _SoftFloat(self.0.mul(other.0))
-        }
-        pub const fn div(&self, other: Self) -> Self {
-            _SoftFloat(self.0.div(other.0))
-        }
-        pub const fn sub(&self, other: Self) -> Self {
-            _SoftFloat(self.0.sub(other.0))
-        }
-        pub const fn add(&self, other: Self) -> Self {
-            _SoftFloat(self.0.add(other.0))
-        }
-    }
-}
-
-use float::*;
-    
-
-pub(crate) const SMIDGEN: float::T = 1e-6;
 const MAX_PARTICLES: usize = 5;
 const MAX_FUELS: usize = 20;
 
@@ -501,7 +458,7 @@ impl<'a> Fire {
     pub fn almost_eq(&self, other: &Self) -> bool {
         #[allow(unused)]
         fn cmp(msg: &str, a: float::T, b: float::T) -> bool {
-            let r = (a - b).abs() < SMIDGEN;
+            let r = (a - b).abs() < CMP_SMIDGEN;
             #[cfg(feature = "std")]
             #[cfg(test)]
             if !r {
@@ -559,7 +516,7 @@ impl FireSimple {
     pub fn almost_eq(&self, other: &Self) -> bool {
         #[allow(unused)]
         fn cmp(msg: &str, a: float::T, b: float::T) -> bool {
-            let r = (a - b).abs() < SMIDGEN;
+            let r = (a - b).abs() < CMP_SMIDGEN;
             #[cfg(feature = "std")]
             #[cfg(test)]
             if !r {
@@ -676,7 +633,10 @@ impl ParticleDef {
         let total = accum_particles!(particles, fun, life);
         safe_div(self.surface_area(), total)
     }
-    const fn size_class_weight<'a, const N: usize>(&self, particles: &[ParticleDef; N]) -> float::T {
+    const fn size_class_weight<'a, const N: usize>(
+        &self,
+        particles: &[ParticleDef; N],
+    ) -> float::T {
         const fn fun<const N: usize>(
             p: &ParticleDef,
             life: Life,
@@ -762,16 +722,19 @@ impl Particle {
         }
     }
     const fn moisture(&self, terrain: &Terrain) -> float::T {
-        from_quantity!(Ratio, &match self.type_ {
-            ParticleType::NoParticle => to_quantity!(Ratio, 9.0E100),
-            ParticleType::Herb => terrain.herb,
-            ParticleType::Wood => terrain.wood,
-            ParticleType::Dead => match self.size_class {
-                SizeClass::SC0 | SizeClass::SC1 => terrain.d1hr,
-                SizeClass::SC2 | SizeClass::SC3 => terrain.d10hr,
-                SizeClass::SC4 | SizeClass::SC5 => terrain.d100hr,
-            },
-        })
+        from_quantity!(
+            Ratio,
+            &match self.type_ {
+                ParticleType::NoParticle => to_quantity!(Ratio, 9.0E32),
+                ParticleType::Herb => terrain.herb,
+                ParticleType::Wood => terrain.wood,
+                ParticleType::Dead => match self.size_class {
+                    SizeClass::SC0 | SizeClass::SC1 => terrain.d1hr,
+                    SizeClass::SC2 | SizeClass::SC3 => terrain.d10hr,
+                    SizeClass::SC4 | SizeClass::SC5 => terrain.d100hr,
+                },
+            }
+        )
     }
 }
 
@@ -1150,8 +1113,7 @@ impl Fuel {
         let max_wind = 0.9 * rx_int;
         let check_wind_limit = |pew: float::T, ew: float::T, s: float::T, a: float::T| {
             if ew > max_wind {
-                let phi_ew_max_wind =
-                    self.wind_k * max_wind.powf(self.wind_b);
+                let phi_ew_max_wind = self.wind_k * max_wind.powf(self.wind_b);
                 let speed_max_wind = speed0 * (1.0 + phi_ew_max_wind);
                 (phi_ew_max_wind, max_wind, speed_max_wind, a)
             } else {

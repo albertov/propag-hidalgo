@@ -12,6 +12,13 @@ extern crate uom;
 extern crate soa_derive;
 
 mod firelib;
+
+mod f32;
+pub mod float {
+    #[doc(inline)]
+    pub use super::f32::*;
+}
+
 #[macro_use]
 pub mod units;
 
@@ -165,6 +172,8 @@ impl Catalog {
 #[cfg(feature = "std")]
 #[cfg(test)]
 mod tests {
+    use super::float;
+    use super::float::*;
     use super::*;
     use crate::units::linear_power_density::btu_foot_sec;
     use firelib_sys::*;
@@ -172,7 +181,6 @@ mod tests {
     use std::println;
     use std::vec::Vec;
     use uom::si::angle::degree;
-    use uom::si::f64::*;
     use uom::si::length::foot;
 
     use crate::units::heat_flux_density::btu_sq_foot_min;
@@ -218,21 +226,21 @@ mod tests {
             let name = CString::new("standard").unwrap();
             let catalog = Fire_FuelCatalogCreateStandard(name.as_ptr(), 13);
             let mut m = [
-                terrain.d1hr.get::<ratio>(),
-                terrain.d10hr.get::<ratio>(),
-                terrain.d100hr.get::<ratio>(),
+                terrain.d1hr.get::<ratio>().into(),
+                terrain.d10hr.get::<ratio>().into(),
+                terrain.d100hr.get::<ratio>().into(),
                 (0.0).into(),
-                terrain.herb.get::<ratio>(),
-                terrain.wood.get::<ratio>(),
+                terrain.herb.get::<ratio>().into(),
+                terrain.wood.get::<ratio>().into(),
             ];
             Fire_SpreadNoWindNoSlope(catalog, model, m.as_mut_ptr());
             Fire_SpreadWindSlopeMax(
                 catalog,
                 model,
-                terrain.wind_speed.get::<foot_per_minute>(),
-                terrain.wind_azimuth.get::<degree>(),
-                terrain.slope.into(),
-                terrain.aspect.get::<degree>(),
+                terrain.wind_speed.get::<foot_per_minute>().into(),
+                terrain.wind_azimuth.get::<degree>().into(),
+                terrain.slope.get::<ratio>().into(),
+                terrain.aspect.get::<degree>().into(),
             );
             let fuel: *mut fuelModelDataStruct = *(*catalog).modelPtr.wrapping_add(model);
             Fire_SpreadAtAzimuth(
@@ -243,26 +251,26 @@ mod tests {
             );
             let f = *fuel;
             let fire = Fire {
-                rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(f.rxInt),
-                speed0: Velocity::new::<foot_per_minute>(f.spread0),
-                hpua: RadiantExposure::new::<btu_sq_foot>(f.hpua),
-                phi_eff_wind: Ratio::new::<ratio>(f.phiEw),
-                speed_max: Velocity::new::<foot_per_minute>(f.spreadMax),
-                azimuth_max: Angle::new::<degree>(f.azimuthMax),
-                eccentricity: Ratio::new::<ratio>(f.eccentricity),
-                residence_time: Time::new::<minute>(f.taur),
+                rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(f.rxInt as float::T),
+                speed0: Velocity::new::<foot_per_minute>(f.spread0 as float::T),
+                hpua: RadiantExposure::new::<btu_sq_foot>(f.hpua as float::T),
+                phi_eff_wind: Ratio::new::<ratio>(f.phiEw as float::T),
+                speed_max: Velocity::new::<foot_per_minute>(f.spreadMax as float::T),
+                azimuth_max: Angle::new::<degree>(f.azimuthMax as float::T),
+                eccentricity: Ratio::new::<ratio>(f.eccentricity as float::T),
+                residence_time: Time::new::<minute>(f.taur as float::T),
             };
             Fire_SpreadAtAzimuth(
                 catalog,
                 model,
-                azimuth.get::<degree>(),
+                azimuth.get::<degree>().into(),
                 (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
             );
             let f = *fuel;
             let spread = SpreadAtAzimuth {
-                speed: Velocity::new::<foot_per_minute>(f.spreadAny),
-                byrams: LinearPowerDensity::new::<btu_foot_sec>(f.byrams),
-                flame: Length::new::<foot>(f.flame),
+                speed: Velocity::new::<foot_per_minute>(f.spreadAny as float::T),
+                byrams: LinearPowerDensity::new::<btu_foot_sec>(f.byrams as float::T),
+                flame: Length::new::<foot>(f.flame as float::T),
             };
             Fire_FuelCatalogDestroy(catalog);
             (fire, spread)
@@ -285,15 +293,18 @@ mod tests {
     ) {
         use rand::prelude::*;
         let rng = &mut rand::rng();
-        let mut mkratio = { || Ratio::new::<ratio>(rng.random_range(0..10000) as f64 / 10000.0) };
+        let mut mkratio =
+            { || Ratio::new::<ratio>(rng.random_range(0..10000) as float::T / 10000.0) };
         let rng = &mut rand::rng();
-        let mut azimuth = { || Angle::new::<degree>(rng.random_range(0..36000) as f64 / 100.0) };
+        let mut azimuth =
+            { || Angle::new::<degree>(rng.random_range(0..36000) as float::T / 100.0) };
         let rng = &mut rand::rng();
         let args: Vec<(usize, Terrain, Angle)> = (0..1000)
             .map(|_n| {
                 let model = rng.random_range(0..14);
-                let wind_speed =
-                    Velocity::new::<meter_per_second>(rng.random_range(0..10000) as f64 / 1000.0);
+                let wind_speed = Velocity::new::<meter_per_second>(
+                    rng.random_range(0..10000) as float::T / 1000.0,
+                );
                 let terrain = Terrain {
                     d1hr: mkratio(),
                     d10hr: mkratio(),
@@ -313,15 +324,17 @@ mod tests {
                 .map(|(model, terrain, az)| {
                     f(*model, terrain, *az).1.speed.get::<meter_per_second>()
                 })
-                .sum::<f64>()
+                .sum::<float::T>()
         })
     }
 
     impl Arbitrary for Terrain {
         fn arbitrary(g: &mut Gen) -> Self {
-            let humidities = &(0..101).map(|x| x as f64 / 100.0).collect::<Vec<_>>()[..];
-            let wind_speeds = &(0..101).map(|x| x as f64 / 10.0).collect::<Vec<_>>()[..];
-            let slopes = &(0..1001).map(|x| x as f64 / 1000.0).collect::<Vec<_>>()[..];
+            let humidities = &(0..101).map(|x| x as float::T / 100.0).collect::<Vec<_>>()[..];
+            let wind_speeds = &(0..101).map(|x| x as float::T / 10.0).collect::<Vec<_>>()[..];
+            let slopes = &(0..1001)
+                .map(|x| x as float::T / 1000.0)
+                .collect::<Vec<_>>()[..];
             let mut choose_humidity = || Ratio::new::<ratio>(*g.choose(humidities).unwrap());
             Self {
                 d1hr: choose_humidity(),
@@ -338,11 +351,11 @@ mod tests {
     }
 
     #[derive(Debug, Clone)]
-    struct ValidAzimuth(f64);
+    struct ValidAzimuth(float::T);
 
     impl Arbitrary for ValidAzimuth {
         fn arbitrary(g: &mut Gen) -> Self {
-            let azimuths = &(0..3601).map(|x| x as f64 / 10.0).collect::<Vec<_>>()[..];
+            let azimuths = &(0..3601).map(|x| x as float::T / 10.0).collect::<Vec<_>>()[..];
             Self(*g.choose(azimuths).unwrap())
         }
     }
@@ -379,8 +392,8 @@ mod tests {
             }
         }
         fn almost_eq(&self, other: &Self) -> bool {
-            fn cmp(msg: &str, a: f64, b: f64) -> bool {
-                let r = (a - b).abs() < SMIDGEN;
+            fn cmp(msg: &str, a: float::T, b: float::T) -> bool {
+                let r = (a - b).abs() < CMP_SMIDGEN;
                 if !r {
                     println!("{}: {} /= {}", msg, a, b);
                 }

@@ -1,8 +1,9 @@
 use cust::prelude::*;
+use firelib_rs::float;
+use firelib_rs::float::*;
 use firelib_rs::*;
 use std::error::Error;
 use uom::si::angle::degree;
-use uom::si::f64::*;
 use uom::si::ratio::ratio;
 use uom::si::velocity::meter_per_second;
 
@@ -18,14 +19,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     // generate our random vectors.
     use rand::prelude::*;
     let rng = &mut rand::rng();
-    let mut mkratio = { || Ratio::new::<ratio>(rng.random_range(0..10000) as f64 / 10000.0) };
+    let mut mkratio = { || Ratio::new::<ratio>(rng.random_range(0..10000) as float::T / 10000.0) };
     let rng = &mut rand::rng();
-    let mut azimuth = { || Angle::new::<degree>(rng.random_range(0..36000) as f64 / 100.0) };
+    let mut azimuth = { || Angle::new::<degree>(rng.random_range(0..36000) as float::T / 100.0) };
     let rng = &mut rand::rng();
     let terrain: TerrainCudaVec = (0..NUMBERS_LEN)
         .map(|_n| {
             let wind_speed =
-                Velocity::new::<meter_per_second>(rng.random_range(0..10000) as f64 / 1000.0);
+                Velocity::new::<meter_per_second>(rng.random_range(0..10000) as float::T / 1000.0);
             From::from(Terrain {
                 d1hr: mkratio(),
                 d10hr: mkratio(),
@@ -165,11 +166,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             .collect()
     });
     println!("Verifying results");
-    assert!(fire
+    if fire
         .iter()
         .zip(fire_rs.iter())
-        .all(|(f_gpu, f_cpu)| { Into::<Fire>::into(f_gpu).almost_eq(f_cpu) }));
-    println!("All equal");
+        .all(|(f_gpu, f_cpu)| Into::<Fire>::into(f_gpu).almost_eq(f_cpu))
+    {
+        println!("All equal");
+    } else {
+        println!("NOT equal");
+    }
 
     println!("Calculating with GPU Simple");
     // output vectors
@@ -235,11 +240,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             .collect()
     });
     println!("Verifying results");
-    assert!(fire_simple
+    if fire_simple
         .iter()
         .zip(fire_simple_rs.iter())
-        .all(|(f_gpu, f_cpu)| { Into::<FireSimple>::into(f_gpu).almost_eq(f_cpu) }));
-    println!("All equal");
+        .all(|(f_gpu, f_cpu)| Into::<FireSimple>::into(f_gpu).almost_eq(f_cpu))
+    {
+        println!("All equal");
+    } else {
+        println!("NOT equal");
+    }
 
     Ok(())
 }

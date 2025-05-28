@@ -23,8 +23,8 @@ pub mod linear_power_density {
     }
 }
 
-use crate::firelib::float;
-use crate::firelib::float::*;
+use crate::float;
+use crate::float::*;
 pub const FOOT_TO_M: float::T = 3.048_E-1;
 pub const POUND_TO_KG: float::T = 4.535_924_E-1;
 pub const BTU: float::T = 1.054_350_E3;

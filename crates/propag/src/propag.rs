@@ -318,7 +318,7 @@ pub unsafe extern "C" fn FFIPropagation_run(
 pub struct PropagResults {
     pub geo_ref: GeoReference,
     pub time: Vec<f32>,
-    pub boundary_change: Vec<u16>,
+    pub boundary_change: Vec<u8>,
     pub refs_x: Vec<u16>,
     pub refs_y: Vec<u16>,
     pub refs_time: Vec<f32>,
@@ -415,7 +415,7 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
         let mut refs_x: Vec<u16> = std::iter::repeat_n(Max::MAX, len).collect();
         let mut refs_y: Vec<u16> = std::iter::repeat_n(Max::MAX, len).collect();
         let mut refs_time: Vec<f32> = std::iter::repeat_n(Max::MAX, len).collect();
-        let mut boundary_change: Vec<u16> = std::iter::repeat_n(0, len).collect();
+        let mut boundary_change: Vec<u8> = std::iter::repeat_n(0, len.div_ceil(8)).collect();
 
         let speed_max: Vec<float::T> = std::iter::repeat_n(0.0, len).collect();
         let azimuth_max: Vec<float::T> = std::iter::repeat_n(0.0, len).collect();
@@ -540,12 +540,10 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
             }
         };
         time_buf.copy_to(&mut time)?;
-        if propag.settings.find_ref_change {
-            boundary_change_buf.copy_to(&mut boundary_change)?;
-            refs_x_buf.copy_to(&mut refs_x)?;
-            refs_y_buf.copy_to(&mut refs_y)?;
-            refs_time_buf.copy_to(&mut refs_time)?;
-        };
+        boundary_change_buf.copy_to(&mut boundary_change)?;
+        refs_x_buf.copy_to(&mut refs_x)?;
+        refs_y_buf.copy_to(&mut refs_y)?;
+        refs_time_buf.copy_to(&mut refs_time)?;
         Ok(PropagResults {
             time,
             boundary_change,

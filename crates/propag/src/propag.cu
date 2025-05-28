@@ -23,7 +23,6 @@ class Propagator {
   volatile unsigned short *refs_x_;
   volatile unsigned short *refs_y_;
   volatile float *refs_time_;
-  volatile unsigned short *refs_change_;
 
   __shared__ Point *shared_;
 
@@ -32,10 +31,9 @@ public:
   Propagator(const Settings settings, const unsigned grid_x,
              const unsigned grid_y, const float *__restrict__ speed_max,
              const float *__restrict__ azimuth_max,
-             const float *__restrict__ eccentricity,
-             float volatile *__restrict__ time, unsigned short volatile *refs_x,
-             unsigned short volatile *refs_y, volatile float *refs_time,
-             unsigned short volatile *ref_change, __shared__ Point *shared)
+             const float *__restrict__ eccentricity, float volatile *time,
+             unsigned short volatile *refs_x, unsigned short volatile *refs_y,
+             float volatile *refs_time, __shared__ Point *shared)
       : settings_(settings), gridIx_(make_uint2(grid_x, grid_y)),
         idx_2d_(index_2d(gridIx_)),
         global_ix_(idx_2d_.x + idx_2d_.y * settings_.geo_ref.width),
@@ -48,12 +46,13 @@ public:
         local_ix_(local_x_ + local_y_ * shared_width_), speed_max_(speed_max),
         azimuth_max_(azimuth_max), eccentricity_(eccentricity), time_(time),
         refs_x_(refs_x), refs_y_(refs_y), refs_time_(refs_time),
-        refs_change_(ref_change), shared_(shared) {
+        shared_(shared) {
     ASSERT(block_ix_ < gridDim.x * gridDim.y);
     ASSERT(!(settings_.geo_ref.width < 1 || settings_.geo_ref.height < 1));
   };
 
-  __device__ void run(unsigned *worked, unsigned *progress) {
+  __device__ void run(unsigned *worked, unsigned *progress,
+                      const unsigned char *__restrict__ boundaries) {
     __shared__ bool grid_improved;
     bool first_iteration = true;
     do { // Grid loop
@@ -77,7 +76,7 @@ public:
       // updated by other threads
       __syncthreads();
       // Begin neighbor analysys
-      Point best = find_neighbor_with_least_access_time();
+      Point best = find_neighbor_with_least_access_time(boundaries);
 
       cooperative_groups::this_grid().sync();
       // End of neighbor analysys, update point in global and shared memory
@@ -110,14 +109,11 @@ public:
       // Analysys ends when grid has not improved
     } while (grid_improved); // end grid loop
   }
-  __device__ void post_propagate() {
+  __device__ void post_propagate(const unsigned char *__restrict__ boundaries) {
     if (in_bounds_) {
       load_points_into_shared_memory(true);
     }
     __syncthreads();
-    if (settings_.find_ref_change) {
-      fill_ref_change();
-    };
     if (in_bounds_) {
       Point me = shared_[local_ix_];
       if (fire_is_null(me.fire) || me.time > settings_.max_time) {
@@ -125,17 +121,17 @@ public:
       };
     };
   }
-  __device__ void pre_propagate() {
+  __device__ void pre_propagate(unsigned char *boundaries) {
     if (in_bounds_) {
       load_points_into_shared_memory(true);
     }
     __syncthreads();
-    if (in_bounds_) {
-    };
+    fill_boundaries(boundaries);
   }
 
 private:
-  __device__ inline Point find_neighbor_with_least_access_time() {
+  __device__ inline Point find_neighbor_with_least_access_time(
+      const unsigned char *__restrict__ boundaries) {
     if (in_bounds_) {
       Point best = shared_[local_ix_];
 #pragma unroll
@@ -365,7 +361,7 @@ private:
            (in_bounds_ ? refs_y_[global_ix_] : USHRT_MAX));
   }
 
-  __device__ inline void fill_ref_change() {
+  __device__ inline void fill_boundaries(unsigned char *boundaries) {
     if (in_bounds_) {
       const Point me = shared_[local_ix_];
       if (me.is_null()) {
@@ -393,11 +389,11 @@ private:
           if (neighbor.is_null())
             continue;
 
-          changed |= (neighbor.reference.pos.x != me.reference.pos.x) |
-                     (neighbor.reference.pos.y != me.reference.pos.y);
+          changed |= !similar_fires(neighbor.fire, me.fire) &&
+                     me.fire.speed_max < neighbor.fire.speed_max;
         }
       }
-      refs_change_[global_ix_] = changed;
+      boundaries[global_ix_] = changed;
     }
   }
 };
@@ -406,22 +402,19 @@ private:
 extern "C" {
 #endif
 
-__global__ void propag(const Settings settings, const unsigned grid_x,
-                       const unsigned grid_y, unsigned *__restrict__ worked,
-                       const float *__restrict__ const speed_max,
-                       const float *__restrict__ const azimuth_max,
-                       const float *__restrict__ const eccentricity,
-                       float volatile *__restrict__ time,
-                       unsigned short volatile *__restrict__ ref_x,
-                       unsigned short volatile *__restrict__ ref_y,
-                       volatile float *__restrict__ ref_time,
-                       unsigned short volatile *__restrict__ ref_change,
-                       unsigned *progress) {
+__global__ void
+propag(const Settings settings, const unsigned grid_x, const unsigned grid_y,
+       unsigned *__restrict__ worked, const float *__restrict__ const speed_max,
+       const float *__restrict__ const azimuth_max,
+       const float *__restrict__ const eccentricity, float volatile *time,
+       unsigned short volatile *refs_x, unsigned short volatile *refs_y,
+       float volatile *refs_time, const unsigned char *__restrict__ boundaries,
+       unsigned *progress) {
   extern __shared__ Point shared[];
 
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
-                 time, ref_x, ref_y, ref_time, ref_change, shared);
-  sim.run(worked, progress);
+                 time, refs_x, refs_y, refs_time, shared);
+  sim.run(worked, progress, boundaries);
 }
 
 __global__ void
@@ -429,16 +422,14 @@ post_propagate(const Settings settings, const unsigned grid_x,
                const unsigned grid_y, const float *__restrict__ const speed_max,
                const float *__restrict__ const azimuth_max,
                const float *__restrict__ const eccentricity,
-               float volatile *__restrict__ time,
-               unsigned short volatile *__restrict__ ref_x,
-               unsigned short volatile *__restrict__ ref_y,
-               volatile float *__restrict__ ref_time,
-               unsigned short volatile *__restrict__ ref_change) {
+               float volatile *time, unsigned short volatile *refs_x,
+               unsigned short volatile *refs_y, float volatile *refs_time,
+               unsigned char *boundaries) {
   extern __shared__ Point shared[];
 
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
-                 time, ref_x, ref_y, ref_time, ref_change, shared);
-  sim.post_propagate();
+                 time, refs_x, refs_y, refs_time, shared);
+  sim.post_propagate(boundaries);
 }
 
 __global__ void
@@ -446,16 +437,14 @@ pre_propagate(const Settings settings, const unsigned grid_x,
               const unsigned grid_y, const float *__restrict__ const speed_max,
               const float *__restrict__ const azimuth_max,
               const float *__restrict__ const eccentricity,
-              float volatile *__restrict__ time,
-              unsigned short volatile *__restrict__ ref_x,
-              unsigned short volatile *__restrict__ ref_y,
-              volatile float *__restrict__ ref_time,
-              unsigned short volatile *__restrict__ ref_change) {
+              float volatile *time, unsigned short volatile *refs_x,
+              unsigned short volatile *refs_y, float volatile *refs_time,
+              unsigned char *boundaries) {
   extern __shared__ Point shared[];
 
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
-                 time, ref_x, ref_y, ref_time, ref_change, shared);
-  sim.pre_propagate();
+                 time, refs_x, refs_y, refs_time, shared);
+  sim.pre_propagate(boundaries);
 }
 
 #ifdef __cplusplus

@@ -63,7 +63,7 @@ mod tests {
     use super::{to_spatial_ref, GeoReference, WarpedDataset};
     use gdal::raster::{Buffer, GdalDataType, GdalType};
     use gdal::DriverManager;
-    use geometry::{Coord, Crs, Rect};
+    use geometry::Vec2;
 
     type Result<A> = std::result::Result<A, Box<dyn std::error::Error>>;
 
@@ -71,15 +71,15 @@ mod tests {
     fn can_create_warped_ds() -> Result<()> {
         {
             let geo_ref = GeoReference::south_up(
-                Rect::new(
-                    Coord {
+                (
+                    Vec2 {
                         x: -180.0,
                         y: -90.0,
                     },
-                    Coord { x: 180.0, y: 90.0 },
+                    Vec2 { x: 180.0, y: 90.0 },
                 ),
-                Coord { x: 0.1, y: 0.1 },
-                Crs::Epsg(4326),
+                Vec2 { x: 0.1, y: 0.1 },
+                4326,
             )
             .unwrap();
             let d = DriverManager::get_driver_by_name("MEM")?;
@@ -90,15 +90,15 @@ mod tests {
             assert_eq!(ds.raster_size(), (3600, 1800));
             assert_eq!(ds.rasterband(1)?.band_type(), GdalDataType::UInt8);
             let mut buf: Buffer<f64> = ds.rasterband(1)?.read_band_as()?;
-            let px = geo_ref.forward(Coord { x: -3.0, y: 42.0 });
+            let px = geo_ref.forward(Vec2 { x: -3.0, y: 42.0 });
             // Buffer uses (row, col) indexing
             buf[(px.y, px.x)] = 128.0;
             ds.rasterband(1)?
                 .write((0, 0), ds.raster_size(), &mut buf)?;
             ds.flush_cache()?;
-            let ext = Rect::new(Coord { x: 4.8e5, y: 4.6e6 }, Coord { x: 5.2e5, y: 4.7e6 });
+            let ext = (Vec2 { x: 4.8e5, y: 4.6e6 }, Vec2 { x: 5.2e5, y: 4.7e6 });
 
-            let px_size = Coord { x: 50.0, y: 500.0 };
+            let px_size = Vec2 { x: 50.0, y: 500.0 };
             let epsg = 25830;
             let geo_ref = GeoReference::south_up(ext, px_size, epsg).unwrap();
             let wrapped = WarpedDataset::new(ds, <f64>::datatype(), geo_ref)?;

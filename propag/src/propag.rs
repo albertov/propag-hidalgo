@@ -2,21 +2,11 @@ use ::firelib::float;
 use ::firelib::float::*;
 use ::firelib::*;
 use core::ops::Div;
-use core::ptr::NonNull;
-use core::sync::atomic::Ordering;
-use cuda_std::shared::dynamic_shared_mem;
-use cuda_std::thread::*;
 use cuda_std::*;
 use geometry::GeoReference;
-use glam::f32::*;
-use glam::i32::*;
-use glam::usize::*;
 use min_max_traits::Max;
 use soa_derive::StructOfArray;
 use uom::num_traits::NumCast;
-use uom::si::angle::{degree, radian};
-use uom::si::ratio::ratio;
-use uom::si::velocity::meter_per_second;
 
 //FIXME: Use the C version as source of truth with bindgen
 pub const HALO_RADIUS: i32 = 1;

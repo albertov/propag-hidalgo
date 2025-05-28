@@ -17,8 +17,8 @@ use uom::si::velocity::meter_per_second;
 
 const BLOCK_WIDTH: usize = 16;
 const BLOCK_HEIGHT: usize = 16;
-const BLOCK_BUFFER: usize = 1;
-const SHARED_SIZE: usize = (BLOCK_WIDTH+BLOCK_BUFFER*2) * (BLOCK_HEIGHT+BLOCK_BUFFER*2);
+const BUFFER_RADIUS: usize = 2;
+const SHARED_SIZE: usize = (BLOCK_WIDTH + BUFFER_RADIUS * 2) * (BLOCK_HEIGHT + BUFFER_RADIUS * 2);
 
 unsafe fn read_volatile<T: Copy>(p: *const T) -> T {
     //*p
@@ -26,7 +26,7 @@ unsafe fn read_volatile<T: Copy>(p: *const T) -> T {
 }
 unsafe fn write_volatile<T: Copy>(p: *mut T, v: T) {
     //*p = v
-    core::intrinsics::volatile_store(p,v)
+    core::intrinsics::volatile_store(p, v)
 }
 
 #[kernel]
@@ -51,145 +51,91 @@ pub unsafe fn propag(
     // Dimensions of the total area
     let width = geo_ref.size[0] as u32;
     let height = geo_ref.size[1] as u32;
-
     // Index of this thread into total area
     let idx_2d = thread::index_2d();
-    let in_bounds = idx_2d.x < width && idx_2d.y < height;
-    let blk_idx = (thread::block_idx_x() + thread::block_idx_y() * thread::grid_dim_x()) as usize;
-
     // Our position in global pixel coords
     let pos = USizeVec2 {
         x: idx_2d.x as usize,
         y: idx_2d.y as usize,
     };
-
     // Our global index
     let global_ix = (idx_2d.x + idx_2d.y * width) as usize;
-    let to_global_off = |ox,oy| {
-        let x = idx_2d.x as i32 + ox;
-        let y = idx_2d.y as i32 + oy;
-        if x>=0 && x<width as i32  && y>=0 && y<height as i32 {
-            Some((x + y*width as i32) as usize)
+    let in_bounds = idx_2d.x < width && idx_2d.y < height;
+    // Our index into the shared area
+    let shared_ix = compute_shared_ix(&pos).expect("pos must have shared ix");
+
+    let to_shared_off = |x, y| {
+        let pos = IVec2 {
+            x: pos.x as _,
+            y: pos.y as _,
+        };
+        let pos = pos + IVec2 { x, y };
+        if pos.x >= 0 && pos.y >= 0 {
+            let pos = USizeVec2 {
+                x: pos.x as _,
+                y: pos.y as _,
+            };
+            let res = compute_shared_ix(&pos);
+            //println!("{:?}, {:?}, {}, {}", pos, res, x, y);
+            res
         } else {
             None
         }
     };
-
-    // Our index into the shared area
-    let shared_ix = compute_shared_ix(&pos).expect("pos must have shared ix");
-    let to_shared_off = |x,y| {
-        let pos = IVec2 { x: pos.x as _, y: pos.y as _};
-        let pos = pos + IVec2{x,y};
-        let pos = USizeVec2 { x: pos.x as _, y: pos.y as _};
-        compute_shared_ix(&pos)
+    let to_global_off = |ox, oy| {
+        let x = idx_2d.x as i32 + ox;
+        let y = idx_2d.y as i32 + oy;
+        if x >= 0 && x < width as i32 && y >= 0 && y < height as i32 {
+            Some((x + y * width as i32) as usize)
+        } else {
+            None
+        }
     };
-
     ////////////////////////////////////////////////////////////////////////
     // First phase, load data from global to shared memory
     ////////////////////////////////////////////////////////////////////////
-    // are we in-bounds of the target raster?
-    let (fire, me) = if in_bounds {
-        let (fire, me) = {
-            let fire = load_fire(global_ix, speed_max, azimuth_max, eccentricity);
-            (
-                fire,
-                Point::load(
+    let preload_point = |x, y| {
+        let shared_off = to_shared_off(x, y);
+        let global_off = to_global_off(x, y);
+        match (shared_off, global_off) {
+            (Some(shared_off), Some(global_off)) => {
+                *shared.add(shared_off) = Point::load(
                     &geo_ref,
                     pos,
-                    global_ix,
+                    global_off,
                     speed_max,
                     azimuth_max,
                     eccentricity,
                     time,
                     refs_x,
                     refs_y,
-                ),
-            )
-        };
-        (fire, me)
+                );
+            }
+            (Some(shared_off), None) => *shared.add(shared_off) = None,
+            _ => (),
+        }
+    };
+    // are we in-bounds of the target raster?
+    let fire = if in_bounds {
+        preload_point(0, 0);
+        // Preload boundaries
+        let radius = BUFFER_RADIUS as i32;
+        if (thread::thread_idx_x() as i32) < radius {
+            preload_point(-radius, 0);
+            preload_point(BLOCK_WIDTH as i32, 0);
+        }
+        if (thread::thread_idx_y() as i32) < radius {
+            preload_point(0, -radius);
+            preload_point(0, BLOCK_HEIGHT as i32);
+        }
+        load_fire(global_ix, speed_max, azimuth_max, eccentricity)
     } else {
-        (None, None)
+        None
     };
-
-    // Preload boundaries
-    let preload_point = |x,y| {
-        let shared_off = to_shared_off(x, y);
-        let global_off = to_global_off(x, y);
-        match (shared_off, global_off) {
-            (Some(shared_off), Some(global_off)) => {
-                *shared.add(shared_off) =
-                    Point::load(
-                        &geo_ref,
-                        pos,
-                        global_off,
-                        speed_max,
-                        azimuth_max,
-                        eccentricity,
-                        time,
-                        refs_x,
-                        refs_y,
-                    );
-            },
-            (Some(shared_off), None) => {
-                *shared.add(shared_off) = None
-            }
-            _ => ()
-        }
-    };
-    let buf = BLOCK_BUFFER as i32;
-    if thread::thread_idx_x() == 0 && thread::thread_idx_y() == 0 {
-        //reload_point(-1,-1);
-        for i in -buf..1 {
-            for j in -buf..1 {
-                preload_point(i,j);
-            }
-        }
-    } else if thread::thread_idx_x() as usize == BLOCK_WIDTH-1 && thread::thread_idx_y() == 0 {
-        //preload_point(1,-1);
-        for i in 0..(buf+1) {
-            for j in -buf..1 {
-                preload_point(i,j);
-            }
-        }
-    } else if thread::thread_idx_x() as usize == BLOCK_WIDTH-1 && thread::thread_idx_y() as usize == BLOCK_HEIGHT -1 {
-        //preload_point(1,1);
-        for i in 0..(buf+1) {
-            for j in 0..(buf+1) {
-                preload_point(i,j);
-            }
-        }
-    } else if thread::thread_idx_x() == 0 && thread::thread_idx_y() as usize == BLOCK_HEIGHT -1 {
-        //preload_point(-1,1);
-        for i in -buf..1 {
-            for j in 1..(buf+1) {
-                preload_point(i,j);
-            }
-        }
-    } else if thread::thread_idx_y() == 0 {
-        //preload_point(0,-1);
-        for j in -buf..1 {
-            preload_point(0,j);
-        }
-    } else if thread::thread_idx_x() as usize == BLOCK_WIDTH-1 {
-        //preload_point(1,0);
-        for i in 0..(buf+1) {
-            preload_point(i,0);
-        }
-    } else if thread::thread_idx_y() as usize == BLOCK_HEIGHT -1 {
-        //preload_point(0,1);
-        for j in 0..buf+1 {
-            preload_point(0,j);
-        }
-    } else if thread::thread_idx_x() == 0 {
-        //preload_point(-1,0);
-        for i in -buf..1 {
-            preload_point(i,0);
-        }
-    }
-    *shared.add(shared_ix) = me;
 
     thread::sync_threads();
 
+    let me = *shared.add(shared_ix);
     let mut best_fire: Option<Point> = None;
 
     let mut improved = 0;
@@ -286,7 +232,7 @@ pub unsafe fn propag(
             (Some(me), Some(best_fire)) if best_fire.time + 1e-6 < me.time => {
                 best_fire.save(global_ix, time, refs_x, refs_y);
                 1
-            },
+            }
             /*
             (Some(me), _) => {
                 me.save(global_ix, time, refs_x, refs_y);
@@ -300,18 +246,18 @@ pub unsafe fn propag(
             _ => 0,
         };
     } // in_bounds
-    //thread::grid_fence();
-    /*
-    let any_improved = thread::sync_threads_count(improved) > 0;
-    if any_improved
-        && thread::thread_idx_x() == 0
-        && thread::thread_idx_y() == 0
-    {
-        let block_ix = (thread::block_idx_x() + thread::block_idx_y() * thread::grid_dim_x()) as usize;
-        assert!(block_ix < num_blocks);
-        *progress.add(block_ix) = 1.0;
-    }
-    */
+      //thread::grid_fence();
+      /*
+      let any_improved = thread::sync_threads_count(improved) > 0;
+      if any_improved
+          && thread::thread_idx_x() == 0
+          && thread::thread_idx_y() == 0
+      {
+          let block_ix = (thread::block_idx_x() + thread::block_idx_y() * thread::grid_dim_x()) as usize;
+          assert!(block_ix < num_blocks);
+          *progress.add(block_ix) = 1.0;
+      }
+      */
 }
 
 // TODO: Fine-tune these constants and make them configurable
@@ -322,57 +268,10 @@ fn similar_fires(a: FireSimpleCuda, b: FireSimpleCuda) -> bool {
 }
 
 fn compute_shared_ix(pos: &USizeVec2) -> Option<usize> {
-    let shared_x = pos.x%(BLOCK_WIDTH);
-    let shared_y = pos.y%(BLOCK_HEIGHT);
-    let shared_bx = pos.x/(BLOCK_WIDTH);
-    let shared_by = pos.y/(BLOCK_HEIGHT);
-    let my_bx = thread::block_idx_x() as usize;
-    let my_by = thread::block_idx_y() as usize;
-    let is_top_neighbor = shared_by as i32 == my_by as i32 -1;
-    let is_bottom_neighbor = shared_by as i32 == my_by as i32 +1;
-    let is_left_neighbor = shared_bx as i32 == my_bx as i32 -1;
-    let is_right_neighbor = shared_bx as i32 == my_bx as i32 +1;
-
-    if let Some ((shared_x, shared_y)) = match (
-        is_top_neighbor,
-        is_bottom_neighbor,
-        is_left_neighbor,
-        is_right_neighbor
-    ) {
-        //TL
-        ( true, false, true, false) =>
-            Some((0, 0)),
-        // T
-        ( true, false, false, false) =>
-            Some((shared_x+BLOCK_BUFFER, 0)),
-        // TR
-        ( true, false, false, true) =>
-            Some((BLOCK_WIDTH+BLOCK_BUFFER, 0)),
-        // R
-        ( false, false, false, true) =>
-            Some((BLOCK_WIDTH+BLOCK_BUFFER, shared_y+BLOCK_BUFFER)),
-        // BR
-        ( false, true, false, true) =>
-            Some((BLOCK_WIDTH+BLOCK_BUFFER, BLOCK_HEIGHT+BLOCK_BUFFER)),
-        // B
-        ( false, true, false, false) =>
-            Some((shared_x+BLOCK_BUFFER, 0)),
-        // BL
-        ( false, true, true, false) =>
-            Some((0, BLOCK_HEIGHT+BLOCK_BUFFER)),
-        // L
-        ( false, false, true, false) =>
-            Some((0, shared_y+BLOCK_BUFFER)),
-        // This block
-        ( false, false, false, false)
-            if shared_bx == my_bx
-                && shared_by == my_by =>
-            Some((shared_x+BLOCK_BUFFER, shared_y+BLOCK_BUFFER)),
-
-        _ => None,
-    }
-    {
-        Some((shared_x + (shared_y) * (BLOCK_WIDTH+(2*BLOCK_BUFFER))))
+    let shared_x = (pos.x % BLOCK_WIDTH) + BUFFER_RADIUS;
+    let shared_y = (pos.y % BLOCK_HEIGHT) + BUFFER_RADIUS;
+    if shared_x < BLOCK_WIDTH + BUFFER_RADIUS * 2 && shared_y < BLOCK_HEIGHT + BUFFER_RADIUS * 2 {
+        Some(shared_x + shared_y * (BLOCK_WIDTH + BUFFER_RADIUS * 2))
     } else {
         None
     }
@@ -546,11 +445,7 @@ unsafe fn iter_neighbors(
             };
             // If this neighbor is outside this block or global area
             // continue
-            if pos.x < 0
-                || pos.x >= width as _
-                || pos.y < 0
-                || pos.y >= height as _
-            {
+            if pos.x < 0 || pos.x >= width as _ || pos.y < 0 || pos.y >= height as _ {
                 None
             } else {
                 let pos = USizeVec2 {

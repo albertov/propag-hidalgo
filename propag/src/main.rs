@@ -34,13 +34,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     )
     .unwrap();
     let len = geo_ref.len();
-    // generate our random vectors.
-    use rand::prelude::*;
-    let rng = &mut rand::rng();
-    let mut mkratio = { || Ratio::new::<ratio>(rng.random_range(0..10000) as float::T / 10000.0) };
-    let rng = &mut rand::rng();
-    let mut azimuth = { || Angle::new::<degree>(rng.random_range(0..36000) as float::T / 100.0) };
-    let rng = &mut rand::rng();
 
     type OptionalVec<T> = Vec<Option<T>>;
     let model: OptionalVec<usize> = (0..len).map(|_n| Some(1)).collect();
@@ -76,8 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         y: geo_ref.size[1].div_ceil(THREAD_BLOCK_AXIS_LENGTH),
         z: 1,
     };
-    let linear_grid_size: usize =
-        (grid_size.x * grid_size.y * grid_size.z) as usize;
+    let linear_grid_size: usize = (grid_size.x * grid_size.y * grid_size.z) as usize;
 
     let block_size = BlockSize {
         x: THREAD_BLOCK_AXIS_LENGTH,
@@ -109,20 +101,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut time: Vec<Option<float::T>> = std::iter::repeat(None).take(model.len()).collect();
     let mut refs_x: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
     let mut refs_y: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
+    let max_time: float::T = 60.0 * 60.0 * 50.0;
 
     timeit!({
-
         let mut speed_max: Vec<Option<float::T>> =
             std::iter::repeat(None).take(model.len()).collect();
         let mut azimuth_max: Vec<Option<float::T>> =
             std::iter::repeat(None).take(model.len()).collect();
         let mut eccentricity: Vec<Option<float::T>> =
             std::iter::repeat(None).take(model.len()).collect();
-        let mut progress: Vec<f32> = std::iter::repeat(0.0)
-            .take(linear_grid_size)
-            .collect();
+        let mut progress: Vec<f32> = std::iter::repeat(0.0).take(linear_grid_size).collect();
 
-        let max_time: float::T = 60.0 * 60.0 * 48.0;
         time.fill(None);
         refs_x.fill(None);
         refs_y.fill(None);
@@ -199,7 +188,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 time_buf.copy_to(&mut time)?;
                 let num_times_after = time.iter().filter(|t| t.is_some()).count();
                 if num_times_after == num_times {
-                    break
+                    break;
                 };
                 /*
                 progress_buf.copy_to(&mut progress)?;
@@ -210,11 +199,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         };
     });
-    println!("max_time={}",
+    println!("config_max_time={}", max_time);
+    println!(
+        "max_time={}",
         time.iter()
-            .filter_map(|x|*x)
-            .max_by(|x,y| x.partial_cmp(y).unwrap())
-            .unwrap());
+            .filter_map(|x| *x)
+            .max_by(|x, y| x.partial_cmp(y).unwrap())
+            .unwrap()
+    );
+    println!(
+        "min_time={}",
+        time.iter()
+            .filter_map(|x| *x)
+            .min_by(|x, y| x.partial_cmp(y).unwrap())
+            .unwrap()
+    );
     let num_times_after = time.iter().filter(|t| t.is_some()).count();
     println!("num_times_after={}", num_times_after);
     //time_buf.copy_to(&mut time)?;

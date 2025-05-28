@@ -43,8 +43,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
         .collect();
     let models: Vec<usize> = (0..NUMBERS_LEN).map(|_n| rng.random_range(0..14)).collect();
-    let mut fires: Vec<FireCuda> =
-        std::iter::repeat(Fire::null().into()).take(NUMBERS_LEN).collect();
+    let mut fires: Vec<FireCuda> = std::iter::repeat(Fire::null().into())
+        .take(NUMBERS_LEN)
+        .collect();
 
     // initialize CUDA, this will pick the first available device and will
     // make a CUDA context from it.

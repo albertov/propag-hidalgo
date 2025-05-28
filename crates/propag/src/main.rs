@@ -28,8 +28,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         (
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 {
-                x: px.x * 4096.0,
-                y: px.y * 4096.0,
+                x: px.x * 1024.0,
+                y: px.y * 1024.0,
             },
         ),
         px,
@@ -153,6 +153,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         time[fire_pos.x + fire_pos.y * geo_ref.width as usize] = 0.0;
         refs_x[fire_pos.x + fire_pos.y * geo_ref.width as usize] = fire_pos.x as u16;
         refs_y[fire_pos.x + fire_pos.y * geo_ref.width as usize] = fire_pos.y as u16;
+        refs_time[fire_pos.x + fire_pos.y * geo_ref.width as usize] = 0.0;
 
         let speed_max_buf = speed_max.as_slice().as_dbuf()?;
         let azimuth_max_buf = azimuth_max.as_slice().as_dbuf()?;

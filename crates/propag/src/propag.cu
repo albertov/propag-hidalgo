@@ -22,7 +22,7 @@ class Propagator {
   volatile float *__restrict__ time_;
   volatile unsigned short *__restrict__ refs_x_;
   volatile unsigned short *__restrict__ refs_y_;
-  volatile float *__restrict__ __restrict__ refs_time_;
+  volatile float *__restrict__ refs_time_;
   volatile unsigned short *__restrict__ refs_change_;
 
   __shared__ Point *shared_;
@@ -162,51 +162,41 @@ private:
           if ((reference.pos.x == idx_2d_.x && reference.pos.y == idx_2d_.y)) {
             continue;
           }
+          float t = time_from(reference, neighbor.fire);
+          if (t < best.time) {
+            // Check if the path to neighbor's reference is not blocked by a
+            // point with a different reference or fire
+            DDA iter(idx_2d_, make_uint2(reference.pos.x, reference.pos.y));
 
-          // Check if the path to neighbor's reference is not blocked by a
-          // point with a different reference or fire
-          DDA iter(idx_2d_, make_uint2(reference.pos.x, reference.pos.y));
-
-          int2 possible_blockage_pos;
-          iter.next(possible_blockage_pos); // skip self
-#pragma unroll
-          for (int i = 0; i < HALO_RADIUS; i++) {
-            if (iter.next(possible_blockage_pos)) {
+            int2 possible_blockage_pos;
+            iter.next(possible_blockage_pos); // skip self
+            while (iter.next(possible_blockage_pos)) {
               int2 dir = make_int2(possible_blockage_pos.x - int(idx_2d_.x),
                                    possible_blockage_pos.y - int(idx_2d_.y));
-              ASSERT(pos_in_bounds(
-                  make_int2((int)idx_2d_.x + dir.x, (int)idx_2d_.y + dir.y)));
-              int blockage_ix =
-                  (local_x_ + dir.x) + (local_y_ + dir.y) * shared_width_;
-              ASSERT(0 <= blockage_ix &&
-                     blockage_ix < ((blockDim.x + HALO_RADIUS * 2) *
-                                    (blockDim.y + HALO_RADIUS * 2)));
-
-              Point possible_blockage = shared_[blockage_ix];
+              ASSERT(pos_in_bounds(possible_blockage_pos));
+              Point possible_blockage = load_point(
+                  make_int2(possible_blockage_pos.x, possible_blockage_pos.y));
+              ;
               if (!(possible_blockage.time < FLT_MAX)) {
                 // If we haven't analyzed the blockage point yet then we
                 // can't use the reference in this iteration.
                 return Point_NULL;
               }
 
-              if (!( // Check that the possible blockage has the same reference
-                     // as our neighbor and a similar fire as its reference.
+              if (!( // Check that the possible blockage has a similar fire
+                     // as the reference candidate.
                      // Otherwise use neighbor as reference
-                      possible_blockage.reference.pos.x ==
-                          neighbor.reference.pos.x &&
-                      possible_blockage.reference.pos.y ==
-                          neighbor.reference.pos.y &&
                       similar_fires(possible_blockage.fire, neighbor.fire))) {
                 reference = PointRef(neighbor.time, neighbor_pos);
                 break;
               };
             }
-          }
 
-          float t = time_from(reference, neighbor.fire);
-          if (t < best.time) {
-            best.time = t;
-            best.reference = reference;
+            float t = time_from(reference, neighbor.fire);
+            if (t < best.time) {
+              best.time = t;
+              best.reference = reference;
+            }
           }
         };
       };

@@ -108,7 +108,7 @@ impl GT {
             let det = dx * dy - rx * ry;
             let mag = dx.abs().max(rx.abs()).max(ry.abs()).max(dy.abs());
 
-            if det.abs() <= 1e-9 * mag * mag {
+            if det.abs() <= 1e-10 * mag * mag {
                 None
             } else {
                 let inv_det = det.recip();

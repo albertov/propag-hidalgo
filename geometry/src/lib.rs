@@ -9,6 +9,7 @@ pub use geo::*;
 use heapless::String;
 use num_traits::NumCast;
 
+#[derive(Clone)]
 pub enum Crs {
     Epsg(u32),
     Wkt(String<1024>),
@@ -29,17 +30,17 @@ impl<T> GeoReference<T>
 where
     T: CoordFloat + Clone + From<i32>,
 {
-    pub fn forward(&self, p: Coord<T>) -> Coord<i32> {
+    pub fn forward(&self, p: Coord<T>) -> Coord<usize> {
         let p = self.inv_transform.apply(p);
         Coord {
-            x: NumCast::from(p.x.trunc()).expect("T to i32 failed"),
-            y: NumCast::from(p.y.trunc()).expect("T to i32 failed"),
+            x: NumCast::from(p.x.trunc()).expect("T to usize failed"),
+            y: NumCast::from(p.y.trunc()).expect("T to usize failed"),
         }
     }
-    pub fn backward(&self, p: Coord<i32>) -> Coord<T> {
+    pub fn backward(&self, p: Coord<usize>) -> Coord<T> {
         self.transform.apply(Coord {
-            x: NumCast::from(p.x).expect("i32 to T failed"),
-            y: NumCast::from(p.y).expect("i32 to T failed"),
+            x: NumCast::from(p.x).expect("usize to T failed"),
+            y: NumCast::from(p.y).expect("usize to T failed"),
         })
     }
     pub fn new_south_up(

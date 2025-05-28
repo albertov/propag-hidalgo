@@ -10,7 +10,7 @@ firelib-rs = { path = "../firelib-rs" }
 geometry = { path = "../geometry" }
 uom = "0.36.0"
 timeit = "0.1.2"
-gdal = "0.17.1"
+gdal = {version="0.17.1"}
 gdal-sys = "0.10.0"
 geo = "0.30.0"
 num-traits = "0.2.19"

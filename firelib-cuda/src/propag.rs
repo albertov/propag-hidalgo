@@ -134,7 +134,7 @@ struct Point {
 pub struct Settings {
     pub geo_ref: GeoReference,
     pub max_time: f32,
-    pub find_ref_change: bool
+    pub find_ref_change: bool,
 }
 
 #[cfg_attr(not(target_os = "cuda"), derive(StructOfArray), soa_derive(Debug))]

@@ -32,13 +32,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Calculating with GPU Propag",);
     let max_time: f32 = 60.0 * 60.0 * 10.0;
     let geo_ref: GeoReference = GeoReference::south_up(
-        (
-            Vec2 { x: 0.0, y: 0.0 },
-            Vec2 {
-                x: 1000.0,
-                y: 1000.0,
-            },
-        ),
+        (Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 256.0, y: 256.0 }),
         Vec2 { x: 1.0, y: 1.0 },
         25830,
     )
@@ -122,9 +116,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     let lo: i32 = -30;
     for i in (lo..30) {
-        model[fire_pos.x + (i as usize) + (fire_pos.y + 5) * geo_ref.width as usize] = 0;
-        model[fire_pos.x + (i as usize) + (fire_pos.y + 6) * geo_ref.width as usize] = 0;
-        model[fire_pos.x + (i as usize) + (fire_pos.y + 7) * geo_ref.width as usize] = 0;
+        for j in 10..20 {
+            model[fire_pos.x + (i as usize) + (fire_pos.y + j) * geo_ref.width as usize] = 0;
+        }
     }
     // allocate the GPU memory needed to house our numbers and copy them over.
     let model_gpu = model.as_slice().as_dbuf()?;
@@ -172,7 +166,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let (_, pre_burn_block_size) = pre_burn.suggested_launch_configuration(0, 0.into())?;
         let pre_burn_grid_size = geo_ref.len().div_ceil(pre_burn_block_size);
         unsafe {
-            println!("pre burn");
+            //println!("pre burn");
             launch!(
                 // slices are passed as two parameters, the pointer and the length.
                 pre_burn<<<pre_burn_grid_size, pre_burn_block_size, 0, stream>>>(
@@ -194,8 +188,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
             stream.synchronize()?;
             //println!("propag");
-            let settings = Settings { geo_ref, max_time, find_ref_change: true };
-            println!("propag");
+            let settings = Settings {
+                geo_ref,
+                max_time,
+                find_ref_change: true,
+            };
+            //println!("propag");
             loop {
                 let mut worked: Vec<UnifiedBox<u32>> =
                     Vec::with_capacity((super_grid_size.0 * super_grid_size.1) as usize);
@@ -233,7 +231,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
             stream.synchronize()?;
-            println!("find boundary_change done");
+            //println!("find boundary_change done");
             /*
             refs_x_buf.copy_to(&mut refs_x)?;
             refs_y_buf.copy_to(&mut refs_y)?;

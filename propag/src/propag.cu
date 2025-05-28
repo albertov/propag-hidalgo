@@ -171,7 +171,9 @@ private:
                 if (!(possible_blockage.reference.pos.x ==
                           neighbor.reference.pos.x &&
                       possible_blockage.reference.pos.y ==
-                          neighbor.reference.pos.y)) {
+                          neighbor.reference.pos.y &&
+                      similar_fires_(possible_blockage.fire,
+                                     neighbor.reference.fire))) {
                   // print_info("cambio ref");
                   reference =
                       PointRef(neighbor.time, neighbor_pos, neighbor.fire);

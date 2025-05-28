@@ -8,6 +8,9 @@ use firelib_cuda::{Point, Settings, HALO_RADIUS};
 use firelib_rs::float;
 use firelib_rs::float::*;
 use firelib_rs::*;
+use gdal::raster::*;
+use gdal::spatial_ref::SpatialRef;
+use gdal::*;
 use min_max_traits::Max;
 use num_traits::Float;
 use std::error::Error;
@@ -53,7 +56,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let herb: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
     let wood: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
     let wind_speed: Vec<float::T> = (0..len).map(|_n| 5.0).collect();
-    let wind_azimuth: Vec<float::T> = (0..len).map(|_n| PI).collect();
+    let wind_azimuth: Vec<float::T> = (0..len).map(|_n| 0.0).collect();
     let aspect: Vec<float::T> = (0..len).map(|_n| 0.0).collect();
     let slope: Vec<float::T> = (0..len).map(|_n| 0.0).collect();
 
@@ -116,8 +119,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
 
     let fire_pos = USizeVec2 {
-        x: geo_ref.width as usize / 2,
-        y: geo_ref.height as usize / 2,
+        x: geo_ref.width as usize / 2 - 40,
+        y: geo_ref.height as usize / 2 - 40,
     };
     println!(
         "using geo_ref={:?}\ngrid_size={:?}\nblocks_size={:?}\nlinear_grid_size={}\nsuper_grid_size={:?}\nfor {} elems",
@@ -250,5 +253,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("num_times_after={}", num_times_after);
     //time_buf.copy_to(&mut time)?;
     //assert!(time.len() > 1);
+
+    let d = DriverManager::get_driver_by_name("GTIFF")?;
+    let options = RasterCreationOptions::from_iter(["TILED=YES", "BLOCKXSIZE=16", "BLOCKYSIZE=16"]);
+    let mut ds = d.create_with_band_type_with_options::<f32, _>(
+        "tiempos.tif",
+        geo_ref.width as usize,
+        geo_ref.height as usize,
+        1,
+        &options,
+    )?;
+    let sr = SpatialRef::from_epsg(geo_ref.epsg)?;
+    ds.set_spatial_ref(&sr)?;
+    ds.set_geo_transform(&geo_ref.transform.as_array_64())?;
+    let mut band = ds.rasterband(1)?;
+    let no_data: f32 = Max::MAX;
+    band.set_no_data_value(Some(no_data as f64))?;
+    let mut buf = Buffer::new(band.size(), time);
+    band.write((0, 0), band.size(), &mut buf)?;
     Ok(())
 }

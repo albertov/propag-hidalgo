@@ -64,7 +64,7 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
         // Load the central block data
         if (first_iteration) {
           LOAD(local_x, local_y, global_x, global_y);
-          first_iteration = false;
+          // first_iteration = false;
         }
 
         // Load the halo regions

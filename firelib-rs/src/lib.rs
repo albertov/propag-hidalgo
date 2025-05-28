@@ -303,7 +303,7 @@ mod tests {
             .map(|_n| {
                 let model = rng.random_range(0..14);
                 let wind_speed = Velocity::new::<meter_per_second>(
-                    rng.random_range(0..10000) as float::T / 1000.0,
+                    rng.random_range(0..30000) as float::T / 1000.0,
                 );
                 let terrain = Terrain {
                     d1hr: mkratio(),

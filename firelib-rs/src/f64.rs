@@ -6,11 +6,13 @@ pub(crate) const CMP_SMIDGEN: T = 1e-6;
 pub(crate) const MAX_FUZZY_CMP_DIFF: T = 1e-6;
 use const_soft_float::soft_f64::SoftF64;
 pub use uom::si::f64::*;
+
 #[derive(Copy, Clone)]
-struct _SoftFloat(SoftF64);
+pub struct _SoftFloat(SoftF64);
 pub const fn SoftFloat(v: T) -> _SoftFloat {
     _SoftFloat(SoftF64(v))
 }
+
 impl _SoftFloat {
     pub const fn to_float(&self) -> T {
         self.0.to_f64()

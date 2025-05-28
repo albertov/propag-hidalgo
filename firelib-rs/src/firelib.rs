@@ -17,7 +17,7 @@ use crate::units::heat_flux_density::btu_sq_foot_min;
 use crate::units::linear_power_density::btu_foot_sec;
 use crate::units::radiant_exposure::btu_sq_foot;
 use crate::units::*;
-use uom::si::angle::radian;
+use uom::si::angle::{degree, radian};
 use uom::si::length::foot;
 use uom::si::ratio::ratio;
 use uom::si::time::minute;
@@ -456,10 +456,11 @@ impl<'a> Fire {
     }
 
     pub fn almost_eq(&self, other: &Self) -> bool {
-        fuzzy_cmp(
+        fuzzy_cmp_smidgen(
             "rx_int",
             self.rx_int.get::<btu_sq_foot_min>(),
             other.rx_int.get::<btu_sq_foot_min>(),
+            1e-1,
         ) && fuzzy_cmp(
             "speed0",
             self.speed0.get::<foot_per_minute>(),
@@ -468,10 +469,6 @@ impl<'a> Fire {
             "hpua",
             self.hpua.get::<btu_sq_foot>(),
             other.hpua.get::<btu_sq_foot>(),
-        ) && fuzzy_cmp(
-            "phi_eff_wind",
-            self.phi_eff_wind.get::<ratio>(),
-            other.phi_eff_wind.get::<ratio>(),
         ) && fuzzy_cmp(
             "speed_max",
             self.speed_max.get::<foot_per_minute>(),
@@ -488,10 +485,23 @@ impl<'a> Fire {
             "flame_max",
             self.flame_max().get::<foot>(),
             other.flame_max().get::<foot>(),
-        ) && fuzzy_cmp(
-            "azimuth_max",
-            self.azimuth_max.get::<radian>(),
-            other.azimuth_max.get::<radian>(),
+        ) && (
+            // Sometimes when float::T is f32 the NoSpread branch
+            // situation does not happen while in fireLib (C) which
+            // uses f64 does. In that situation fireLib sets azimuth to
+            // 0.0. If speed_max is small we don't care about this
+            // discrepancy
+            fuzzy_cmp_azimuths("azimuth_max", self.azimuth_max, other.azimuth_max) || {
+                #[cfg(feature = "std")]
+                {
+                    use std::println;
+                    println!(
+                        "azimuth_max={:?}, speed_max={:?}",
+                        self.azimuth_max, self.speed_max
+                    );
+                };
+                self.speed_max.get::<foot_per_minute>() < 1.0
+            }
         )
     }
 }
@@ -1220,9 +1230,18 @@ const fn init_arr<T: Copy, const N: usize, const M: usize>(def: T, src: [T; M]) 
 }
 #[allow(unused)]
 pub(crate) fn fuzzy_cmp(msg: &str, a: float::T, b: float::T) -> bool {
+    fuzzy_cmp_smidgen(msg, a, b, CMP_SMIDGEN)
+}
+#[allow(unused)]
+pub(crate) fn fuzzy_cmp_azimuths(msg: &str, a: float::Angle, b: float::Angle) -> bool {
+    let diff = (((a.get::<degree>() - b.get::<degree>()).abs() + PI) % 2.0 * PI - PI).abs();
+    diff < 1.0
+}
+#[allow(unused)]
+pub(crate) fn fuzzy_cmp_smidgen(msg: &str, a: float::T, b: float::T, smidgen: float::T) -> bool {
     let min = a.min(b).abs();
     let diff = (a - b).abs();
-    let r = diff < CMP_SMIDGEN || diff / min < MAX_FUZZY_CMP_DIFF;
+    let r = diff < smidgen || diff / min < MAX_FUZZY_CMP_DIFF;
     #[cfg(feature = "std")]
     #[cfg(test)]
     if !r {

@@ -50,6 +50,8 @@ in
     builtins.head
       (inputs.nix-utils.rpmDebUtils.${system}.buildFakeSingleDeb null null).buildInputs;
 
+  libecwj2 = final.callPackage ./pkgs/libecwj2 { };
+
   qgis = prev.qgis.override {
     extraPythonPackages =
       ps: with ps; [
@@ -106,12 +108,16 @@ in
 
   #gdal = final.gdal-small;
 
-  /*
-    gdal = prev.gdal.override {
+  gdal =
+    (prev.gdal.override {
       useMinimalFeatures = true;
       usePostgres = true;
-    };
-  */
+    }).overrideAttrs
+      (old: {
+        cmakeFlags = old.cmakeFlags ++ [ "-DECW_ROOT=${final.libecwj2}" ];
+        disabledTests = old.disabledTests ++ [ "test_ecw_online_6" ];
+
+      });
 
   cudaPackages = prev.cudaPackages_12;
 

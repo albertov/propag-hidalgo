@@ -51,7 +51,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let len = geo_ref.len();
 
     println!("Generating input data");
-    type OptionalVec<T> = Vec<Option<T>>;
     let mut model: Vec<usize> = (0..len).map(|_n| 1).collect();
     let d1hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
     let d10hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
@@ -92,7 +91,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         z: 1,
     };
 
-    let linear_block_size = block_size.x * block_size.y * block_size.z;
     let radius = HALO_RADIUS as u32;
     let shmem_size = (block_size.x + radius * 2) * (block_size.y + radius * 2);
     let shmem_bytes = shmem_size * 48; //FIXME: std::mem::size_of::<Point>() as u32;
@@ -193,8 +191,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                     Vec::with_capacity((super_grid_size.0 * super_grid_size.1) as usize);
                 for grid_x in 0..super_grid_size.0 {
                     for grid_y in 0..super_grid_size.1 {
-                        let linear_grid_size: usize =
-                            (grid_size.x * grid_size.y * grid_size.z) as usize;
                         let this_worked = DeviceVariable::new(0)?;
                         let progress = DeviceVariable::new(0)?;
                         cust::launch_cooperative!(

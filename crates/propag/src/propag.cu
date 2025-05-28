@@ -46,10 +46,10 @@ public:
         local_x_(threadIdx.x + HALO_RADIUS),
         local_y_(threadIdx.y + HALO_RADIUS),
         shared_width_(blockDim.x + HALO_RADIUS * 2),
-        local_ix_(local_x_ + local_y_ * shared_width_),
-        speed_max_(speed_max), azimuth_max_(azimuth_max),
-        eccentricity_(eccentricity), time_(time), refs_x_(refs_x),
-        refs_y_(refs_y), refs_change_(ref_change), shared_(shared) {
+        local_ix_(local_x_ + local_y_ * shared_width_), speed_max_(speed_max),
+        azimuth_max_(azimuth_max), eccentricity_(eccentricity), time_(time),
+        refs_x_(refs_x), refs_y_(refs_y), refs_change_(ref_change),
+        shared_(shared) {
     ASSERT(block_ix_ < gridDim.x * gridDim.y);
     ASSERT(!(settings_.geo_ref.width < 1 || settings_.geo_ref.height < 1));
   };
@@ -164,10 +164,8 @@ private:
             if (iter.next(possible_blockage_pos)) {
               int2 dir = make_int2(possible_blockage_pos.x - int(idx_2d_.x),
                                    possible_blockage_pos.y - int(idx_2d_.y));
-              ASSERT(((int)idx_2d_.x + dir.x) >= 0 &&
-                     ((int)idx_2d_.x + dir.x) < settings_.geo_ref.width &&
-                     ((int)idx_2d_.y + dir.y) >= 0 &&
-                     ((int)idx_2d_.y + dir.y) < settings_.geo_ref.height);
+              ASSERT(pos_in_bounds(
+                  make_int2((int)idx_2d_.x + dir.x, (int)idx_2d_.y + dir.y)));
               int blockage_ix =
                   (local_x_ + dir.x) + (local_y_ + dir.y) * shared_width_;
               ASSERT(0 <= blockage_ix &&
@@ -176,39 +174,30 @@ private:
 
               Point possible_blockage = shared_[blockage_ix];
 
-              if (!(possible_blockage.time < FLT_MAX)) {
-                // If we haven't analyzed the blockage point yet then we can't
-                // use the reference in this iteration. If the reference is
-                // combustible then retry
-                reference = PointRef_NULL;
-                break;
-              } else {
-                if (!(possible_blockage.reference.pos.x ==
+              if (!( // If we haven't analyzed the blockage point yet then we
+                     // can't use the reference in this iteration. We'll use
+                     // neighbor as reference in this iteration and it may
+                     // improve in another if no blockage
+                      possible_blockage.time < FLT_MAX &&
+                      // Check that the possible blockage has the same reference
+                      // as our neighbor...
+                      possible_blockage.reference.pos.x ==
                           neighbor.reference.pos.x &&
                       possible_blockage.reference.pos.y ==
                           neighbor.reference.pos.y &&
+                      //  and a similar fire as its reference
                       similar_fires(possible_blockage.fire,
                                     neighbor.reference.fire))) {
-                  // Reference is not usable, use the neighbor as reference
-                  reference =
-                      PointRef(neighbor.time, neighbor_pos, neighbor.fire);
-                  break;
-                };
+                reference =
+                    PointRef(neighbor.time, neighbor_pos, neighbor.fire);
+                break;
               };
-            } else {
-              break;
             }
-          }
-          if (!similar_fires(reference.fire, neighbor.fire)) {
-            reference = PointRef(neighbor.time, neighbor_pos, neighbor.fire);
           }
 
-          // Calculate time from refeence to us if reference is valid
-          if (reference.is_valid(settings_.geo_ref)) {
-            float t = time_from_ref(reference);
-            if (t < best.time) {
-              best = Point(t, fire, reference);
-            }
+          float t = time_from_ref(reference);
+          if (t < best.time) {
+            best = Point(t, fire, reference);
           }
         };
       };

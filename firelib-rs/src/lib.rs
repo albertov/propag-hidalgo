@@ -7,11 +7,11 @@ extern crate std;
 #[macro_use]
 extern crate uom;
 
-pub mod firelib;
+mod firelib;
 pub mod units;
 
 pub use crate::firelib::*;
-pub use crate::units::*;
+use crate::units::*;
 
 pub static STANDARD_CATALOG: Catalog = Catalog::make([
     Fuel::standard(b"NoFuel", b"No Combustible Fuel", 0.1, 0.01, []),

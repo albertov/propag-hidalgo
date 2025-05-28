@@ -52,6 +52,8 @@ in
 
   libecwj2 = final.callPackage ./pkgs/libecwj2 { };
 
+  qgis-propag-algo = final.callPackage ./pkgs/qgis-propag-algo.nix { };
+
   qgis = prev.qgis.override {
     extraPythonPackages =
       ps: with ps; [

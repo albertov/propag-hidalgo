@@ -11,3 +11,4 @@ propag.docker
 refs
 .pre-commit-config.yaml
 __pycache__
+_build

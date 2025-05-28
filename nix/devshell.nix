@@ -3,6 +3,7 @@ pkgs.mkShell {
   inputsFrom = [
     pkgs.propag
     pkgs.py-propag
+    pkgs.qgis-propag-algo
   ];
   shellHook = ''
     ${pkgs.pre-commit.shellHook}
@@ -10,6 +11,8 @@ pkgs.mkShell {
   env = {
     # So we can link against CUDA runtime API while developing
     LD_LIBRARY_PATH = "${pkgs.linuxPackages.nvidia_x11}/lib";
+
+    QGIS_PREFIX_PATH = pkgs.qgis;
 
     inherit (pkgs.propag)
       GDAL_DATA

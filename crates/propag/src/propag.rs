@@ -1,10 +1,14 @@
 use ::firelib::float;
+use gdal::vector::Geometry;
+
 use ::firelib::float::*;
+
 use ::firelib::*;
 use core::ffi::c_char;
 use gdal::errors::GdalError::CplError;
 use gdal::raster::Buffer;
 use gdal::raster::RasterCreationOptions;
+use gdal::spatial_ref::SpatialRef;
 use gdal::DriverManager;
 use gdal_sys::CPLErr::CE_None;
 use gdal_sys::OGRGeometryH;
@@ -44,6 +48,7 @@ pub struct Propagation {
     pub settings: Settings,
     pub output_path: String,
     pub initial_ignited_elements: Vec<TimeFeature>,
+    pub initial_ignited_elements_crs: SpatialRef,
     pub terrain_loader: Box<dyn TerrainLoader>,
 }
 
@@ -136,11 +141,13 @@ pub struct FFIPropagation {
     output_path: *const c_char,
     initial_ignited_elements: *const FFITimeFeature,
     initial_ignited_elements_len: usize,
+    initial_ignited_elements_crs: *const c_char,
     terrain_loader: FFITerrainLoader,
 }
 
-impl From<FFIPropagation> for Propagation {
-    fn from(p: FFIPropagation) -> Self {
+impl TryFrom<FFIPropagation> for Propagation {
+    type Error = gdal::errors::GdalError;
+    fn try_from(p: FFIPropagation) -> Result<Self, Self::Error> {
         let initial_ignited_elements = if p.initial_ignited_elements_len > 0 {
             let is = unsafe {
                 std::slice::from_raw_parts(
@@ -156,21 +163,42 @@ impl From<FFIPropagation> for Propagation {
         };
         let output_path = unsafe { CStr::from_ptr(p.output_path) };
         let output_path = String::from_utf8_lossy(output_path.to_bytes()).to_string();
-        Propagation {
+        let initial_ignited_elements_crs =
+            unsafe { CStr::from_ptr(p.initial_ignited_elements_crs) };
+        let initial_ignited_elements_crs =
+            String::from_utf8_lossy(initial_ignited_elements_crs.to_bytes()).to_string();
+        let initial_ignited_elements_crs = SpatialRef::from_proj4(&initial_ignited_elements_crs)?;
+        Ok(Propagation {
             settings: p.settings,
             output_path,
             initial_ignited_elements,
+            initial_ignited_elements_crs,
             terrain_loader: Box::new(p.terrain_loader),
-        }
+        })
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn FFIPropagation_run(propag: FFIPropagation) {
-    let propag: Propagation = propag.into();
-    let geo_ref = propag.settings.geo_ref;
-    if let Ok(times) = rasterize_times(&propag.initial_ignited_elements, &geo_ref) {
-        let _ = write_times(times, &geo_ref, propag.output_path);
+pub extern "C" fn FFIPropagation_run(propag: FFIPropagation, err_msg: *mut *const c_char) -> bool {
+    match (|| {
+        let propag: Propagation = propag.try_into()?;
+        let geo_ref = propag.settings.geo_ref;
+        let times = rasterize_times(
+            &propag.initial_ignited_elements,
+            propag.initial_ignited_elements_crs,
+            &geo_ref,
+        )?;
+        write_times(times, &geo_ref, propag.output_path)
+    })() {
+        Ok(()) => true,
+        Err(err) => {
+            let err = format!("{}", err);
+            let err = std::ffi::CString::new(err).unwrap();
+            unsafe {
+                *err_msg = err.as_ptr();
+            };
+            false
+        }
     }
 }
 
@@ -251,20 +279,31 @@ impl TerrainLoader for FFITerrainLoader {
 
 pub fn rasterize_times(
     times: &[TimeFeature],
+    times_crs: SpatialRef,
     geo_ref: &GeoReference,
 ) -> gdal::errors::Result<Vec<f32>> {
     let d = DriverManager::get_driver_by_name("MEM")?;
     let mut ds =
         d.create_with_band_type::<f32, _>("in-memory", geo_ref.width as _, geo_ref.height as _, 1)?;
-    ds.set_spatial_ref(&crate::loader::to_spatial_ref(&geo_ref.proj)?)?;
+    let ds_srs = crate::loader::to_spatial_ref(&geo_ref.proj)?;
+    ds.set_spatial_ref(&ds_srs)?;
     ds.set_geo_transform(&geo_ref.transform.as_array_64())?;
     let mut b = ds.rasterband(1)?;
     let no_data: f32 = Max::MAX;
     b.fill(no_data as f64, None)?;
     b.set_no_data_value(Some(no_data as f64))?;
     let time_values: Vec<f64> = times.iter().map(|f| f.time as f64).collect();
+    let geoms: Vec<Geometry> = times
+        .iter()
+        .filter_map(|f| {
+            let mut geom = f.geom.clone();
+            geom.set_spatial_ref(times_crs.clone());
+            geom.transform_to_inplace(&ds_srs).ok()?;
+            Some(geom)
+        })
+        .collect();
     let ret = unsafe {
-        let geoms: Vec<OGRGeometryH> = times.iter().map(|f| f.geom.c_geometry()).collect();
+        let geoms: Vec<OGRGeometryH> = geoms.iter().map(|x| x.c_geometry()).collect();
         gdal_sys::GDALRasterizeGeometries(
             ds.c_dataset(),
             1,

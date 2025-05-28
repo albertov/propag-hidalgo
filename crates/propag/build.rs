@@ -21,9 +21,9 @@ fn main() {
         .with_crate(".")
         .with_after_include(
             "
-#include \"geometry.h\"
-typedef float T;
-",
+    #include \"geometry.h\"
+    typedef float T;
+    ",
         )
         .with_include_guard("PROPAG_HOST_H")
         //.with_parse_deps(true)

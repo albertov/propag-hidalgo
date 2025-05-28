@@ -1,45 +1,30 @@
-#include "qgsalgorithmpropag.h"
 #include "qgsproviderpropag.h"
+#include "qgsalgorithmpropag.h"
 
 PropagProvider::PropagProvider(QObject *parent)
-    : QgsProcessingProvider(parent)
-{
+    : QgsProcessingProvider(parent) {}
+
+QIcon PropagProvider::icon() const {
+
+  return QgsApplication::getThemeIcon(
+      QStringLiteral(":/plugins/propag25/flame.svg"));
 }
 
-QIcon PropagProvider::icon() const
-{
+QString PropagProvider::svgIconPath() const {
 
-    return QgsApplication::getThemeIcon(QStringLiteral(":/plugins/propag25/flame.svg"));
+  return QgsApplication::iconPath(
+      QStringLiteral(":/plugins/propag25/flame.svg"));
 }
 
-QString PropagProvider::svgIconPath() const
-{
+QString PropagProvider::id() const { return QStringLiteral("propagprovider"); }
 
-    return QgsApplication::iconPath(QStringLiteral(":/plugins/propag25/flame.svg"));
-}
+QString PropagProvider::name() const { return tr("PropagProvider"); }
 
-QString PropagProvider::id() const
-{
-    return QStringLiteral("propagprovider");
-}
+QString PropagProvider::helpId() const { return tr("PropagProvider"); }
 
-QString PropagProvider::name() const
-{
-    return tr("PropagProvider");
-}
+bool PropagProvider::supportsNonFileBasedOutput() const { return true; }
 
-QString PropagProvider::helpId() const
-{
-    return tr("PropagProvider");
-}
-
-bool PropagProvider::supportsNonFileBasedOutput() const
-{
-    return true;
-}
-
-void PropagProvider::loadAlgorithms()
-{
-    //const QgsScopedRuntimeProfile profile(QObject::tr("PropagProvider"));
-    addAlgorithm(new QgsPropagAlgorithm());
+void PropagProvider::loadAlgorithms() {
+  // const QgsScopedRuntimeProfile profile(QObject::tr("PropagProvider"));
+  addAlgorithm(new QgsPropagAlgorithm());
 }

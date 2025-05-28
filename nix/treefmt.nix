@@ -9,6 +9,7 @@
   programs.clang-format.includes = [
     "*.cu"
     "*.c"
+    "*.cpp"
     "*.h"
   ];
 }

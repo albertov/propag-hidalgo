@@ -19,43 +19,6 @@ const PI: f64 = 3.141592653589793;
 const MAX_PARTICLES: usize = 5;
 const MAX_FUELS: usize = 20;
 
-macro_rules! accum_particles {
-    ($particles:expr, $fun:expr) => ({
-        match(&$particles, &$fun) {
-            (particles, fun) => {
-                let mut r = 0.0;
-                let mut i = 0;
-                while i < particles.len() {
-                    let p = &particles[i];
-                    if p.is_sentinel() {
-                        break;
-                    }
-                    r += fun(p);
-                    i += 1
-                }
-                r
-            }
-        }
-    });
-    ($particles:expr, $fun:expr, $( $args:expr ),*) => ({
-        match(&$particles, &$fun) {
-            (particles, fun) => {
-                let mut r = 0.0;
-                let mut i = 0;
-                while i < particles.len() {
-                    let p = &particles[i];
-                    if p.is_sentinel() {
-                        break;
-                    }
-                    r += fun(p, $( $args ),*);
-                    i += 1
-                }
-                r
-            }
-        }
-    });
-}
-
 #[derive(Clone, Copy, PartialEq)]
 pub enum Life {
     Dead,
@@ -123,6 +86,12 @@ pub struct Fire {
     pub residence_time: Time,
 }
 
+#[derive(Debug)]
+pub struct Spread<'a> {
+    fire: &'a Fire,
+    factor: Ratio,
+}
+
 #[derive(PartialEq, Copy, Clone)]
 pub enum SizeClass {
     SC0,
@@ -173,29 +142,58 @@ pub struct Fuel {
     pub life_rx_factor_dead: f64,
     pub total_area: f64,
 }
+
 pub type Particles = [Particle; MAX_PARTICLES];
 
-pub type Catalog = [Fuel; MAX_FUELS];
+pub struct Catalog([Fuel; MAX_FUELS]);
 
-#[inline]
-pub fn get_fuel(catalog: &Catalog, idx: usize) -> Option<&Fuel> {
-    match catalog.get(idx).as_ref() {
-        Some(x) if x.has_particles() => Some(x),
-        _ => None,
-    }
+macro_rules! accum_particles {
+    ($particles:expr, $fun:expr) => ({
+        match(&$particles, &$fun) {
+            (particles, fun) => {
+                let mut r = 0.0;
+                let mut i = 0;
+                while i < particles.len() {
+                    let p = &particles[i];
+                    if p.is_sentinel() {
+                        break;
+                    }
+                    r += fun(p);
+                    i += 1
+                }
+                r
+            }
+        }
+    });
+    ($particles:expr, $fun:expr, $( $args:expr ),*) => ({
+        match(&$particles, &$fun) {
+            (particles, fun) => {
+                let mut r = 0.0;
+                let mut i = 0;
+                while i < particles.len() {
+                    let p = &particles[i];
+                    if p.is_sentinel() {
+                        break;
+                    }
+                    r += fun(p, $( $args ),*);
+                    i += 1
+                }
+                r
+            }
+        }
+    });
 }
 
-pub(crate) const fn init_arr<T: Copy, const N: usize, const M: usize>(
-    def: T,
-    src: [T; M],
-) -> [T; N] {
-    let mut dst = [def; N];
-    let mut i = 0;
-    while i < M {
-        dst[i] = src[i];
-        i += 1;
+impl Catalog {
+    pub const fn make<const N: usize>(fuels: [Fuel; N]) -> Self {
+        Self(init_arr(Fuel::SENTINEL, fuels))
     }
-    dst
+    pub fn get(&self, idx: usize) -> Option<&Fuel> {
+        match self.0.get(idx).as_ref() {
+            Some(x) if x.has_particles() => Some(x),
+            _ => None,
+        }
+    }
 }
 
 impl Terrain {
@@ -223,6 +221,13 @@ impl<'a> Fire {
             residence_time: Time::new::<minute>(0.0),
         }
     }
+    fn flame_length(byrams: f64) -> f64 {
+        if byrams > SMIDGEN {
+            0.45 * byrams.powf(0.46)
+        } else {
+            0.0
+        }
+    }
     pub fn byrams_max(&self) -> LinearPowerDensity {
         LinearPowerDensity::new::<btu_foot_sec>(
             self.residence_time.get::<minute>()
@@ -232,7 +237,7 @@ impl<'a> Fire {
         )
     }
     pub fn flame_max(&self) -> Length {
-        Length::new::<foot>(flame_length(self.byrams_max().get::<btu_foot_sec>()))
+        Length::new::<foot>(Self::flame_length(self.byrams_max().get::<btu_foot_sec>()))
     }
 
     pub fn at_azimuth(&'a self, azimuth: Angle) -> Spread<'a> {
@@ -309,12 +314,6 @@ impl<'a> Fire {
     }
 }
 
-#[derive(Debug)]
-pub struct Spread<'a> {
-    fire: &'a Fire,
-    factor: Ratio,
-}
-
 impl<'a> Spread<'a> {
     pub fn speed(&self) -> Velocity {
         self.fire.speed_max * self.factor
@@ -323,7 +322,7 @@ impl<'a> Spread<'a> {
         self.fire.byrams_max() * self.factor
     }
     pub fn flame(&self) -> Length {
-        Length::new::<foot>(flame_length(self.byrams().get::<btu_foot_sec>()))
+        Length::new::<foot>(Fire::flame_length(self.byrams().get::<btu_foot_sec>()))
     }
 }
 
@@ -423,13 +422,6 @@ impl ParticleDef {
         SoftF64(safe_div(-138.0, savr)).exp().to_f64()
     }
 }
-const fn safe_div(a: f64, b: f64) -> f64 {
-    if b > SMIDGEN {
-        a / b
-    } else {
-        0.0
-    }
-}
 
 impl Particle {
     const SENTINEL: Self =
@@ -485,6 +477,7 @@ impl Particle {
         })
     }
 }
+
 impl FuelDef {
     const fn life_particles(&self, life: Life) -> &Particles {
         match life {
@@ -723,19 +716,15 @@ impl Fuel {
             Life::Dead => &self.dead_particles,
         }
     }
-    #[inline]
-    pub(crate) const fn has_particles(&self) -> bool {
+    const fn has_particles(&self) -> bool {
         self.has_live_particles() || self.has_dead_particles()
     }
-    #[inline]
     const fn has_live_particles(&self) -> bool {
         !self.alive_particles[0].is_sentinel()
     }
-    #[inline]
     const fn has_dead_particles(&self) -> bool {
         !self.dead_particles[0].is_sentinel()
     }
-    #[inline]
     const fn life_area_weight(&self, life: Life) -> f64 {
         match life {
             Life::Alive => self.live_area_weight,
@@ -956,9 +945,9 @@ impl Fuel {
     }
 }
 
-fn flame_length(byrams: f64) -> f64 {
-    if byrams > SMIDGEN {
-        0.45 * byrams.powf(0.46)
+const fn safe_div(a: f64, b: f64) -> f64 {
+    if b > SMIDGEN {
+        a / b
     } else {
         0.0
     }
@@ -974,7 +963,15 @@ enum WindSlopeSituation {
     CrossSlope,
 }
 
-#[inline]
 fn iter_particles<const N: usize>(particles: &[Particle; N]) -> impl Iterator<Item = &Particle> {
     particles.iter().take_while(|p| !p.is_sentinel())
+}
+const fn init_arr<T: Copy, const N: usize, const M: usize>(def: T, src: [T; M]) -> [T; N] {
+    let mut dst = [def; N];
+    let mut i = 0;
+    while i < M {
+        dst[i] = src[i];
+        i += 1;
+    }
+    dst
 }

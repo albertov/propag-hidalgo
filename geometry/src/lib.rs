@@ -3,9 +3,11 @@
 #[cfg(test)]
 extern crate std;
 
+use approx::abs_diff_ne;
+
 use approx::AbsDiffEq;
 
-pub use geo::*;
+pub use geo_types::*;
 use num_traits::{Float, NumCast};
 
 #[cfg(target_os = "cuda")]
@@ -24,67 +26,110 @@ pub enum Crs {
     Proj4([u8; 1024]),
 }
 
-#[cfg_attr(not(target_os = "cuda"), derive(Copy, Clone, Debug, cust::DeviceCopy))]
-pub struct GeoReferenceCuda<T> {
-    pub transform: [T; 6],
-    inv_transform: [T; 6],
-    pub size: [i32; 2],
-    pub crs: Crs,
-}
+#[cfg_attr(
+    not(target_os = "cuda"),
+    derive(Copy, Clone, Debug, PartialEq, cust::DeviceCopy)
+)]
+pub struct GeoTransform<T>([T; 6], [T; 6]);
 
-#[derive(Clone)]
-pub struct GeoReference<T>
+impl<T> GeoTransform<T>
 where
-    T: CoordFloat,
+    T: CoordFloat + AbsDiffEq,
 {
-    pub transform: AffineTransform<T>,
-    inv_transform: AffineTransform<T>,
-    pub size: Coord<i32>,
-    pub crs: Crs,
-}
-impl<T> From<GeoReferenceCuda<T>> for GeoReference<T>
-where
-    T: CoordFloat,
-{
-    fn from(f: GeoReferenceCuda<T>) -> Self {
-        Self {
-            transform: f.transform.into(),
-            inv_transform: f.transform.into(),
-            size: f.size.into(),
-            crs: f.crs,
+    pub fn new(xs: [T; 6]) -> Option<Self> {
+        Some(Self(xs, Self::invert(xs)?))
+    }
+    pub fn is_north_up(&self) -> bool {
+        self.dy() < T::zero()
+    }
+    pub fn origin(&self) -> Coord<T> {
+        Coord {
+            x: self.0[0],
+            y: self.0[3],
         }
     }
-}
-
-impl<T> GeoReference<T>
-where
-    T: CoordFloat + Clone + From<i32>,
-{
+    pub fn dy(&self) -> T {
+        self.0[5]
+    }
+    pub fn dx(&self) -> T {
+        self.0[0]
+    }
+    pub fn as_mut_ref<'a>(&'a mut self) -> &'a mut [T; 6] {
+        &mut self.0
+    }
+    pub fn as_ref<'a>(&'a self) -> &'a [T; 6] {
+        &self.0
+    }
     pub fn forward(&self, p: Coord<T>) -> Coord<usize> {
-        let p = self.inv_transform.apply(p);
+        let Coord { x, y } = p - self.origin();
+        let [_, dx, rx, _, ry, dy] = self.1;
+        let p = Coord {
+            x: x * dx + y * rx,
+            y: x * ry + y * dy,
+        };
         Coord {
             x: NumCast::from(p.x.trunc()).expect("T to usize failed"),
             y: NumCast::from(p.y.trunc()).expect("T to usize failed"),
         }
     }
     pub fn backward(&self, p: Coord<usize>) -> Coord<T> {
-        self.transform.apply(Coord {
-            x: NumCast::from(p.x).expect("usize to T failed"),
-            y: NumCast::from(p.y).expect("usize to T failed"),
-        })
+        let p = Coord {
+            x: NumCast::from(p.x).expect("T from usize failed"),
+            y: NumCast::from(p.y).expect("T to from failed"),
+        };
+        let Coord { x, y } = p + self.origin();
+        let [_, dx, rx, _, ry, dy] = self.0;
+        Coord {
+            x: x * dx + y * rx,
+            y: x * ry + y * dy,
+        }
+    }
+    fn invert(gt: [T; 6]) -> Option<[T; 6]> {
+        let [x0, a, c, y0, b, d] = gt;
+        let det = a * d - b * c;
+        if abs_diff_ne!(det.abs(), T::zero()) {
+            let f = T::one() / det;
+            let a2 = d * f;
+            let b2 = -b * f;
+            let c2 = -c * f;
+            let d2 = a * f;
+            Some([x0, a2, c2, y0, b2, d2])
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg_attr(not(target_os = "cuda"), derive(Copy, Clone, Debug, cust::DeviceCopy))]
+pub struct GeoReference<T>
+where
+    T: CoordFloat,
+{
+    pub transform: GeoTransform<T>,
+    pub size: [i32; 2],
+    pub crs: Crs,
+}
+
+impl<T> GeoReference<T>
+where
+    T: CoordFloat + Clone + From<i32> + AbsDiffEq,
+{
+    pub fn forward(&self, p: Coord<T>) -> Coord<usize> {
+        self.transform.forward(p)
+    }
+    pub fn backward(&self, p: Coord<usize>) -> Coord<T> {
+        self.transform.backward(p)
     }
     pub fn south_up(extent: Rect<T>, pixel_size: Coord<T>, crs: Crs) -> Option<GeoReference<T>> {
         let Coord { x: dx, y: dy } = pixel_size;
         let Coord { x: x0, y: y0 } = extent.min();
-        let transform = AffineTransform::new(dx, T::zero(), x0, T::zero(), dy, y0);
-        let inv_transform = transform.inverse()?;
-        let size = Coord {
-            x: NumCast::from(extent.width() / dx)?,
-            y: NumCast::from(extent.height() / dy)?,
-        };
+        let transform = GeoTransform::new([x0, dx, T::zero(), y0, T::zero(), dy])?;
+        let size = [
+            NumCast::from(extent.width() / dx)?,
+            NumCast::from(extent.height() / dy)?,
+        ];
         Some(GeoReference {
             transform,
-            inv_transform,
             size,
             crs,
         })
@@ -93,15 +138,13 @@ where
         let Coord { x: dx, y: dy } = pixel_size;
         let Coord { x: x0, .. } = extent.min();
         let Coord { y: y1, .. } = extent.max();
-        let transform = AffineTransform::new(dx, T::zero(), x0, T::zero(), -dy, y1);
-        let inv_transform = transform.inverse()?;
-        let size = Coord {
-            x: NumCast::from(extent.width() / dx)?,
-            y: NumCast::from(extent.height() / dy)?,
-        };
+        let size = [
+            NumCast::from(extent.width() / dx)?,
+            NumCast::from(extent.height() / dy)?,
+        ];
+        let transform = GeoTransform::new([x0, dx, T::zero(), y1, T::zero(), -dy])?;
         Some(GeoReference {
             transform,
-            inv_transform,
             size,
             crs,
         })
@@ -111,28 +154,25 @@ where
             transform, size, ..
         } = self;
         let size = Coord {
-            x: size.x.into(),
-            y: size.y.into(),
+            x: size[0].into(),
+            y: size[1].into(),
         };
         //assert!(dx > T::zero() && dy > T::zero() && rx == T::zero() && ry == T::zero());
-        let origin = Coord {
-            x: transform.xoff(),
-            y: transform.yoff(),
-        };
+        let origin = transform.origin();
         Rect::new(
             origin,
             origin
                 + Coord {
-                    x: transform.a() * size.x,
-                    y: transform.e() * size.y,
+                    x: transform.dx() * size.x,
+                    y: transform.dy() * size.y,
                 },
         )
     }
     pub fn is_north_up(&self) -> bool {
-        self.transform.e() < T::zero()
+        self.transform.is_north_up()
     }
     /*
-    azimuth (V2 x0 y0) (V2 x1 y1)
+    azimuth (Coord x0 y0) (Coord x1 y1)
           = atan2 (x1-x0) (y1-y0)
     */
     // Azimuth (radian)

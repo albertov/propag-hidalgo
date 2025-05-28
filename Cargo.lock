@@ -379,6 +379,7 @@ version = "0.1.0"
 dependencies = [
  "cuda_std",
  "firelib-rs",
+ "geometry",
 ]
 
 [[package]]
@@ -503,9 +504,9 @@ name = "geometry"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "cuda_std",
  "cust",
- "geo",
- "heapless",
+ "geo-types",
  "num-traits",
 ]
 

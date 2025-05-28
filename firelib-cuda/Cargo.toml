@@ -9,3 +9,4 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 cuda_std = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }
 firelib-rs = { path = "../firelib-rs", default-features = false }
+geometry = { path = "../geometry" }

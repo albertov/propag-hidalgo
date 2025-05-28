@@ -2,7 +2,7 @@ use ::geometry::*;
 use gdal::errors::Result;
 use gdal::raster::GdalDataType;
 use gdal::spatial_ref::SpatialRef;
-use gdal::{Dataset, GeoTransform};
+use gdal::Dataset;
 use gdal_sys::*;
 
 // Takes ownership of the original dataset so no one uses it
@@ -22,7 +22,7 @@ impl WarpedDataset {
                 std::ffi::CString::new(src.projection())?.as_ptr() as *const i8,
                 src.geo_transform()?.as_ptr(),
                 std::ffi::CString::new(spatial_ref.to_wkt()?.as_str())?.as_ptr() as *const i8,
-                to_geo_transform(geo_ref.transform).as_ptr(),
+                geo_ref.transform.as_ref().as_ptr(),
             );
             let n_bands = src.raster_count();
             let opts = GDALCreateWarpOptions();
@@ -39,11 +39,12 @@ impl WarpedDataset {
             (*opts).panSrcBands = src_bands;
             (*opts).panDstBands = dst_bands;
             (*opts).eWorkingDataType = dt as _;
-            let mut gt = to_geo_transform(geo_ref.transform);
+            let mut gt = geo_ref.transform.clone();
+            let gt = gt.as_mut_ref();
             let dst_ds = GDALCreateWarpedVRT(
                 src.c_dataset(),
-                geo_ref.size.x,
-                geo_ref.size.y,
+                geo_ref.size[0],
+                geo_ref.size[1],
                 gt.as_mut_ptr(),
                 opts,
             );
@@ -51,10 +52,6 @@ impl WarpedDataset {
             Ok(Self(Dataset::from_c_dataset(dst_ds), src))
         }
     }
-}
-
-fn to_geo_transform(t: AffineTransform<f64>) -> GeoTransform {
-    [t.xoff(), t.a(), t.b(), t.yoff(), t.d(), t.e()]
 }
 
 fn to_spatial_ref(crs: Crs) -> Result<SpatialRef> {
@@ -68,7 +65,7 @@ fn to_spatial_ref(crs: Crs) -> Result<SpatialRef> {
 
 #[cfg(test)]
 mod tests {
-    use super::{to_geo_transform, to_spatial_ref, GeoReference, WarpedDataset};
+    use super::{to_spatial_ref, GeoReference, WarpedDataset};
     use gdal::raster::{Buffer, GdalDataType, GdalType};
     use gdal::DriverManager;
     use geometry::{Coord, Crs, Rect};
@@ -91,9 +88,9 @@ mod tests {
             )
             .unwrap();
             let d = DriverManager::get_driver_by_name("MEM")?;
-            let mut ds = d.create("in-memory", geo_ref.size.x as _, geo_ref.size.y as _, 3)?;
+            let mut ds = d.create("in-memory", geo_ref.size[0] as _, geo_ref.size[1] as _, 3)?;
             ds.set_spatial_ref(&to_spatial_ref(geo_ref.crs.clone())?)?;
-            ds.set_geo_transform(&to_geo_transform(geo_ref.transform))?;
+            ds.set_geo_transform(&geo_ref.transform.as_ref())?;
             assert_eq!(ds.raster_count(), 3);
             assert_eq!(ds.raster_size(), (3600, 1800));
             assert_eq!(ds.rasterband(1)?.band_type(), GdalDataType::UInt8);

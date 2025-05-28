@@ -195,6 +195,91 @@ mod tests {
             Fire::almost_eq(&firelib_sp, &c_sp) && SpreadAtAzimuth::almost_eq(&firelib_sp_az, &c_sp_az)
         }
     }
+    fn firelib_rs_spread(
+        model: usize,
+        terrain: &Terrain,
+        azimuth: Angle,
+    ) -> (Fire, SpreadAtAzimuth) {
+        STANDARD_CATALOG
+            .get(model)
+            .and_then(|fuel| fuel.burn(terrain))
+            .map(|fire| {
+                let spread_az = SpreadAtAzimuth::from_spread(&fire.at_azimuth(azimuth));
+                (fire, spread_az)
+            })
+            .unwrap_or((Fire::null(), SpreadAtAzimuth::null()))
+    }
+
+    fn firelib_c_spread(
+        model: usize,
+        terrain: &Terrain,
+        azimuth: Angle,
+    ) -> (Fire, SpreadAtAzimuth) {
+        unsafe {
+            let name = CString::new("standard").unwrap();
+            let catalog = Fire_FuelCatalogCreateStandard(name.as_ptr(), 13);
+            let mut m = [
+                terrain.d1hr.get::<ratio>(),
+                terrain.d10hr.get::<ratio>(),
+                terrain.d100hr.get::<ratio>(),
+                (0.0).into(),
+                terrain.herb.get::<ratio>(),
+                terrain.wood.get::<ratio>(),
+            ];
+            Fire_SpreadNoWindNoSlope(catalog, model, m.as_mut_ptr());
+            Fire_SpreadWindSlopeMax(
+                catalog,
+                model,
+                terrain.wind_speed.get::<foot_per_minute>(),
+                terrain.wind_azimuth.get::<degree>(),
+                terrain.slope.into(),
+                terrain.aspect.get::<degree>(),
+            );
+            let fuel: *mut fuelModelDataStruct = *(*catalog).modelPtr.wrapping_add(model);
+            Fire_SpreadAtAzimuth(
+                catalog,
+                model,
+                (*fuel).azimuthMax,
+                (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
+            );
+            let f = *fuel;
+            let fire = Fire {
+                rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(f.rxInt),
+                speed0: Velocity::new::<foot_per_minute>(f.spread0),
+                hpua: RadiantExposure::new::<btu_sq_foot>(f.hpua),
+                phi_eff_wind: Ratio::new::<ratio>(f.phiEw),
+                speed_max: Velocity::new::<foot_per_minute>(f.spreadMax),
+                azimuth_max: Angle::new::<degree>(f.azimuthMax),
+                eccentricity: Ratio::new::<ratio>(f.eccentricity),
+                residence_time: Time::new::<minute>(f.taur),
+            };
+            Fire_SpreadAtAzimuth(
+                catalog,
+                model,
+                azimuth.get::<degree>(),
+                (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
+            );
+            let f = *fuel;
+            let spread = SpreadAtAzimuth {
+                speed: Velocity::new::<foot_per_minute>(f.spreadAny),
+                byrams: LinearPowerDensity::new::<btu_foot_sec>(f.byrams),
+                flame: Length::new::<foot>(f.flame),
+            };
+            Fire_FuelCatalogDestroy(catalog);
+            (fire, spread)
+        }
+    }
+
+    #[bench]
+    fn bench_firelib_rs(b: &mut Bencher) {
+        bench_spread_fn(b, firelib_rs_spread)
+    }
+
+    #[bench]
+    fn bench_firelib_c(b: &mut Bencher) {
+        bench_spread_fn(b, firelib_c_spread)
+    }
+
     fn bench_spread_fn(
         b: &mut Bencher,
         f: impl Fn(usize, &Terrain, Angle) -> (Fire, SpreadAtAzimuth),
@@ -232,92 +317,7 @@ mod tests {
                 .sum::<f64>()
         })
     }
-    #[bench]
-    fn bench_firelib_rs(b: &mut Bencher) {
-        bench_spread_fn(b, firelib_rs_spread)
-    }
 
-    #[bench]
-    fn bench_firelib_c(b: &mut Bencher) {
-        bench_spread_fn(b, firelib_c_spread)
-    }
-
-    fn firelib_rs_spread(
-        model: usize,
-        terrain: &Terrain,
-        azimuth: Angle,
-    ) -> (Fire, SpreadAtAzimuth) {
-        match crate::STANDARD_CATALOG.get(model) {
-            Some(fuel) => match fuel.burn(terrain) {
-                Some(fire) => {
-                    let spread_az = SpreadAtAzimuth::from_spread(&fire.at_azimuth(azimuth));
-                    (fire, spread_az)
-                }
-                _ => (Fire::null(), SpreadAtAzimuth::null()),
-            },
-            _ => (Fire::null(), SpreadAtAzimuth::null()),
-        }
-    }
-
-    fn firelib_c_spread(
-        model: usize,
-        terrain: &Terrain,
-        azimuth: Angle,
-    ) -> (Fire, SpreadAtAzimuth) {
-        unsafe {
-            let name = CString::new("standard").unwrap();
-            let catalog = Fire_FuelCatalogCreateStandard(name.as_ptr(), 13);
-            let mut m = [
-                terrain.d1hr.get::<ratio>(),
-                terrain.d10hr.get::<ratio>(),
-                terrain.d100hr.get::<ratio>(),
-                (0.0).into(),
-                terrain.herb.get::<ratio>(),
-                terrain.wood.get::<ratio>(),
-            ];
-            Fire_SpreadNoWindNoSlope(catalog, model, m.as_mut_ptr());
-            Fire_SpreadWindSlopeMax(
-                catalog,
-                model,
-                terrain.wind_speed.get::<foot_per_minute>(),
-                terrain.wind_azimuth.get::<degree>(),
-                terrain.slope.into(),
-                terrain.aspect.get::<degree>(),
-            );
-            let fuel: *mut fuelModelDataStruct = *(*catalog).modelPtr.wrapping_add(model);
-            Fire_SpreadAtAzimuth(
-                catalog,
-                model,
-                (*fuel).azimuthMax,
-                (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
-            );
-            let f = *fuel;
-            let spread = Fire {
-                rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(f.rxInt),
-                speed0: Velocity::new::<foot_per_minute>(f.spread0),
-                hpua: RadiantExposure::new::<btu_sq_foot>(f.hpua),
-                phi_eff_wind: Ratio::new::<ratio>(f.phiEw),
-                speed_max: Velocity::new::<foot_per_minute>(f.spreadMax),
-                azimuth_max: Angle::new::<degree>(f.azimuthMax),
-                eccentricity: Ratio::new::<ratio>(f.eccentricity),
-                residence_time: Time::new::<minute>(f.taur),
-            };
-            Fire_SpreadAtAzimuth(
-                catalog,
-                model,
-                azimuth.get::<degree>(),
-                (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
-            );
-            let f = *fuel;
-            let spread_az = SpreadAtAzimuth {
-                speed: Velocity::new::<foot_per_minute>(f.spreadAny),
-                byrams: LinearPowerDensity::new::<btu_foot_sec>(f.byrams),
-                flame: Length::new::<foot>(f.flame),
-            };
-            Fire_FuelCatalogDestroy(catalog);
-            (spread, spread_az)
-        }
-    }
     impl Arbitrary for Terrain {
         fn arbitrary(g: &mut Gen) -> Self {
             let humidities = &(0..101).map(|x| x as f64 / 100.0).collect::<Vec<_>>()[..];

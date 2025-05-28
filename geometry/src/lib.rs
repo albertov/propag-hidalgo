@@ -8,7 +8,7 @@ use approx::{abs_diff_eq, abs_diff_ne};
 pub use approx::AbsDiffEq;
 
 pub use glam::*;
-pub use num_traits::{Float, NumCast};
+pub use num_traits::{NumCast};
 
 #[cfg(target_os = "cuda")]
 extern crate cuda_std;
@@ -17,6 +17,8 @@ extern crate cust_core;
 
 #[cfg(target_os = "cuda")]
 use cuda_std::GpuFloat;
+#[cfg(not(target_os = "cuda"))]
+use num_traits::{Float};
 
 #[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
 #[repr(C)]
@@ -236,22 +238,27 @@ pub struct Raster<'a, T> {
 }
 */
 
+#[repr(C)]
 struct DDA {
     dest: IVec2,
     step: IVec2,
     cur: Option<IVec2>,
-    t_max: Vec2,
-    delta: Vec2,
+    t_max: DVec2,
+    delta: DVec2
 }
 
 impl DDA {
     fn new(origin: IVec2, dest: IVec2) -> Self {
-        let t_max = (dest - origin).abs();
-        let t_max = Vec2 {
-            x: (t_max.x as f32).recip(),
-            y: (t_max.y as f32).recip(),
-        };
         let step = (dest - origin).signum();
+        let t_max = (dest - origin).abs();
+        let t_max = if t_max.x != 0 && t_max.y != 0 {
+            DVec2 {
+                x: 1.0/(t_max.x as f64),
+                y: 1.0/(t_max.y as f64),
+            }
+        } else {
+            DVec2 {x:0.0, y:0.0}
+        };
         let cur = Some(origin);
         DDA {
             dest,
@@ -286,7 +293,7 @@ impl Iterator for DDA {
             Some(vec) if vec == self.dest => {
                 self.cur = None;
                 Some(vec)
-            }
+            },
             Some(IVec2 { x, y }) if !(valid_x(x) && valid_y(y)) => {
                 self.cur = None;
                 None
@@ -306,7 +313,7 @@ impl Iterator for DDA {
                     x: self.step.x + x,
                     y: y,
                 });
-                self.t_max = Vec2 {
+                self.t_max = DVec2 {
                     x: self.t_max.x + self.delta.x,
                     y: self.t_max.y,
                 };
@@ -318,7 +325,7 @@ impl Iterator for DDA {
                     x,
                     y: self.step.y + y,
                 });
-                self.t_max = Vec2 {
+                self.t_max = DVec2 {
                     x: self.t_max.x,
                     y: self.t_max.y + self.delta.y,
                 };
@@ -358,14 +365,38 @@ mod test {
         );
     }
     #[test]
+    fn can_line_to_north2() {
+        let points: Vec<IVec2> = line_to(IVec2 { x: 0, y: 0 }, IVec2 { x: 0, y: 1 }).collect();
+        assert_eq!(
+            points,
+            vec![
+                (IVec2 { x: 0, y: 0 }),
+                (IVec2 { x: 0, y: 1 }),
+            ]
+        );
+    }
+    #[test]
     fn can_line_to_south() {
-        let points: Vec<IVec2> = line_to(IVec2 { x: 0, y: 0 }, IVec2 { x: 0, y: -2 }).collect();
+        let points: Vec<IVec2> =
+            line_to(IVec2 { x: 0, y: 0 }, IVec2 { x: 0, y: -2 }).collect();
         assert_eq!(
             points,
             vec![
                 (IVec2 { x: 0, y: 0 }),
                 (IVec2 { x: 0, y: -1 }),
                 (IVec2 { x: 0, y: -2 })
+            ]
+        );
+    }
+    #[test]
+    fn can_line_to_south2() {
+        let points: Vec<IVec2> =
+            line_to(IVec2 { x: 0, y: 0 }, IVec2 { x: 0, y: -1 }).collect();
+        assert_eq!(
+            points,
+            vec![
+                (IVec2 { x: 0, y: 0 }),
+                (IVec2 { x: 0, y: -1 }),
             ]
         );
     }
@@ -383,7 +414,8 @@ mod test {
     }
     #[test]
     fn can_line_to_west() {
-        let points: Vec<IVec2> = line_to(IVec2 { x: 0, y: 0 }, IVec2 { x: -2, y: 0 }).collect();
+        let points: Vec<IVec2> =
+            line_to(IVec2 { x: 0, y: 0 }, IVec2 { x: -2, y: 0 }).collect();
         assert_eq!(
             points,
             vec![
@@ -395,7 +427,8 @@ mod test {
     }
     #[test]
     fn can_line_to_north_west() {
-        let points: Vec<IVec2> = line_to(IVec2 { x: 0, y: 0 }, IVec2 { x: -2, y: -2 }).collect();
+        let points: Vec<IVec2> =
+            line_to(IVec2 { x: 0, y: 0 }, IVec2 { x: -2, y: -2 }).collect();
         assert_eq!(
             points,
             vec![
@@ -407,7 +440,8 @@ mod test {
     }
     #[test]
     fn can_line_to_north_east() {
-        let points: Vec<IVec2> = line_to(IVec2 { x: 0, y: 0 }, IVec2 { x: -2, y: 2 }).collect();
+        let points: Vec<IVec2> =
+            line_to(IVec2 { x: 0, y: 0 }, IVec2 { x: -2, y: 2 }).collect();
         assert_eq!(
             points,
             vec![
@@ -419,13 +453,26 @@ mod test {
     }
     #[test]
     fn can_line_to_south_west() {
-        let points: Vec<IVec2> = line_to(IVec2 { x: 0, y: 0 }, IVec2 { x: 2, y: -2 }).collect();
+        let points: Vec<IVec2> =
+            line_to(IVec2 { x: 0, y: 0 }, IVec2 { x: 2, y: -2 }).collect();
         assert_eq!(
             points,
             vec![
                 (IVec2 { x: 0, y: 0 }),
                 (IVec2 { x: 1, y: -1 }),
                 (IVec2 { x: 2, y: -2 })
+            ]
+        );
+    }
+    #[test]
+    fn can_line_to_south_west_2() {
+        let points: Vec<IVec2> =
+            line_to(IVec2 { x: 0, y: 0 }, IVec2 { x: 1, y: -1 }).collect();
+        assert_eq!(
+            points,
+            vec![
+                (IVec2 { x: 0, y: 0 }),
+                (IVec2 { x: 1, y: -1 }),
             ]
         );
     }
@@ -439,6 +486,14 @@ mod test {
                 (IVec2 { x: 1, y: 1 }),
                 (IVec2 { x: 2, y: 2 })
             ]
+        );
+    }
+    #[test]
+    fn special_case_propag() {
+        let point: Option<IVec2> = line_to(IVec2 { x: 499, y: 99 }, IVec2 { x: 500, y: 100 }).nth(1);
+        assert_eq!(
+            point,
+            Some(IVec2 { x: 500, y: 100 })
         );
     }
     type Result<A> = std::result::Result<A, std::boxed::Box<dyn std::error::Error>>;

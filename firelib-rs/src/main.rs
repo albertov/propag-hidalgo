@@ -1,5 +1,4 @@
-use firelib_rs::firelib::get_fuel;
-use firelib_rs::types::*;
+use firelib_rs::*;
 use rand::prelude::*;
 use uom::si::angle::degree;
 use uom::si::f64::*;
@@ -12,7 +11,7 @@ fn main() {
     let zero = Ratio::new::<ratio>(0.0);
     let zero_ms = Velocity::new::<meter_per_second>(0.0);
     let zero_deg = Angle::new::<degree>(0.0);
-    let spread = fuel.spread(&Terrain {
+    let fire = fuel.burn(&Terrain {
         d1hr: zero,
         d10hr: zero,
         d100hr: zero,
@@ -24,9 +23,9 @@ fn main() {
         aspect: zero_deg,
     });
     println!(
-        "fuel={}\nspread={:?}\nspeedAtAz={:?}",
+        "fuel={}\nfire={:?}\nspeedAtAz={:?}",
         std::str::from_utf8(&fuel.name).unwrap(),
-        spread,
-        spread.at_azimuth(Angle::new::<degree>(25.0)).speed()
+        fire,
+        fire.at_azimuth(Angle::new::<degree>(25.0)).speed()
     )
 }

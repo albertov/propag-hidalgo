@@ -15,10 +15,145 @@ use uom::si::time::minute;
 use uom::si::velocity::foot_per_minute;
 use uom::si::velocity::meter_per_second;
 
-use crate::types::*;
-
-const SMIDGEN: f64 = 1e-6;
+pub(crate) const SMIDGEN: f64 = 1e-6;
 const PI: f64 = 3.141592653589793;
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Life {
+    Dead,
+    Alive,
+}
+
+#[derive(Clone, Copy)]
+pub enum ParticleType {
+    Dead,       // Dead fuel particle
+    Herb,       // Herbaceous live particle
+    Wood,       // Woody live particle
+    NoParticle, // Sentinel for no particle
+}
+
+#[derive(Clone, Copy)]
+pub struct ParticleDef {
+    pub type_: ParticleType,
+    pub load: ArealMassDensity, // fuel loading
+    pub savr: ReciprocalLength, // surface area to volume ratio
+    pub density: MassDensity,
+    pub heat: AvailableEnergy,
+    pub si_total: Ratio,     // total silica content
+    pub si_effective: Ratio, // effective silica content
+}
+
+#[derive(Clone, Copy)]
+pub struct Particle {
+    pub type_: ParticleType,
+    pub load: f64,
+    pub savr: f64,
+    pub density: f64,
+    pub heat: f64,
+    pub si_total: f64,
+    pub si_effective: f64,
+    pub area_weight: f64,
+    pub surface_area: f64,
+    pub sigma_factor: f64,
+    pub size_class_weight: f64,
+    pub size_class: SizeClass,
+    pub life: Life,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Terrain {
+    pub d1hr: Ratio,
+    pub d10hr: Ratio,
+    pub d100hr: Ratio,
+    pub herb: Ratio,
+    pub wood: Ratio,
+    pub wind_speed: Velocity,
+    pub wind_azimuth: Angle,
+    pub slope: Ratio,
+    pub aspect: Angle,
+}
+
+#[derive(Debug)]
+pub struct Fire {
+    pub rx_int: HeatFluxDensity,
+    pub speed0: Velocity,
+    pub hpua: RadiantExposure,
+    pub phi_eff_wind: Ratio,
+    pub speed_max: Velocity,
+    pub azimuth_max: Angle,
+    pub eccentricity: Ratio,
+    pub residence_time: Time,
+}
+
+#[derive(PartialEq, Copy, Clone)]
+pub enum SizeClass {
+    SC0,
+    SC1,
+    SC2,
+    SC3,
+    SC4,
+    SC5,
+}
+
+pub struct FuelDef {
+    pub name: [u8; 16],
+    pub desc: [u8; 64],
+    pub depth: f64,
+    pub mext: f64,
+    pub adjust: f64,
+    pub alive_particles: Particles,
+    pub dead_particles: Particles,
+}
+
+pub const MAX_PARTICLES: usize = 20;
+pub const MAX_FUELS: usize = 20;
+
+pub type ParticleDefs = [ParticleDef; MAX_PARTICLES];
+
+#[derive(Clone, Copy)]
+pub struct Fuel {
+    pub name: [u8; 16],
+    pub desc: [u8; 64],
+    pub depth: f64,
+    pub mext: f64,
+    pub adjust: f64,
+    pub alive_particles: Particles,
+    pub dead_particles: Particles,
+    pub live_area_weight: f64,
+    pub live_rx_factor: f64,
+    pub dead_area_weight: f64,
+    pub dead_rx_factor: f64,
+    pub fine_dead_factor: f64,
+    pub live_ext_factor: f64,
+    pub fuel_bed_bulk_dens: f64,
+    pub residence_time: f64,
+    pub flux_ratio: f64,
+    pub slope_k: f64,
+    pub wind_b: f64,
+    pub wind_e: f64,
+    pub wind_k: f64,
+    pub sigma: f64,
+    pub beta: f64,
+    pub life_rx_factor_alive: f64,
+    pub life_rx_factor_dead: f64,
+    pub total_area: f64,
+}
+pub type Particles = [Particle; MAX_PARTICLES];
+
+pub type Catalog = [Fuel; MAX_FUELS];
+
+pub(crate) const fn init_arr<T: Copy, const N: usize, const M: usize>(
+    def: T,
+    src: [T; M],
+) -> [T; N] {
+    let mut dst = [def; N];
+    let mut i = 0;
+    while i < M {
+        dst[i] = src[i];
+        i += 1;
+    }
+    dst
+}
 
 impl Terrain {
     fn upslope(&self) -> f64 {
@@ -31,9 +166,9 @@ impl Terrain {
     }
 }
 
-impl<'a> Spread {
-    pub fn no_spread() -> Spread {
-        Spread {
+impl<'a> Fire {
+    pub fn null() -> Self {
+        Self {
             rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(0.0),
             speed0: Velocity::new::<foot_per_minute>(0.0),
             hpua: RadiantExposure::new::<btu_sq_foot>(0.0),
@@ -56,7 +191,7 @@ impl<'a> Spread {
         Length::new::<foot>(flame_length(self.byrams_max().get::<btu_foot_sec>()))
     }
 
-    pub fn at_azimuth(&'a self, azimuth: Angle) -> Spreader<'a> {
+    pub fn at_azimuth(&'a self, azimuth: Angle) -> Spread<'a> {
         let azimuth = azimuth.get::<radian>();
         let azimuth_max = self.azimuth_max.get::<radian>();
         let angle = {
@@ -73,8 +208,8 @@ impl<'a> Spread {
         } else {
             safe_div(1.0 - ecc, 1.0 - ecc * angle.cos())
         };
-        Spreader {
-            spread: self,
+        Spread {
+            fire: self,
             factor: Ratio::new::<ratio>(factor),
         }
     }
@@ -131,17 +266,17 @@ impl<'a> Spread {
 }
 
 #[derive(Debug)]
-pub struct Spreader<'a> {
-    spread: &'a Spread,
+pub struct Spread<'a> {
+    fire: &'a Fire,
     factor: Ratio,
 }
 
-impl<'a> Spreader<'a> {
+impl<'a> Spread<'a> {
     pub fn speed(&self) -> Velocity {
-        self.spread.speed_max * self.factor
+        self.fire.speed_max * self.factor
     }
     pub fn byrams(&self) -> LinearPowerDensity {
-        self.spread.byrams_max() * self.factor
+        self.fire.byrams_max() * self.factor
     }
     pub fn flame(&self) -> Length {
         Length::new::<foot>(flame_length(self.byrams().get::<btu_foot_sec>()))
@@ -323,33 +458,16 @@ impl FuelDef {
         mext: f64,
         particles: [ParticleDef; F],
     ) -> Self {
-        Self {
-            name: init_arr(0, name),
-            desc: init_arr(0, desc),
-            depth: length_from_imperial(depth),
-            mext: mk_ratio(mext),
-            adjust: mk_ratio(1.0),
-            particles: init_arr(ParticleDef::SENTINEL, particles),
-        }
-    }
-}
-
-impl Fuel {
-    pub(crate) const SENTINEL: Self = Self::make(FuelDef::standard(*b"", *b"", 0.0, 0.0, []));
-
-    pub const fn make_combustion(def: FuelDef) -> Combustion {
-        Combustion::make(Fuel::make(def))
-    }
-    pub const fn make(def: FuelDef) -> Fuel {
+        let particles = init_arr(ParticleDef::SENTINEL, particles);
         let mut alive_particles = [Particle::SENTINEL; MAX_PARTICLES];
         let mut dead_particles = [Particle::SENTINEL; MAX_PARTICLES];
         let mut i = 0;
         let mut i_a = 0;
         let mut i_d = 0;
         while i < MAX_PARTICLES {
-            let p = &def.particles[i];
+            let p = &particles[i];
             if !p.is_sentinel() {
-                let p2 = Particle::make(p, &def.particles);
+                let p2 = Particle::make(p, &particles);
                 match p.life() {
                     Life::Alive => {
                         alive_particles[i_a] = p2;
@@ -365,15 +483,12 @@ impl Fuel {
                 break;
             };
         }
-        let depth = length_to_imperial(&def.depth);
-        let mext = extract_ratio(&def.mext);
-        let adjust = extract_ratio(&def.adjust);
-        Fuel {
-            name: def.name,
-            desc: def.desc,
+        Self {
+            name: init_arr(0, name),
+            desc: init_arr(0, desc),
             depth,
             mext,
-            adjust,
+            adjust: 1.0,
             alive_particles,
             dead_particles,
         }
@@ -619,16 +734,67 @@ impl Fuel {
     }
 }
 
-impl Combustion {
-    pub const fn make(fuel: Fuel) -> Self {
+impl Fuel {
+    pub(crate) const SENTINEL: Self = Self::standard(*b"", *b"", 0.0, 0.0, []);
+
+    pub const fn standard<const N: usize, const M: usize, const F: usize>(
+        name: [u8; N],
+        desc: [u8; M],
+        depth: f64,
+        mext: f64,
+        particles: [ParticleDef; F],
+    ) -> Self {
+        let particles = init_arr(ParticleDef::SENTINEL, particles);
+        let mut alive_particles = [Particle::SENTINEL; MAX_PARTICLES];
+        let mut dead_particles = [Particle::SENTINEL; MAX_PARTICLES];
+        let mut i = 0;
+        let mut i_a = 0;
+        let mut i_d = 0;
+        while i < MAX_PARTICLES {
+            let p = &particles[i];
+            if !p.is_sentinel() {
+                let p2 = Particle::make(p, &particles);
+                match p.life() {
+                    Life::Alive => {
+                        alive_particles[i_a] = p2;
+                        i_a += 1;
+                    }
+                    Life::Dead => {
+                        dead_particles[i_d] = p2;
+                        i_d += 1;
+                    }
+                };
+                i += 1
+            } else {
+                break;
+            };
+        }
+        Self::make(FuelDef {
+            name: init_arr(0, name),
+            desc: init_arr(0, desc),
+            depth,
+            mext,
+            adjust: 1.0,
+            alive_particles,
+            dead_particles,
+        })
+    }
+
+    pub const fn make(fuel: FuelDef) -> Fuel {
+        let depth = fuel.depth;
+        let mext = fuel.mext;
+        let adjust = fuel.adjust;
         let sigma = fuel.sigma();
         let beta = fuel.beta();
         let (wind_b, wind_k, wind_e) = fuel.wind_bke(sigma, beta);
         let life_rx_factor_alive = fuel.life_rx_factor(Life::Alive, sigma, beta);
         let life_rx_factor_dead = fuel.life_rx_factor(Life::Dead, sigma, beta);
         let total_area = fuel.total_area();
-        Combustion {
+        Self {
             name: fuel.name,
+            desc: fuel.desc,
+            adjust: adjust,
+            depth: depth,
             live_area_weight: fuel.life_area_weight(Life::Alive),
             live_rx_factor: fuel.life_rx_factor(Life::Alive, sigma, beta),
             dead_area_weight: fuel.life_area_weight(Life::Dead),
@@ -639,7 +805,7 @@ impl Combustion {
             residence_time: fuel.residence_time(sigma),
             flux_ratio: fuel.flux_ratio(sigma, beta),
             slope_k: fuel.slope_k(beta),
-            mext: fuel.mext,
+            mext,
             total_area,
             wind_b,
             wind_e,
@@ -652,22 +818,23 @@ impl Combustion {
             life_rx_factor_dead,
         }
     }
-    pub fn spread(&self, terrain: &Terrain) -> Spread {
+
+    pub fn burn(&self, terrain: &Terrain) -> Fire {
         if !self.has_particles() {
-            Spread::no_spread()
+            Fire::null()
         } else {
             let rx_int = self.rx_int(terrain);
             let speed0 = self.speed0(terrain, rx_int);
             let (phi_eff_wind, eff_wind, speed_max, azimuth_max) =
                 self.calculate_wind_dependent_vars(terrain, speed0, rx_int);
-            Spread {
+            Fire {
                 rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(rx_int),
                 speed0: Velocity::new::<foot_per_minute>(speed0),
                 hpua: RadiantExposure::new::<btu_sq_foot>(self.hpua(rx_int)),
                 phi_eff_wind: Ratio::new::<ratio>(phi_eff_wind),
                 speed_max: Velocity::new::<foot_per_minute>(speed_max),
                 azimuth_max: Angle::new::<radian>(azimuth_max),
-                eccentricity: Ratio::new::<ratio>(Combustion::eccentricity(eff_wind)),
+                eccentricity: Ratio::new::<ratio>(Self::eccentricity(eff_wind)),
                 residence_time: Time::new::<minute>(self.residence_time),
             }
         }
@@ -675,6 +842,7 @@ impl Combustion {
     fn particles(&self) -> impl Iterator<Item = &Particle> {
         iter_particles(&self.dead_particles).chain(iter_particles(&self.alive_particles))
     }
+
     const fn life_particles(&self, life: Life) -> &Particles {
         match life {
             Life::Alive => &self.alive_particles,
@@ -819,7 +987,7 @@ impl Combustion {
     }
 
     #[inline]
-    const fn has_particles(&self) -> bool {
+    pub(crate) const fn has_particles(&self) -> bool {
         self.has_live_particles() || self.has_dead_particles()
     }
     #[inline]
@@ -864,12 +1032,6 @@ impl Combustion {
             .map(|p| p.moisture(terrain) * p.sigma_factor * p.load)
             .sum()
     }
-    const fn life_area_weight(&self, life: Life) -> f64 {
-        match life {
-            Life::Alive => self.live_area_weight,
-            Life::Dead => self.dead_area_weight,
-        }
-    }
 
     fn phi_slope(&self, terrain: &Terrain) -> f64 {
         let s = terrain.slope.get::<ratio>();
@@ -887,6 +1049,44 @@ impl Combustion {
 
     fn phi_ew(&self, terrain: &Terrain) -> f64 {
         self.phi_slope(terrain) + self.phi_wind(terrain)
+    }
+    const fn total_area(&self) -> f64 {
+        let mut r = 0.0;
+        let mut i = 0;
+        let particles = self.life_particles(Life::Alive);
+        while i < particles.len() {
+            let p = particles[i];
+            if p.is_sentinel() {
+                break;
+            }
+            r += p.surface_area;
+            i += 1
+        }
+        i = 0;
+        let particles = self.life_particles(Life::Dead);
+        while i < particles.len() {
+            let p = particles[i];
+            if p.is_sentinel() {
+                break;
+            }
+            r += p.surface_area;
+            i += 1
+        }
+        r
+    }
+    const fn life_area_weight(&self, life: Life) -> f64 {
+        let mut r = 0.0;
+        let mut i = 0;
+        let particles = self.life_particles(life);
+        while i < particles.len() {
+            let p = particles[i];
+            if p.is_sentinel() {
+                break;
+            }
+            r += p.surface_area / self.total_area();
+            i += 1
+        }
+        r
     }
 }
 
@@ -908,239 +1108,13 @@ enum WindSlopeSituation {
     CrossSlope,
 }
 
-#[cfg(feature = "std")]
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use firelib_sys::*;
-    use std::ffi::CString;
-    use std::println;
-    use std::vec::Vec;
-
-    extern crate quickcheck;
-
-    use quickcheck::{Arbitrary, Gen};
-    extern crate test;
-    use test::Bencher;
-
-    quickcheck::quickcheck! {
-        fn we_produce_the_same_output_as_firelib_c(terrain: Terrain, model: ValidModel, azimuth: ValidAzimuth) -> bool {
-            let az = Angle::new::<degree>(azimuth.0);
-            let (firelib_sp, firelib_sp_az) = firelib_rs_spread(model.0, &terrain, az);
-            let (c_sp, c_sp_az) = firelib_c_spread(model.0, &terrain, az);
-            Spread::almost_eq(&firelib_sp, &c_sp) && SpreadAtAzimuth::almost_eq(&firelib_sp_az, &c_sp_az)
-        }
-    }
-    fn bench_spread_fn(
-        b: &mut Bencher,
-        f: impl Fn(usize, &Terrain, Angle) -> (Spread, SpreadAtAzimuth),
-    ) {
-        use rand::prelude::*;
-        let rng = &mut rand::rng();
-        let mut mkratio = { || Ratio::new::<ratio>(rng.random_range(0..10000) as f64 / 10000.0) };
-        let rng = &mut rand::rng();
-        let mut azimuth = { || Angle::new::<degree>(rng.random_range(0..36000) as f64 / 100.0) };
-        let rng = &mut rand::rng();
-        let args: Vec<(usize, Terrain, Angle)> = (0..1000)
-            .map(|_n| {
-                let model = rng.random_range(0..14);
-                let wind_speed =
-                    Velocity::new::<meter_per_second>(rng.random_range(0..10000) as f64 / 1000.0);
-                let terrain = Terrain {
-                    d1hr: mkratio(),
-                    d10hr: mkratio(),
-                    d100hr: mkratio(),
-                    herb: mkratio(),
-                    wood: mkratio(),
-                    wind_speed,
-                    wind_azimuth: azimuth(),
-                    slope: mkratio(),
-                    aspect: azimuth(),
-                };
-                (model, terrain, azimuth())
-            })
-            .collect();
-        b.iter(|| {
-            args.iter()
-                .map(|(model, terrain, az)| {
-                    f(*model, terrain, *az).1.speed.get::<meter_per_second>()
-                })
-                .sum::<f64>()
-        })
-    }
-    #[bench]
-    fn bench_firelib_rs(b: &mut Bencher) {
-        bench_spread_fn(b, firelib_rs_spread)
-    }
-
-    #[bench]
-    fn bench_firelib_c(b: &mut Bencher) {
-        bench_spread_fn(b, firelib_c_spread)
-    }
-
-    fn firelib_rs_spread(
-        model: usize,
-        terrain: &Terrain,
-        azimuth: Angle,
-    ) -> (Spread, SpreadAtAzimuth) {
-        match STANDARD_CATALOG.get(model) {
-            Some(fuel) if fuel.has_particles() => {
-                let spread = fuel.spread(terrain);
-                let spread_az = SpreadAtAzimuth::from_spreader(&spread.at_azimuth(azimuth));
-                (spread, spread_az)
-            }
-            _ => (Spread::no_spread(), SpreadAtAzimuth::no_spread()),
-        }
-    }
-
-    fn firelib_c_spread(
-        model: usize,
-        terrain: &Terrain,
-        azimuth: Angle,
-    ) -> (Spread, SpreadAtAzimuth) {
-        unsafe {
-            let name = CString::new("standard").unwrap();
-            let catalog = Fire_FuelCatalogCreateStandard(name.as_ptr(), 13);
-            let mut m = [
-                terrain.d1hr.get::<ratio>(),
-                terrain.d10hr.get::<ratio>(),
-                terrain.d100hr.get::<ratio>(),
-                (0.0).into(),
-                terrain.herb.get::<ratio>(),
-                terrain.wood.get::<ratio>(),
-            ];
-            Fire_SpreadNoWindNoSlope(catalog, model, m.as_mut_ptr());
-            Fire_SpreadWindSlopeMax(
-                catalog,
-                model,
-                terrain.wind_speed.get::<foot_per_minute>(),
-                terrain.wind_azimuth.get::<degree>(),
-                terrain.slope.into(),
-                terrain.aspect.get::<degree>(),
-            );
-            let fuel: *mut fuelModelDataStruct = *(*catalog).modelPtr.wrapping_add(model);
-            Fire_SpreadAtAzimuth(
-                catalog,
-                model,
-                (*fuel).azimuthMax,
-                (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
-            );
-            let f = *fuel;
-            let spread = Spread {
-                rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(f.rxInt),
-                speed0: Velocity::new::<foot_per_minute>(f.spread0),
-                hpua: RadiantExposure::new::<btu_sq_foot>(f.hpua),
-                phi_eff_wind: Ratio::new::<ratio>(f.phiEw),
-                speed_max: Velocity::new::<foot_per_minute>(f.spreadMax),
-                azimuth_max: Angle::new::<degree>(f.azimuthMax),
-                eccentricity: Ratio::new::<ratio>(f.eccentricity),
-                residence_time: Time::new::<minute>(f.taur),
-            };
-            Fire_SpreadAtAzimuth(
-                catalog,
-                model,
-                azimuth.get::<degree>(),
-                (FIRE_BYRAMS | FIRE_FLAME).try_into().unwrap(),
-            );
-            let f = *fuel;
-            let spread_az = SpreadAtAzimuth {
-                speed: Velocity::new::<foot_per_minute>(f.spreadAny),
-                byrams: LinearPowerDensity::new::<btu_foot_sec>(f.byrams),
-                flame: Length::new::<foot>(f.flame),
-            };
-            Fire_FuelCatalogDestroy(catalog);
-            (spread, spread_az)
-        }
-    }
-    use uom::si::velocity::meter_per_second;
-    impl Arbitrary for Terrain {
-        fn arbitrary(g: &mut Gen) -> Self {
-            let humidities = &(0..101).map(|x| x as f64 / 100.0).collect::<Vec<_>>()[..];
-            let wind_speeds = &(0..101).map(|x| x as f64 / 10.0).collect::<Vec<_>>()[..];
-            let slopes = &(0..1001).map(|x| x as f64 / 1000.0).collect::<Vec<_>>()[..];
-            let mut choose_humidity = || Ratio::new::<ratio>(*g.choose(humidities).unwrap());
-            Self {
-                d1hr: choose_humidity(),
-                d10hr: choose_humidity(),
-                d100hr: choose_humidity(),
-                herb: choose_humidity(),
-                wood: choose_humidity(),
-                wind_speed: Velocity::new::<meter_per_second>(*g.choose(wind_speeds).unwrap()),
-                wind_azimuth: Angle::new::<degree>(ValidAzimuth::arbitrary(g).0),
-                slope: Ratio::new::<ratio>(*g.choose(slopes).unwrap()),
-                aspect: Angle::new::<degree>(ValidAzimuth::arbitrary(g).0),
-            }
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    struct ValidAzimuth(f64);
-
-    impl Arbitrary for ValidAzimuth {
-        fn arbitrary(g: &mut Gen) -> Self {
-            let azimuths = &(0..3601).map(|x| x as f64 / 10.0).collect::<Vec<_>>()[..];
-            Self(*g.choose(azimuths).unwrap())
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    struct ValidModel(usize);
-
-    impl Arbitrary for ValidModel {
-        fn arbitrary(g: &mut Gen) -> Self {
-            let models = &(0..13).collect::<Vec<_>>()[..];
-            Self(*g.choose(models).unwrap())
-        }
-    }
-    #[derive(Debug)]
-    struct SpreadAtAzimuth {
-        speed: Velocity,
-        byrams: LinearPowerDensity,
-        flame: Length,
-    }
-
-    impl SpreadAtAzimuth {
-        fn from_spreader(s: &Spreader) -> Self {
-            SpreadAtAzimuth {
-                flame: s.flame(),
-                speed: s.speed(),
-                byrams: s.byrams(),
-            }
-        }
-        fn no_spread() -> SpreadAtAzimuth {
-            SpreadAtAzimuth {
-                speed: Velocity::new::<foot_per_minute>(0.0),
-                byrams: LinearPowerDensity::new::<btu_foot_sec>(0.0),
-                flame: Length::new::<foot>(0.0),
-            }
-        }
-        fn almost_eq(&self, other: &Self) -> bool {
-            fn cmp(msg: &str, a: f64, b: f64) -> bool {
-                let r = (a - b).abs() < SMIDGEN;
-                if !r {
-                    println!("{}: {} /= {}", msg, a, b);
-                }
-                r
-            }
-            cmp(
-                "speed",
-                self.speed.get::<foot_per_minute>(),
-                other.speed.get::<foot_per_minute>(),
-            ) && cmp(
-                "byrams",
-                self.byrams.get::<btu_foot_sec>(),
-                other.byrams.get::<btu_foot_sec>(),
-            ) && cmp("flame", self.flame.get::<foot>(), other.flame.get::<foot>())
-        }
-    }
-}
 #[inline]
 fn iter_particles<const N: usize>(particles: &[Particle; N]) -> impl Iterator<Item = &Particle> {
     particles.iter().take_while(|p| !p.is_sentinel())
 }
 
 #[inline]
-pub fn get_fuel(catalog: &Catalog, idx: usize) -> Option<&Combustion> {
+pub fn get_fuel(catalog: &Catalog, idx: usize) -> Option<&Fuel> {
     match catalog.get(idx).as_ref() {
         Some(x) if x.has_particles() => Some(x),
         _ => None,

@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     .unwrap();
     let fire_pos = USizeVec2 {
         x: geo_ref.width as usize / 2 - THREAD_BLOCK_AXIS_LENGTH as usize / 2,
-        y: geo_ref.height as usize / 2 - THREAD_BLOCK_AXIS_LENGTH as usize / 2
+        y: geo_ref.height as usize / 2 - THREAD_BLOCK_AXIS_LENGTH as usize / 2,
     };
     let len = geo_ref.len();
 

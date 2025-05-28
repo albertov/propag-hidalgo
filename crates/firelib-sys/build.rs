@@ -27,6 +27,8 @@ fn main() {
         .expect("Couldn't write bindings!");
     cc::Build::new()
         .file("fireLib.c")
+        // Disable warnings because we don't care
+        .flag("-w")
         .opt_level(3)
         .compile("fireLib");
 }

@@ -1,12 +1,8 @@
 use ::firelib::float;
 use ::firelib::float::*;
 use ::firelib::*;
-use core::ops::Div;
-use cuda_std::*;
 use geometry::GeoReference;
-use min_max_traits::Max;
 use soa_derive::StructOfArray;
-use uom::num_traits::NumCast;
 
 //FIXME: Use the C version as source of truth with bindgen
 pub const HALO_RADIUS: i32 = 1;

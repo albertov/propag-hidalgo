@@ -17,8 +17,6 @@ extern crate cust_core;
 
 #[cfg(target_os = "cuda")]
 use cuda_std::GpuFloat;
-#[cfg(not(target_os = "cuda"))]
-use num_traits::Float;
 
 #[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
 #[repr(C)]

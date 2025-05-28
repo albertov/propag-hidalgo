@@ -9,7 +9,6 @@ use gdal::spatial_ref::SpatialRef;
 use gdal::vector::*;
 use gdal::*;
 use min_max_traits::Max;
-use num_traits::Float;
 use propag::propag::{Settings, HALO_RADIUS};
 use std::error::Error;
 

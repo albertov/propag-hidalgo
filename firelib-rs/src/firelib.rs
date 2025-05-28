@@ -1,7 +1,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-#[cfg(feature = "cuda")]
+#[cfg(target_os = "cuda")]
 extern crate cuda_std;
 
 use crate::units::heat_flux_density::btu_sq_foot_min;
@@ -16,35 +16,6 @@ use uom::si::ratio::ratio;
 use uom::si::time::minute;
 use uom::si::velocity::foot_per_minute;
 use uom::si::velocity::meter_per_second;
-
-#[cfg(feature = "std")]
-mod f64 {
-    use std::f64::*;
-}
-
-#[cfg(feature = "cuda")]
-mod f64 {
-    pub(crate) fn powf(x: f64, y: f64) -> f64 {
-        use cuda_std::intrinsics::*;
-        unsafe { pow(x, y) }
-    }
-    pub(crate) fn cos(x: f64) -> f64 {
-        use cuda_std::intrinsics::*;
-        unsafe { cos(x) }
-    }
-    pub(crate) fn sin(x: f64) -> f64 {
-        use cuda_std::intrinsics::*;
-        unsafe { sin(x) }
-    }
-    pub(crate) fn asin(x: f64) -> f64 {
-        use cuda_std::intrinsics::*;
-        unsafe { asin(x) }
-    }
-    pub(crate) fn sqrt(x: f64) -> f64 {
-        use cuda_std::intrinsics::*;
-        unsafe { sqrt(x) }
-    }
-}
 
 pub(crate) const SMIDGEN: f64 = 1e-6;
 const PI: f64 = 3.141592653589793;
@@ -1007,3 +978,28 @@ const fn init_arr<T: Copy, const N: usize, const M: usize>(def: T, src: [T; M]) 
     }
     dst
 }
+
+#[cfg(target_os = "cuda")]
+mod f64 {
+    pub(crate) fn powf(x: f64, y: f64) -> f64 {
+        use cuda_std::intrinsics::*;
+        unsafe { pow(x, y) }
+    }
+    pub(crate) fn cos(x: f64) -> f64 {
+        use cuda_std::intrinsics::*;
+        unsafe { cos(x) }
+    }
+    pub(crate) fn sin(x: f64) -> f64 {
+        use cuda_std::intrinsics::*;
+        unsafe { sin(x) }
+    }
+    pub(crate) fn asin(x: f64) -> f64 {
+        use cuda_std::intrinsics::*;
+        unsafe { asin(x) }
+    }
+    pub(crate) fn sqrt(x: f64) -> f64 {
+        use cuda_std::intrinsics::*;
+        unsafe { sqrt(x) }
+    }
+}
+

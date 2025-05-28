@@ -7,8 +7,5 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cuda_std = { git = "https://github.com/Rust-GPU/Rust-CUDA/" }
-firelib-rs = { path = "../firelib-rs", default-features = false, features=["cuda"] }
-
-[build-dependencies]
-cuda_builder = { git = "https://github.com/Rust-GPU/Rust-CUDA/" }
+cuda_std = { git = "https://github.com/albertov/Rust-CUDA/" }
+firelib-rs = { path = "../firelib-rs", default-features = false }

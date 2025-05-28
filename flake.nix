@@ -67,14 +67,14 @@
           devShells.default = pkgs.mkShell {
             inputsFrom = [
               pkgs.firelib-rs
-              pkgs.firelib-cuda
+              pkgs.propag
             ];
             env = {
               inherit (pkgs.firelib-rs)
                 BINDGEN_EXTRA_CLANG_ARGS
                 LIBCLANG_PATH
                 ;
-              inherit (pkgs.firelib-cuda)
+              inherit (pkgs.propag)
                 CUDA_PATH
                 CUDA_ROOT
                 LLVM_CONFIG
@@ -84,8 +84,6 @@
             packages = with pkgs; [
               git
               cargo-watch
-              cudatoolkit
-              cudatoolkit.lib
               openssl.dev
               pkg-config
               rustup

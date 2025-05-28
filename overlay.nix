@@ -4,14 +4,12 @@ let
   libclang = buildPackages.llvmPackages.libclang.lib;
   clangMajorVer = builtins.head (lib.splitString "." (lib.getVersion buildPackages.clang));
   BINDGEN_EXTRA_CLANG_ARGS = ''
-    -isystem ${libclang}/lib/clang/${clangMajorVer}/include
-  '';
-  /*
-    ${builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"}
-    ${builtins.readFile "${stdenv.cc}/nix-support/libc-cflags"}
-    ${builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"}
+    -isystem ${libclang}/lib/clang/${clangMajorVer}/include \
+    ${builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"} \
+    ${builtins.readFile "${stdenv.cc}/nix-support/libc-cflags"} \
+    ${builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"} \
     ${builtins.readFile "${stdenv.cc}/nix-support/libcxx-cxxflags"}
-  */
+  '';
   LIBCLANG_PATH = "${libclang}/lib";
   CUDA_PATH=final.cudatoolkit_11;
   CUDA_ROOT=final.cudatoolkit_11;
@@ -24,7 +22,8 @@ let
     cargoLock.lockFile = ./Cargo.lock;
     cargoLock.outputHashes = {
       "const_soft_float-0.1.4" = "sha256-fm2e3np+q4yZjAafkwbxTqUZBgVDrQ/l4hxMD+l7kMA=";
-      "cuda_builder-0.3.0" = lib.fakeHash;
+      "cuda_builder-0.3.0" = "sha256-YN8eA1CsMv/TuV4QfappxtX5PK1O4/zezpno4PhaFto=";
+      "cuda_std-0.2.2" = "sha256-YN8eA8CsMv/TuV4QfappxtX5PK1O4/zezpno4PhaFto=";
     };
     inherit BINDGEN_EXTRA_CLANG_ARGS LIBCLANG_PATH CUDA_PATH LLVM_CONFIG
     CUDA_ROOT;
@@ -36,9 +35,9 @@ in
     buildAndTestSubdir = "firelib-rs";
   });
 
-  firelib-cuda = final.myRustPlatform.buildRustPackage (workspaceArgs // {
-    pname = "firelib-cuda";
-    buildAndTestSubdir = "firelib-cuda";
+  propag = final.myRustPlatform.buildRustPackage (workspaceArgs // {
+    pname = "propag";
+    buildAndTestSubdir = "propag";
     buildInputs = with final; with final.myRustToolchain.availableComponents; [
       cudatoolkit_11
       cudatoolkit_11.lib
@@ -62,22 +61,11 @@ in
     buildLlvmTools = buildPackages.llvmPackages_7.tools;
     targetLlvm = targetPackages.llvmPackages_7.llvm or llvmPackages_7.llvm;
     targetLlvmLibraries = targetPackages.llvmPackages_7.libraries or llvmPackages_7.libraries;
-    /*
-    fetchurl = {url,...}@args: final.fetchurl (args // {
-      url = let parts = splitString "7.1.0" url;
-            in concatStringsSep "7.0.1" parts;
-          });
-          */
   });
 
-  /*
-  myRustToolchain = (final.buildPackages.rust-bin.fromRustupToolchainFile
-  ./rust-toolchain.toml).override {
-    extensions = ["rust-src" "rustc-dev" "llvm-tools-preview"];
-  };
-  */
   myRustToolchain =
     final.buildPackages.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+
   myRustPlatform = final.buildPackages.makeRustPlatform {
     cargo = final.myRustToolchain;
     rustc = final.myRustToolchain;

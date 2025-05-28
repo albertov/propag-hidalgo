@@ -1,8 +1,8 @@
 #include "firelib_cuda.h"
+#include "geometry.h"
 #include <float.h>
 #include <stdio.h>
 
-#define MAX_TIME FLT_MAX
 #define PRELOAD_POINT(X, Y)                                                    \
   preload_point(settings.geo_ref, make_int2((X), (Y)), speed_max, azimuth_max, \
                 eccentricity, time, refs_x, refs_y, shared)
@@ -72,6 +72,7 @@ __device__ inline Point load_point(const GeoReference &geo_ref, uint2 pos,
   uint2 ref_pos = make_uint2(ref_x[idx], ref_y[idx]);
   assert(!(ref_pos.x == SIZE_MAX || ref_pos.y == SIZE_MAX));
   size_t ref_ix = ref_pos.x + ref_pos.y * geo_ref.width;
+  assert(ref_ix < geo_ref.width * geo_ref.height);
   FireSimpleCuda ref_fire =
       load_fire(ref_ix, speed_max, azimuth_max, eccentricity);
   float ref_time = time[ref_ix];
@@ -120,7 +121,7 @@ preload_point(const GeoReference &geo_ref, int2 offset, const float *speed_max,
 }
 
 __device__ inline bool is_point_null(const Point &p) {
-  return p.time == MAX_TIME;
+  return !(p.time < MAX_TIME);
 }
 
 __device__ inline bool is_fire_null(const FireSimpleCuda &f) {
@@ -130,11 +131,11 @@ __device__ inline bool is_fire_null(const FireSimpleCuda &f) {
 __device__ inline bool similar_fires(const FireSimpleCuda &a,
                                      const FireSimpleCuda &b) {
   return (abs(a.speed_max - b.speed_max) < 1.0 &&
-          abs(a.azimuth_max - b.azimuth_max) < (5.0 / 2 * PI) &&
+          abs(a.azimuth_max - b.azimuth_max) < (5.0 * (2 * PI) / 360.0) &&
           abs(a.eccentricity - b.eccentricity) < 0.1);
 }
 
-__device__ inline int signum(int val) { return (0 < val) - (val < 0); }
+__device__ inline int signum(int val) { return int(0 < val) - int(val < 0); }
 
 __device__ inline uint2 neighbor_in_direction(uint2 ufrom, uint2 uto) {
   int2 from = make_int2(ufrom.x, ufrom.y);
@@ -200,7 +201,7 @@ __global__ void propag(const Settings &settings, const float *speed_max,
   // Initialize progress to no-progress
   if (threadIdx.x == 0 && threadIdx.y == 0) {
     progress[block_ix] = 0;
-  }
+  };
 
   //////////////////////////////////////////////////////
   // First phase, load data from global to shared memory
@@ -228,6 +229,7 @@ __global__ void propag(const Settings &settings, const float *speed_max,
       PRELOAD_POINT(blockDim.x, blockDim.y);
     };
   }; // end in_bounds
+
   __syncthreads();
 
   ////////////////////////////////////////////////////////////////////////
@@ -246,8 +248,8 @@ __global__ void propag(const Settings &settings, const float *speed_max,
         // Skip self and out-of-bounds neighbors
         if (i == 0 && j == 0)
           continue;
-        int2 pos = make_int2(idx_2d.x + i, idx_2d.y + j);
-        if (!(pos.x > 0 && pos.y > 0 && pos.x < width && pos.y < height))
+        int2 pos = make_int2((int)idx_2d.x + i, (int)idx_2d.y + j);
+        if (!(pos.x >= 0 && pos.y >= 0 && pos.x < width && pos.y < height))
           continue;
 
         // Good neighbor
@@ -256,54 +258,76 @@ __global__ void propag(const Settings &settings, const float *speed_max,
 
         // Check if neighbor's reference is usable
         PointRef reference = neighbor_point.reference;
-        if (reference.pos_x = pos.x && reference.pos_y == pos.y) {
+        /*
+
+        if (reference.pos_x == idx_2d.x && reference.pos_y == idx_2d.y) {
           reference = PointRef_NULL;
         } else {
           uint2 possible_blockage_pos = neighbor_in_direction(
               idx_2d, make_uint2(reference.pos_x, reference.pos_y));
           Point possible_blockage =
               shared[compute_shared_ix(possible_blockage_pos)];
-          if (!(!is_point_null(possible_blockage) &&
-                !is_fire_null(possible_blockage.fire) &&
-                similar_fires(possible_blockage.fire, reference.fire))) {
+          if (is_point_null(possible_blockage) ||
+              is_fire_null(possible_blockage.fire) ||
+              !similar_fires(possible_blockage.fire, reference.fire)) {
+
+            printf("referencia roita %f %d %d %d %d %d %d %d\n",
+              possible_blockage.time,
+              idx_2d.x, idx_2d.y,
+              possible_blockage_pos.x, possible_blockage_pos.y,
+              is_point_null(possible_blockage),
+              is_fire_null(possible_blockage.fire),
+              !similar_fires(possible_blockage.fire, reference.fire)
+                );
             reference = PointRef_NULL;
           };
         };
+      */
 
         // Look for a new candidate for best time
         Point candidate = Point_NULL;
-        if (!is_fire_null(fire) && reference.time != MAX_TIME) {
+        if (!is_fire_null(fire) && reference.time < MAX_TIME) {
           // We are combustible
           if (!similar_fires(fire, reference.fire)) {
             // we can't reuse reference because fire is different to ours.
             // Try to use neighbor as reference
-            PointRef r = neighbor_point.reference;
-            if (r.pos_x != idx_2d.x && r.pos_y != idx_2d.y &&
+            printf("%d %d %f %f %f %f %f %f\n", idx_2d.x, idx_2d.y,
+                   fire.speed_max, reference.fire.speed_max, fire.azimuth_max,
+                   reference.fire.azimuth_max, fire.eccentricity,
+                   reference.fire.eccentricity);
+            // assert(false);
+            PointRef r = {
+                .time = neighbor_point.time,
+                .pos_x = neighbor_pos.x,
+                .pos_y = neighbor_pos.y,
+                .fire = neighbor_point.fire,
+            };
+            if (!(r.pos_x == idx_2d.x && r.pos_y == idx_2d.y) &&
                 similar_fires(fire, r.fire)) {
               reference = r;
             };
           };
-          if (reference.time != MAX_TIME) {
-            float time = time_to(settings.geo_ref, reference, idx_2d);
-            if (time < settings.max_time) {
-              candidate.time = time;
+          if (reference.time < MAX_TIME) {
+            float t = time_to(settings.geo_ref, reference, idx_2d);
+            if (t < settings.max_time) {
+              candidate.time = t;
               candidate.fire = fire;
               candidate.reference = reference;
             }
           };
-        } else if (reference.time != MAX_TIME) {
+        } else if (reference.time < MAX_TIME) {
           // We are not combustible but reference can be used.
           // We assign an access time but a None fire
-          float time = time_to(settings.geo_ref, reference, idx_2d);
-          if (time < settings.max_time) {
-            candidate.time = time;
+          float t = time_to(settings.geo_ref, reference, idx_2d);
+          if (t < settings.max_time) {
+            candidate.time = t;
             candidate.fire = FireSimpleCuda_NULL;
             candidate.reference = reference;
           }
         }
 
         // If no candidate or candidate improves use it as best
-        if (is_point_null(best) || candidate.time < best.time) {
+        if (candidate.time < best.time) {
           best = candidate;
         }
       };
@@ -315,12 +339,13 @@ __global__ void propag(const Settings &settings, const float *speed_max,
   ///////////////////////////////////////////////////
   bool improved = false;
   if (in_bounds && best.time < MAX_TIME) {
+    // printf("best time %f\n", best.time);
     shared[compute_shared_ix(idx_2d)] = best;
-    // FIXME
-    // time[global_ix] = best.time;
-    // refs_x[global_ix] = best.reference.pos_x;
-    // refs_y[global_ix] = best.reference.pos_y;
-    // improved = true;
+    assert(global_ix < settings.geo_ref.width * settings.geo_ref.height);
+    time[global_ix] = best.time;
+    refs_x[global_ix] = best.reference.pos_x;
+    refs_y[global_ix] = best.reference.pos_y;
+    improved = true;
   };
 
   ///////////////////////////////////////////////////
@@ -328,7 +353,7 @@ __global__ void propag(const Settings &settings, const float *speed_max,
   // check if any has improved. Then if we're the first
   // thread of the block mark progress
   ///////////////////////////////////////////////////
-  if (__syncthreads_or(improved) && threadIdx.x == 0 && threadIdx.y == 0) {
+  if (__syncthreads_count(improved) && threadIdx.x == 0 && threadIdx.y == 0) {
     size_t block_ix = blockIdx.x + blockIdx.y * gridDim.x;
     progress[block_ix] = 1;
   };

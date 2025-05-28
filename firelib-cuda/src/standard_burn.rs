@@ -56,38 +56,39 @@ pub unsafe fn standard_burn(
 #[kernel]
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
 pub unsafe fn standard_simple_burn(
-    model: &[usize],
-    d1hr: &[float::T],
-    d10hr: &[float::T],
-    d100hr: &[float::T],
-    herb: &[float::T],
-    wood: &[float::T],
-    wind_speed: &[float::T],
-    wind_azimuth: &[float::T],
-    slope: &[float::T],
-    aspect: &[float::T],
+    len: usize,
+    model: *const usize,
+    d1hr: *const float::T,
+    d10hr: *const float::T,
+    d100hr: *const float::T,
+    herb: *const float::T,
+    wood: *const float::T,
+    wind_speed: *const float::T,
+    wind_azimuth: *const float::T,
+    slope: *const float::T,
+    aspect: *const float::T,
     speed_max: *mut float::T,
     azimuth_max: *mut float::T,
     eccentricity: *mut float::T,
 ) {
-    let i = thread::index_1d() as usize;
-    if i < model.len() {
+    let i = thread::index() as usize;
+    if i < len {
         let terrain = TerrainCuda {
-            d1hr: d1hr[i],
-            d10hr: d10hr[i],
-            d100hr: d100hr[i],
-            herb: herb[i],
-            wood: wood[i],
-            wind_speed: wind_speed[i],
-            wind_azimuth: wind_azimuth[i],
-            slope: slope[i],
-            aspect: aspect[i],
+            d1hr: *d1hr.add(i),
+            d10hr: *d10hr.add(i),
+            d100hr: *d100hr.add(i),
+            herb: *herb.add(i),
+            wood: *wood.add(i),
+            wind_speed: *wind_speed.add(i),
+            wind_azimuth: *wind_azimuth.add(i),
+            slope: *slope.add(i),
+            aspect: *aspect.add(i),
         };
-        if let Some(fire) = Catalog::STANDARD.burn_simple(model[i], &terrain.into()) {
-            let fire = Into::<FireSimpleCuda>::into(fire);
-            *speed_max.wrapping_add(i) = fire.speed_max;
-            *azimuth_max.wrapping_add(i) = fire.azimuth_max;
-            *eccentricity.wrapping_add(i) = fire.eccentricity;
+        if let Some(fire) = Catalog::STANDARD.burn_simple(*model.add(i), &terrain.into()) {
+            let fire: FireSimpleCuda = fire.into();
+            *speed_max.add(i) = fire.speed_max;
+            *azimuth_max.add(i) = fire.azimuth_max;
+            *eccentricity.add(i) = fire.eccentricity;
         }
     }
 }

@@ -17,9 +17,10 @@ use uom::si::angle::{degree, radian};
 use uom::si::ratio::ratio;
 use uom::si::velocity::meter_per_second;
 
-pub const HALO_RADIUS: usize = 4;
+pub const HALO_RADIUS: usize = 1;
 #[cfg(not(target_os = "cuda"))]
 pub const PI: f32 = 3.141592653589793;
+pub const MAX_TIME: f32 = 340282346638528859811704183484516925440.0;
 
 #[kernel]
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
@@ -305,7 +306,7 @@ fn compute_shared_ix(pos: &USizeVec2) -> usize {
 
 impl PointRef {
     pub const NULL: Self = Self {
-        time: 0.0,
+        time: MAX_TIME,
         pos_x: Max::MAX,
         pos_y: Max::MAX,
         fire: FireSimpleCuda::NULL,
@@ -361,7 +362,7 @@ pub struct Point {
 
 impl Point {
     pub const NULL: Self = Self {
-        time: 0.0,
+        time: MAX_TIME,
         fire: FireSimpleCuda::NULL,
         reference: PointRef::NULL,
     };

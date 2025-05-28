@@ -105,9 +105,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let slope_gpu = slope.as_slice().as_dbuf()?;
     let aspect_gpu = aspect.as_slice().as_dbuf()?;
 
-    let (_, block_size2) = pre_burn.suggested_launch_configuration(0, 0.into())?;
-    let grid_size2 = (model.len() as u32).div_ceil(block_size2) + 1;
-
     // input/output vectors
     let mut time: Vec<f32> = std::iter::repeat(Max::MAX).take(model.len()).collect();
     let mut refs_x: Vec<usize> = std::iter::repeat(Max::MAX).take(model.len()).collect();
@@ -139,32 +136,24 @@ fn main() -> Result<(), Box<dyn Error>> {
             //println!("pre burn");
             launch!(
                 // slices are passed as two parameters, the pointer and the length.
-                pre_burn<<<grid_size2, block_size2, 0, stream>>>(
+                pre_burn<<<grid_size, block_size, 0, stream>>>(
+                    model.len(),
                     model_gpu.as_device_ptr(),
-                    model_gpu.len(),
                     d1hr_gpu.as_device_ptr(),
-                    d1hr_gpu.len(),
                     d10hr_gpu.as_device_ptr(),
-                    d10hr_gpu.len(),
                     d100hr_gpu.as_device_ptr(),
-                    d100hr_gpu.len(),
                     herb_gpu.as_device_ptr(),
-                    herb_gpu.len(),
                     wood_gpu.as_device_ptr(),
-                    wood_gpu.len(),
                     wind_speed_gpu.as_device_ptr(),
-                    wind_speed_gpu.len(),
                     wind_azimuth_gpu.as_device_ptr(),
-                    wind_azimuth_gpu.len(),
                     slope_gpu.as_device_ptr(),
-                    slope_gpu.len(),
                     aspect_gpu.as_device_ptr(),
-                    aspect_gpu.len(),
                     speed_max_buf.as_device_ptr(),
                     azimuth_max_buf.as_device_ptr(),
                     eccentricity_buf.as_device_ptr(),
                 )
             )?;
+            stream.synchronize()?;
             stream.synchronize()?;
             //println!("loop");
             let mut no_progress_iters = 0;
@@ -196,7 +185,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     )
                 )?;
                 stream.synchronize()?;
-                //time_buf.copy_to(&mut time)?;
+                time_buf.copy_to(&mut time)?;
                 refs_x_buf.copy_to(&mut refs_x)?;
                 refs_y_buf.copy_to(&mut refs_y)?;
                 assert!(refs_x.iter().all(|x| *x == Max::MAX || *x == fire_pos.x),);
@@ -223,12 +212,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 );
                 */
                 progress_buf.copy_to(&mut progress)?;
-                /*
                 println!(
                     "progress={:?}",
                     progress.as_slice().iter().filter(|p| **p > 0).count(),
                 );
-                */
                 if progress.iter().all(|x| *x == 0) {
                     break;
                 }

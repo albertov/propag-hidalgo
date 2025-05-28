@@ -15,9 +15,9 @@ class Propagator {
   const int shared_width_;
   const int local_ix_;
 
-  const float *__restrict__ const speed_max_;
-  const float *__restrict__ const azimuth_max_;
-  const float *__restrict__ const eccentricity_;
+  const float *const speed_max_;
+  const float *const azimuth_max_;
+  const float *const eccentricity_;
 
   volatile float *time_;
   volatile unsigned short *refs_x_;
@@ -27,13 +27,12 @@ class Propagator {
   __shared__ Point *shared_;
 
 public:
-  __device__
-  Propagator(const Settings settings, const unsigned grid_x,
-             const unsigned grid_y, const float *__restrict__ speed_max,
-             const float *__restrict__ azimuth_max,
-             const float *__restrict__ eccentricity, float volatile *time,
-             unsigned short volatile *refs_x, unsigned short volatile *refs_y,
-             float volatile *refs_time, __shared__ Point *shared)
+  __device__ Propagator(const Settings settings, const unsigned grid_x,
+                        const unsigned grid_y, const float *speed_max,
+                        const float *azimuth_max, const float *eccentricity,
+                        float volatile *time, unsigned short volatile *refs_x,
+                        unsigned short volatile *refs_y,
+                        float volatile *refs_time, __shared__ Point *shared)
       : settings_(settings), gridIx_(make_uint2(grid_x, grid_y)),
         idx_2d_(index_2d(gridIx_)),
         global_ix_(idx_2d_.x + idx_2d_.y * settings_.geo_ref.width),
@@ -393,12 +392,11 @@ extern "C" {
 
 __global__ void
 propag(const Settings settings, const unsigned grid_x, const unsigned grid_y,
-       unsigned *worked, const float *__restrict__ const speed_max,
-       const float *__restrict__ const azimuth_max,
-       const float *__restrict__ const eccentricity, float volatile *time,
-       unsigned short volatile *refs_x, unsigned short volatile *refs_y,
-       float volatile *refs_time, const unsigned char *__restrict__ boundaries,
-       unsigned *progress) {
+       unsigned *worked, const float *const speed_max,
+       const float *const azimuth_max, const float *const eccentricity,
+       float volatile *time, unsigned short volatile *refs_x,
+       unsigned short volatile *refs_y, float volatile *refs_time,
+       const unsigned char *__restrict__ boundaries, unsigned *progress) {
   extern __shared__ Point shared[];
 
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
@@ -408,12 +406,11 @@ propag(const Settings settings, const unsigned grid_x, const unsigned grid_y,
 
 __global__ void
 post_propagate(const Settings settings, const unsigned grid_x,
-               const unsigned grid_y, const float *__restrict__ const speed_max,
-               const float *__restrict__ const azimuth_max,
-               const float *__restrict__ const eccentricity,
+               const unsigned grid_y, const float *const speed_max,
+               const float *const azimuth_max, const float *const eccentricity,
                float volatile *time, unsigned short volatile *refs_x,
                unsigned short volatile *refs_y, float volatile *refs_time,
-               unsigned char *boundaries) {
+               unsigned char *__restrict__ boundaries) {
   extern __shared__ Point shared[];
 
   Propagator sim(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
@@ -423,9 +420,8 @@ post_propagate(const Settings settings, const unsigned grid_x,
 
 __global__ void
 pre_propagate(const Settings settings, const unsigned grid_x,
-              const unsigned grid_y, const float *__restrict__ const speed_max,
-              const float *__restrict__ const azimuth_max,
-              const float *__restrict__ const eccentricity,
+              const unsigned grid_y, const float *const speed_max,
+              const float *const azimuth_max, const float *const eccentricity,
               float volatile *time, unsigned short volatile *refs_x,
               unsigned short volatile *refs_y, float volatile *refs_time,
               unsigned char *boundaries) {

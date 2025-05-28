@@ -13,7 +13,7 @@
 #define ALIGN __align__(16)
 #define ASSERT(X) assert(X)
 
-class ALIGN FireSimpleCuda {
+class FireSimpleCuda {
 public:
   T speed_max;
   T azimuth_max;
@@ -36,7 +36,7 @@ public:
 };
 #define FireSimpleCuda_NULL FireSimpleCuda()
 
-class ALIGN PointRef {
+class PointRef {
 public:
   float time;
   ushort2 pos;
@@ -61,7 +61,7 @@ public:
 };
 #define PointRef_NULL PointRef()
 
-typedef struct ALIGN Settings {
+typedef struct Settings {
   GeoReference geo_ref;
   float max_time;
 } Settings;

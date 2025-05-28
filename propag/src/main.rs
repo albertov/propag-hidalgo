@@ -49,6 +49,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         x: geo_ref.width as usize / 2 - THREAD_BLOCK_AXIS_LENGTH as usize / 2,
         y: geo_ref.height as usize / 2 - THREAD_BLOCK_AXIS_LENGTH as usize / 2,
     };
+    println!("fire_pos={:?}", fire_pos);
     let len = geo_ref.len();
 
     println!("Generating input data");
@@ -102,7 +103,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let linear_block_size = block_size.x * block_size.y * block_size.z;
     let radius = HALO_RADIUS as u32;
     let shmem_size = ((block_size.x + radius * 2) * (block_size.y + radius * 2));
-    let shmem_bytes = shmem_size * 64; //std::mem::size_of::<Point>() as u32;
+    let shmem_bytes = shmem_size * 48; //FIXME: std::mem::size_of::<Point>() as u32;
                                        //assert_eq!(std::mem::size_of::<Point>(), 64);
 
     let max_active_blocks =
@@ -114,7 +115,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Assumes square block size
     assert_eq!(block_size.x, block_size.y);
-    let grid_w = (max_total_blocks as f64).sqrt().trunc() as u32;
+    let grid_w = (max_total_blocks as f64).sqrt().floor() as u32;
     let grid_size: GridSize = (grid_w, grid_w).into();
 
     let super_grid_size: (u32, u32) = (
@@ -191,6 +192,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
             stream.synchronize()?;
             //println!("propag");
+            let settings = Settings { geo_ref, max_time};
             loop {
                 let mut worked: Vec<UnifiedBox<u32>> =
                     Vec::with_capacity((super_grid_size.0 * super_grid_size.1) as usize);
@@ -203,10 +205,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         cust::launch_cooperative!(
                             // slices are passed as two parameters, the pointer and the length.
                             propag_c<<<grid_size, block_size, shmem_bytes, stream>>>(
-                                (DeviceVariable::new(Settings {
-                                    geo_ref,
-                                    max_time,
-                                })?.as_device_ptr()),
+                                settings,
                                 grid_x,
                                 grid_y,
                                 this_worked.as_unified_ptr(),

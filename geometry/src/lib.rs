@@ -173,8 +173,8 @@ impl GeoReference {
         let Vec2 { x: dx, y: dy } = pixel_size;
         let (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }) = bbox;
         let transform = GeoTransform::new([x0, dx, 0.0, y0, 0.0, dy])?;
-        let width = NumCast::from((x1 - x0) / dx)?;
-        let height = NumCast::from((y1 - y0) / dy)?;
+        let width = NumCast::from(((x1 - x0) / dx).ceil())?;
+        let height = NumCast::from(((y1 - y0) / dy).ceil())?;
         Some(GeoReference {
             transform,
             width,
@@ -186,8 +186,8 @@ impl GeoReference {
         let Vec2 { x: dx, y: dy } = pixel_size;
         let (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }) = bbox;
         let transform = GeoTransform::new([x0, dx, 0.0, y1, 0.0, -dy])?;
-        let width = NumCast::from((x1 - x0) / dx)?;
-        let height = NumCast::from((y1 - y0) / dy)?;
+        let width = NumCast::from(((x1 - x0) / dx).ceil())?;
+        let height = NumCast::from(((y1 - y0) / dy).ceil())?;
         Some(GeoReference {
             transform,
             width,

@@ -10,8 +10,6 @@ class ALIGN Propagator {
   const size_t global_ix_;
   const bool in_bounds_;
   const size_t block_ix_;
-  const int global_x_;
-  const int global_y_;
   const int local_x_;
   const int local_y_;
   const int shared_width_;
@@ -28,7 +26,7 @@ class ALIGN Propagator {
   __shared__ Point *shared_;
 
 public:
-  __device__ Propagator(const Settings &settings, const unsigned grid_x,
+  __device__ Propagator(const Settings settings, const unsigned grid_x,
                         const unsigned grid_y, const float *speed_max,
                         const float *azimuth_max, const float *eccentricity,
                         float volatile *time, unsigned short volatile *refs_x,
@@ -39,8 +37,8 @@ public:
         global_ix_(idx_2d_.x + idx_2d_.y * settings_.geo_ref.width),
         in_bounds_(idx_2d_.x < settings_.geo_ref.width &&
                    idx_2d_.y < settings_.geo_ref.height),
-        block_ix_(blockIdx.x + blockIdx.y * gridDim.x), global_x_(idx_2d_.x),
-        global_y_(idx_2d_.y), local_x_(threadIdx.x + HALO_RADIUS),
+        block_ix_(blockIdx.x + blockIdx.y * gridDim.x),
+        local_x_(threadIdx.x + HALO_RADIUS),
         local_y_(threadIdx.y + HALO_RADIUS),
         shared_width_(blockDim.x + HALO_RADIUS * 2),
         local_ix_(local_x_ + local_y_ * shared_width_), speed_max_(speed_max),
@@ -52,41 +50,30 @@ public:
   __device__ void run(unsigned *worked, volatile unsigned *progress) {
     __shared__ bool grid_improved;
     bool first_iteration = true;
+    if (settings_.geo_ref.width < 1 || settings_.geo_ref.height < 1) {
+      print_info("bad settings");
+      assert(false);
+    }
     do { // Grid loop
-      bool repeat_block = false;
-      bool retry = false;
-      // Initialize progress to no-progress
-      mark_progress(progress, 0);
       if (threadIdx.x == 0 && threadIdx.y == 0) {
         grid_improved = false;
       };
-      do { // Block loop
-        // First phase, load data from global to shared memory
-        load_points_into_shared_memory(first_iteration);
-        first_iteration = false;
+      // First phase, load data from global to shared memory
+      load_points_into_shared_memory(first_iteration);
+      first_iteration = false;
 
-        // Begin neighbor analysys
-        Point best;
-        __syncthreads();
-        retry = find_neighbor_with_least_access_time(&best);
-        if (retry) {
-          printf("retry %d %d\n", idx_2d_.x, idx_2d_.y);
-        }
-        __syncthreads();
-        bool improved = false;
-        if (!retry) {
-          // End of neighbor analysys, save point if improves
-          improved = update_point(best);
-        }
-
-        // Wait for other threads to end their analysis and
-        // check if any has improved. Then if we're the first
-        // thread of the block mark progress
-        repeat_block = __syncthreads_or(improved | retry);
-        if (repeat_block) {
-          mark_progress(progress, 1);
-        };
-      } while (repeat_block); // end block loop
+      // Begin neighbor analysys
+      Point best;
+      __syncthreads();
+      find_neighbor_with_least_access_time(&best);
+      __syncthreads();
+      // End of neighbor analysys, save point if improves
+      bool improved = update_point(best);
+      // Wait for other threads to end their analysis and
+      // check if any has improved. Then if we're the first
+      // thread of the block mark progress
+      bool block_improved = __syncthreads_or(improved);
+      mark_progress(progress, block_improved);
 
       // Block has finished. Check if others have too and set grid_improved.
       // Analysys ends when grid has not improved
@@ -106,14 +93,14 @@ public:
   }
 
 private:
-  __device__ inline bool find_neighbor_with_least_access_time(Point *result) {
-    Point me = shared_[local_ix_];
-    FireSimpleCuda fire = me.fire;
+  __device__ inline void find_neighbor_with_least_access_time(Point *result) {
+    const Point me = shared_[local_ix_];
+    const FireSimpleCuda fire = me.fire;
     bool is_new = !(me.time < MAX_TIME);
 
     Point best = Point_NULL;
 
-    if (is_new && in_bounds_) {
+    if (in_bounds_) {
 #pragma unroll
       for (int j = -1; j < 2; j++) {
 #pragma unroll
@@ -142,6 +129,7 @@ private:
           if ((reference.pos.x == idx_2d_.x && reference.pos.y == idx_2d_.y)) {
             continue;
           }
+
           ASSERT((reference.time < MAX_TIME && reference.pos.x != USHRT_MAX &&
                   reference.pos.y != USHRT_MAX));
           ASSERT(!is_fire_null(reference.fire));
@@ -149,6 +137,7 @@ private:
           // Check if neighbor's reference is usable
           int2 dir = neighbor_direction(
               idx_2d_, make_uint2(reference.pos.x, reference.pos.y));
+
           ASSERT(((int)idx_2d_.x + dir.x) >= 0 &&
                  ((int)idx_2d_.x + dir.x) < settings_.geo_ref.width &&
                  ((int)idx_2d_.y + dir.y) >= 0 &&
@@ -156,41 +145,36 @@ private:
 
           int blockage_ix =
               (local_x_ + dir.x) + (local_y_ + dir.y) * shared_width_;
+
           ASSERT(0 <= blockage_ix &&
                  blockage_ix < ((blockDim.x + HALO_RADIUS * 2) *
                                 (blockDim.y + HALO_RADIUS * 2)));
+
           Point possible_blockage = shared_[blockage_ix];
 
           if (!(possible_blockage.time < MAX_TIME)) {
             // If we haven't analyzed the blockage point yet then we can't
             // use the reference in this iteration. If the reference is
             // combustible then retry
-            *result = Point_NULL;
-            return !is_fire_null(possible_blockage.fire);
+            reference = PointRef_NULL;
           } else {
-            if (!similar_fires_(possible_blockage.fire, reference.fire)) {
+            if (!(similar_fires_(possible_blockage.fire, fire) && similar_fires_(possible_blockage.fire, reference.fire))) {
               reference = PointRef(neighbor.time, neighbor_pos, neighbor.fire);
             };
           };
 
-          Point candidate = Point_NULL;
           if (reference.time < MAX_TIME) {
             float t = time_to(settings_.geo_ref, reference, idx_2d_);
-            if (t < settings_.max_time && (is_new || t < me.time)) {
+            if (t < settings_.max_time && t < best.time && (is_new || t < me.time)) {
               ASSERT(!(reference.pos.x == USHRT_MAX ||
                        reference.pos.y == USHRT_MAX));
-              candidate = Point(t, fire, reference);
+              best = Point(t, fire, reference);
             }
-          }
-          // If no candidate or candidate improves use it as best
-          if (candidate.time < best.time) {
-            best = candidate;
           }
         };
       };
     };
     *result = best;
-    return false;
   }
   __device__ inline void mark_progress(volatile unsigned *progress,
                                        unsigned v) {
@@ -206,7 +190,8 @@ private:
   }
 
   __device__ inline bool update_point(Point p) {
-    if (in_bounds_ && p.time < settings_.max_time) {
+    Point &me  = shared_[local_ix_];
+    if (in_bounds_ && p.time < me.time && p.time < settings_.max_time) {
       // printf("best time %f\n", best.time);
       refs_x_[global_ix_] = p.reference.pos.x;
       refs_y_[global_ix_] = p.reference.pos.y;
@@ -252,7 +237,7 @@ private:
 
   __device__ inline void load_point_at_offset(const int2 offset) {
     int2 local = make_int2(local_x_ + offset.x, local_y_ + offset.y);
-    int2 global = make_int2(global_x_ + offset.x, global_y_ + offset.y);
+    int2 global = make_int2(idx_2d_.x + offset.x, idx_2d_.y + offset.y);
     if (global.x >= 0 && global.x < settings_.geo_ref.width && global.y >= 0 &&
         global.y < settings_.geo_ref.height) {
       uint2 pos = make_uint2(global.x, global.y);
@@ -286,13 +271,55 @@ private:
       shared_[local.x + local.y * shared_width_] = Point_NULL;
     }
   }
+  __device__ void print_info(const char msg[]) const {
+    static const char true_[] = "true";
+    static const char false_[] = "false";
+    printf(
+        "-------------------------------------------------------------\n"
+        "%s\n"
+        "-------------------------------------------------------------\n"
+        "width=%d\n"
+        "height=%d\n"
+        "gridIx=(%d, %d)\n"
+        "blockDim=(%d, %d)\n"
+        "idx_2d=(%d, %d)\n"
+        "modBlockSize=(%d, %d)\n"
+        "local_xy=(%d, %d)\n"
+        "global_ix=%  ld\n"
+        "in_bounds_=%s\n"
+        "block_ix_=%ld\n"
+        "shared_width_=%d\n"
+        "local_ix_=%d\n"
+        "time=%.4f\n"
+        "has_fire=%s\n"
+        "ref_x=%d\n"
+        "ref_y=%d\n",
+        msg,
+        settings_.geo_ref.width,
+        settings_.geo_ref.height,
+        gridIx_.x, gridIx_.y,
+        blockDim.x, blockDim.y,
+        idx_2d_.x, idx_2d_.y, idx_2d_.x % blockDim.x, idx_2d_.y % blockDim.y,
+        local_x_, local_y_,
+        global_ix_,
+        (in_bounds_? true_:  false_),
+        block_ix_,
+        shared_width_,
+        local_ix_,
+        (in_bounds_? time_[global_ix_] : MAX_TIME),
+        (in_bounds_? (speed_max_[global_ix_] != 0.0? true_ : false_) : false_),
+        (in_bounds_? refs_x_[global_ix_] : USHRT_MAX),
+        (in_bounds_? refs_y_[global_ix_] : USHRT_MAX)
+    );
+  }
+
 };
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-__global__ void propag(const Settings &settings, unsigned grid_x,
+__global__ void propag(const Settings settings, unsigned grid_x,
                        unsigned grid_y, unsigned *worked,
                        const float *speed_max, const float *azimuth_max,
                        const float *eccentricity, float volatile *time,

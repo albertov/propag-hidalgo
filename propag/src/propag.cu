@@ -237,18 +237,21 @@ private:
           ASSERT(!is_fire_null(reference.fire));
 
           // Check if neighbor's reference is usable
-          /*
           int2 dir = neighbor_direction(
-              idx_2d, make_uint2(reference.pos.x, reference.pos.y));
-          if ((int)idx_2d.x + dir.x >= 0 && (int)idx_2d.x + dir.x < width &&
-              (int)idx_2d.y + dir.y >= 0 && (int)idx_2d.y + dir.y < height) {
+              idx_2d_, make_uint2(reference.pos.x, reference.pos.y));
+          if ((int)idx_2d_.x + dir.x >= 0 &&
+              (int)idx_2d_.x + dir.x < settings_.geo_ref.width &&
+              (int)idx_2d_.y + dir.y >= 0 &&
+              (int)idx_2d_.y + dir.y < settings_.geo_ref.height) {
             Point possible_blockage =
-                shared[(local_x + dir.x) + (local_y + dir.y) * shared_width];
+                shared_[(local_x_ + dir.x) +
+                        (local_y_ + dir.y) * shared_width_];
             if (is_point_null(possible_blockage)) {
               // If we haven't analyzed the blockage point yet then we can't
               // use the reference in this iteration
-              // printf("cant analyze %d %d\n", global_x+dir.x, global_y +
+              // printf("cant analyze %d %d\n", global_x_+dir.x, global_y_ +
               // dir.y);
+              // FIXME: Need to force another iteration
               reference = PointRef_NULL;
             } else {
               if (!similar_fires_(possible_blockage.fire, reference.fire)) {
@@ -256,7 +259,6 @@ private:
               };
             };
           };
-          */
 
           // Look for a new candidate for best time
           Point candidate = Point_NULL;

@@ -1,19 +1,18 @@
 use crate::units::areal_mass_density::pound_per_square_foot;
+use crate::units::heat_flux_density::btu_sq_foot_min;
 use crate::units::linear_power_density::btu_foot_sec;
+use crate::units::radiant_exposure::btu_sq_foot;
 use uom::si::absement::foot_second;
 use uom::si::angle::radian;
-use uom::si::area::square_meter;
+use uom::si::area::square_foot;
 use uom::si::available_energy::btu_per_pound;
 use uom::si::f64::*;
-use uom::si::heat_flux_density::watt_per_square_meter;
 use uom::si::length::{foot, meter};
-use uom::si::linear_power_density::watt_per_meter;
-use uom::si::mass::{kilogram, pound};
+use uom::si::mass::kilogram;
 use uom::si::mass_density::pound_per_cubic_foot;
-use uom::si::radiant_exposure::joule_per_square_meter;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
-use uom::si::velocity::meter_per_second;
+use uom::si::velocity::foot_per_minute;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Life {
@@ -66,15 +65,15 @@ pub struct Spread {
 impl Spread {
     pub fn no_spread() -> Spread {
         Spread {
-            rx_int: HeatFluxDensity::new::<watt_per_square_meter>(0.0),
-            speed: Velocity::new::<meter_per_second>(0.0),
-            hpua: RadiantExposure::new::<joule_per_square_meter>(0.0),
+            rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(0.0),
+            speed: Velocity::new::<foot_per_minute>(0.0),
+            hpua: RadiantExposure::new::<btu_sq_foot>(0.0),
             phi_eff_wind: Ratio::new::<ratio>(0.0),
-            speed_max: Velocity::new::<meter_per_second>(0.0),
+            speed_max: Velocity::new::<foot_per_minute>(0.0),
             azimuth_max: Angle::new::<radian>(0.0),
             eccentricity: Ratio::new::<ratio>(0.0),
-            byrams_max: LinearPowerDensity::new::<watt_per_meter>(0.0),
-            flame_max: Length::new::<meter>(0.0),
+            byrams_max: LinearPowerDensity::new::<btu_foot_sec>(0.0),
+            flame_max: Length::new::<foot>(0.0),
         }
     }
 }
@@ -106,7 +105,7 @@ pub enum SizeClass {
     SC5,
 }
 
-pub struct Fuel {
+pub struct FuelDef {
     pub name: String,
     pub desc: String,
     pub depth: Length,
@@ -115,8 +114,29 @@ pub struct Fuel {
     pub particles: Vec<Particle>,
 }
 
+pub struct Fuel {
+    pub name: String,
+    pub desc: String,
+    pub depth: Length,
+    pub mext: Ratio,
+    pub adjust: Ratio,
+    pub alive_particles: Vec<Particle>,
+    pub dead_particles: Vec<Particle>,
+}
+
 impl Particle {
-    pub fn life(&self) -> Life {
+    pub fn standard(p_type: ParticleType, p_load: f64, p_savr: f64) -> Particle {
+        Particle {
+            type_: p_type,
+            load: ArealMassDensity::new::<pound_per_square_foot>(p_load),
+            savr: Length::new::<meter>(p_savr),
+            density: MassDensity::new::<pound_per_cubic_foot>(32.0),
+            heat: AvailableEnergy::new::<btu_per_pound>(8000.0),
+            si_total: Ratio::new::<ratio>(0.0555),
+            si_effective: Ratio::new::<ratio>(0.0100),
+        }
+    }
+    pub const fn life(&self) -> Life {
         match &self.type_ {
             ParticleType::Dead => Life::Dead,
             _ => Life::Alive,
@@ -139,7 +159,7 @@ impl Particle {
         if self.density.get::<pound_per_cubic_foot>() > SMIDGEN {
             self.load * self.savr / self.density
         } else {
-            Area::new::<square_meter>(0.0)
+            Area::new::<square_foot>(0.0)
         }
     }
 
@@ -166,14 +186,38 @@ impl Particle {
 }
 
 impl Fuel {
+    pub fn make(def: FuelDef) -> Fuel {
+        let (alive_particles, dead_particles) = def
+            .particles
+            .iter()
+            .partition(move |p| p.life() == Life::Alive);
+        Fuel {
+            name: def.name,
+            desc: def.desc,
+            depth: def.depth,
+            mext: def.mext,
+            adjust: def.adjust,
+            alive_particles,
+            dead_particles,
+        }
+    }
+    fn particles(&self) -> impl Iterator<Item = &Particle> {
+        self.alive_particles
+            .iter()
+            .chain(self.dead_particles.iter())
+    }
+
     fn life_particles(&self, life: Life) -> impl Iterator<Item = &Particle> {
-        self.particles.iter().filter(move |&p| p.life() == life)
+        match life {
+            Life::Alive => self.alive_particles.iter(),
+            Life::Dead => self.dead_particles.iter(),
+        }
     }
     fn has_live_particles(&self) -> bool {
         self.life_particles(Life::Alive).count() > 0
     }
     fn total_area(&self) -> Area {
-        self.particles.iter().map(|p| p.surface_area()).sum()
+        self.particles().map(|p| p.surface_area()).sum()
     }
     fn life_area_weight(&self, life: Life) -> Ratio {
         self.life_particles(life)
@@ -216,15 +260,15 @@ impl Fuel {
     }
     fn life_eta_s(&self, life: Life) -> Ratio {
         let seff: f64 = self.life_seff(life).get::<ratio>();
-        if seff <= SMIDGEN {
-            Ratio::new::<ratio>(0.0)
-        } else {
+        if seff > SMIDGEN {
             let eta = 0.174 / seff.powf(0.19);
             if eta < 1.0 {
                 Ratio::new::<ratio>(eta)
             } else {
                 Ratio::new::<ratio>(1.0)
             }
+        } else {
+            Ratio::new::<ratio>(0.0)
         }
     }
     fn sigma(&self) -> Length {
@@ -245,7 +289,7 @@ impl Fuel {
     }
     fn beta(&self) -> Ratio {
         if self.depth.get::<foot>() > SMIDGEN {
-            let x: Length = self.particles.iter().map(|p| p.load / p.density).sum();
+            let x: Length = self.particles().map(|p| p.load / p.density).sum();
             x / self.depth
         } else {
             Ratio::new::<ratio>(0.0)
@@ -269,7 +313,7 @@ impl Fuel {
             .life_particles(particle.life())
             .map(|p| p.surface_area())
             .sum();
-        if total_area_life.get::<square_meter>() > SMIDGEN {
+        if total_area_life.get::<square_foot>() > SMIDGEN {
             particle.surface_area() / total_area_life
         } else {
             Ratio::new::<ratio>(0.0)
@@ -289,7 +333,7 @@ impl Fuel {
     }
 
     fn bulk_density(&self) -> MassDensity {
-        self.particles.iter().map(|p| p.load / self.depth).sum()
+        self.particles().map(|p| p.load / self.depth).sum()
     }
 
     fn residence_time(&self) -> Time {
@@ -336,100 +380,88 @@ const SMIDGEN: f64 = 1e-6;
 
 pub type Catalog = Vec<Fuel>;
 
-fn mk_part(p_type: ParticleType, p_load: f64, p_savr: f64) -> Particle {
-    Particle {
-        type_: p_type,
-        load: ArealMassDensity::new::<pound_per_square_foot>(p_load),
-        savr: Length::new::<meter>(p_savr),
-        density: MassDensity::new::<pound_per_cubic_foot>(32.0),
-        heat: AvailableEnergy::new::<btu_per_pound>(8000.0),
-        si_total: Ratio::new::<ratio>(0.0555),
-        si_effective: Ratio::new::<ratio>(0.0100),
-    }
-}
-
 pub fn standard_catalog() -> Catalog {
     vec![
-        Fuel {
+        Fuel::make(FuelDef {
             name: String::from("NoFuel"),
             desc: String::from("No Combustible Fuel"),
             depth: Length::new::<foot>(0.1),
             mext: Ratio::new::<ratio>(0.01),
             adjust: Ratio::new::<ratio>(1.0),
             particles: vec![],
-        },
-        Fuel {
+        }),
+        Fuel::make(FuelDef {
             name: String::from("NFFL01"),
             desc: String::from("Short Grass (1 ft)"),
             depth: Length::new::<foot>(1.0),
             mext: Ratio::new::<ratio>(0.12),
             adjust: Ratio::new::<ratio>(1.0),
-            particles: vec![mk_part(ParticleType::Dead, 0.0340, 3500.0)],
-        },
-        Fuel {
+            particles: vec![Particle::standard(ParticleType::Dead, 0.0340, 3500.0)],
+        }),
+        Fuel::make(FuelDef {
             name: String::from("NFFL02"),
             desc: String::from("Timber (grass & understory)"),
             depth: Length::new::<foot>(1.0),
             mext: Ratio::new::<ratio>(0.15),
             adjust: Ratio::new::<ratio>(1.0),
             particles: vec![
-                mk_part(ParticleType::Dead, 0.0920, 3000.0),
-                mk_part(ParticleType::Dead, 0.0460, 109.0),
-                mk_part(ParticleType::Dead, 0.0230, 30.0),
-                mk_part(ParticleType::Herb, 0.0230, 1500.0),
+                Particle::standard(ParticleType::Dead, 0.0920, 3000.0),
+                Particle::standard(ParticleType::Dead, 0.0460, 109.0),
+                Particle::standard(ParticleType::Dead, 0.0230, 30.0),
+                Particle::standard(ParticleType::Herb, 0.0230, 1500.0),
             ],
-        },
-        Fuel {
+        }),
+        Fuel::make(FuelDef {
             name: String::from("NFFL03"),
             desc: String::from("Tall Grass (2.5 ft)"),
             depth: Length::new::<foot>(2.5),
             mext: Ratio::new::<ratio>(0.25),
             adjust: Ratio::new::<ratio>(1.0),
-            particles: vec![mk_part(ParticleType::Dead, 0.1380, 1500.0)],
-        },
-        Fuel {
+            particles: vec![Particle::standard(ParticleType::Dead, 0.1380, 1500.0)],
+        }),
+        Fuel::make(FuelDef {
             name: String::from("NFFL04"),
             desc: String::from("Chaparral (6 ft)"),
             depth: Length::new::<foot>(6.0),
             mext: Ratio::new::<ratio>(0.2),
             adjust: Ratio::new::<ratio>(1.0),
             particles: vec![
-                mk_part(ParticleType::Dead, 0.2300, 2000.0),
-                mk_part(ParticleType::Dead, 0.1840, 109.0),
-                mk_part(ParticleType::Dead, 0.0920, 30.0),
-                mk_part(ParticleType::Wood, 0.2300, 1500.0),
+                Particle::standard(ParticleType::Dead, 0.2300, 2000.0),
+                Particle::standard(ParticleType::Dead, 0.1840, 109.0),
+                Particle::standard(ParticleType::Dead, 0.0920, 30.0),
+                Particle::standard(ParticleType::Wood, 0.2300, 1500.0),
             ],
-        },
-        Fuel {
+        }),
+        Fuel::make(FuelDef {
             name: String::from("NFFL05"),
             desc: String::from("Brush (2 ft)"),
             depth: Length::new::<foot>(2.0),
             mext: Ratio::new::<ratio>(0.2),
             adjust: Ratio::new::<ratio>(1.0),
             particles: vec![
-                mk_part(ParticleType::Dead, 0.0460, 2000.0),
-                mk_part(ParticleType::Dead, 0.0230, 109.0),
-                mk_part(ParticleType::Wood, 0.0920, 1500.0),
+                Particle::standard(ParticleType::Dead, 0.0460, 2000.0),
+                Particle::standard(ParticleType::Dead, 0.0230, 109.0),
+                Particle::standard(ParticleType::Wood, 0.0920, 1500.0),
             ],
-        },
-        Fuel {
+        }),
+        Fuel::make(FuelDef {
             name: String::from("NFFL06"),
             desc: String::from("Dormant Brush & Hardwood Slash"),
             depth: Length::new::<foot>(2.5),
             mext: Ratio::new::<ratio>(0.25),
             adjust: Ratio::new::<ratio>(1.0),
             particles: vec![
-                mk_part(ParticleType::Dead, 0.0690, 1750.0),
-                mk_part(ParticleType::Dead, 0.1150, 109.0),
-                mk_part(ParticleType::Wood, 0.0920, 30.0),
+                Particle::standard(ParticleType::Dead, 0.0690, 1750.0),
+                Particle::standard(ParticleType::Dead, 0.1150, 109.0),
+                Particle::standard(ParticleType::Wood, 0.0920, 30.0),
             ],
-        },
+        }),
     ]
 }
 
 impl Combustion<'_> {
     pub fn spread(&self, terrain: &Terrain) -> Spread {
-        if self.fuel.particles.is_empty() {
+        if self.fuel.alive_particles.is_empty() && self.fuel.dead_particles.is_empty() {
             Spread::no_spread()
         } else {
             Spread {
@@ -505,7 +537,7 @@ impl Combustion<'_> {
     fn life_eta_m(&self, life: Life, terrain: &Terrain) -> Ratio {
         if self.life_moisture(life, terrain) >= self.life_mext(life, terrain) {
             Ratio::new::<ratio>(0.0)
-        } else if self.life_mext(life, terrain) > Ratio::new::<ratio>(SMIDGEN) {
+        } else if self.life_mext(life, terrain).get::<ratio>() > SMIDGEN {
             let rt =
                 (self.life_moisture(life, terrain) / self.life_mext(life, terrain)).get::<ratio>();
             let x = 1.0 - 2.59 * rt.powf(1.0) + 5.11 * rt.powf(2.0) - 3.52 * rt.powf(3.0);
@@ -524,8 +556,7 @@ impl Combustion<'_> {
 
     fn rbqig(&self, terrain: &Terrain) -> Ratio {
         self.fuel
-            .particles
-            .iter()
+            .particles()
             .map(|p| {
                 (Ratio::new::<ratio>(250.0) + Ratio::new::<ratio>(1116.0) * p.moisture(terrain))
                     * self.fuel.part_area_weight(p)
@@ -540,11 +571,11 @@ impl Combustion<'_> {
     }
 
     fn phi_wind(&self, terrain: &Terrain) -> Ratio {
-        if terrain.wind_speed < Velocity::new::<meter_per_second>(SMIDGEN) {
-            Ratio::new::<ratio>(0.0)
-        } else {
-            let ws = terrain.wind_speed.get::<meter_per_second>();
+        if terrain.wind_speed.get::<foot_per_minute>() > SMIDGEN {
+            let ws = terrain.wind_speed.get::<foot_per_minute>();
             Ratio::new::<ratio>(self.wind_k * ws.powf(self.wind_b))
+        } else {
+            Ratio::new::<ratio>(0.0)
         }
     }
 
@@ -555,9 +586,9 @@ impl Combustion<'_> {
 
 fn flame_length(byrams: LinearPowerDensity) -> Length {
     let b = byrams.get::<btu_foot_sec>();
-    if b < SMIDGEN {
-        Length::new::<foot>(0.0)
-    } else {
+    if b > SMIDGEN {
         Length::new::<foot>(0.45 * b.powf(0.46))
+    } else {
+        Length::new::<foot>(0.0)
     }
 }

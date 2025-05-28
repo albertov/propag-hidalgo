@@ -118,23 +118,48 @@ __device__ inline bool similar_fires_(const volatile FireSimpleCuda &a,
 
 __device__ inline int signum(int val) { return int(0 < val) - int(val < 0); }
 
-__device__ inline int2 neighbor_direction(uint2 ufrom, uint2 uto) {
-  int2 from = make_int2(ufrom.x, ufrom.y);
-  int2 to = make_int2(uto.x, uto.y);
-  if (from.x == to.x && from.y == to.y) {
-    return make_int2(0.0, 0.0);
-  }
-  int2 step = make_int2(signum(to.x - from.x), signum(to.y - from.y));
-  int2 tmax = make_int2(abs(to.x - from.x), abs(to.y - from.y));
+class DDA {
+  const int2 from_;
+  const int2 to_;
+  const int2 step_;
+  int2 cur_;
+  float2 tmax_;
+  const float2 delta_;
 
-  if (tmax.x == tmax.y) {
-    return step;
-  } else if (tmax.x > tmax.y) {
-    return make_int2(step.x, 0);
-  } else {
-    return make_int2(0, step.y);
+public:
+  __device__ DDA(uint2 from, uint2 to)
+      : from_(make_int2(from.x, from.y)), to_(make_int2(to.x, to.y)),
+        step_(make_int2(signum(to_.x - from_.x), signum(to_.y - from_.y))),
+        cur_(from_), tmax_(make_float2(1.0 / float(abs(to_.x - from_.x)),
+                                       1.0 / float(abs(to_.y - from_.y)))),
+        delta_(tmax_) {};
+
+  __device__ bool next(int2 &result) {
+    result = cur_;
+    if (result.x == to_.x && result.y == to_.y) {
+      cur_.x += step_.x;
+      cur_.y += step_.y;
+      return true;
+    }
+    bool valid_x = (step_.x > 0 ? cur_.x <= to_.x : cur_.x >= to_.x);
+    bool valid_y = (step_.y > 0 ? cur_.y <= to_.y : cur_.y >= to_.y);
+    if (!(valid_x && valid_y))
+      return false;
+    if (abs(tmax_.x - tmax_.y) < 1e-6) {
+      cur_.x += step_.x;
+      cur_.y += step_.y;
+      tmax_.x += delta_.x;
+      tmax_.y += delta_.y;
+    } else if (tmax_.x < tmax_.y) {
+      cur_.x += step_.x;
+      tmax_.x += delta_.x;
+    } else {
+      cur_.y += step_.y;
+      tmax_.y += delta_.y;
+    }
+    return true;
   }
-}
+};
 
 __device__ inline float time_to(const GeoReference &geo_ref,
                                 const PointRef &from, const uint2 to) {

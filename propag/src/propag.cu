@@ -139,34 +139,50 @@ private:
           ASSERT(!is_fire_null(reference.fire));
 
           // Check if neighbor's reference is usable
-          int2 dir = neighbor_direction(
-              idx_2d_, make_uint2(reference.pos.x, reference.pos.y));
+          DDA iter(idx_2d_, make_uint2(reference.pos.x, reference.pos.y));
 
-          ASSERT(((int)idx_2d_.x + dir.x) >= 0 &&
-                 ((int)idx_2d_.x + dir.x) < settings_.geo_ref.width &&
-                 ((int)idx_2d_.y + dir.y) >= 0 &&
-                 ((int)idx_2d_.y + dir.y) < settings_.geo_ref.height);
+          int2 possible_blockage_pos;
+          iter.next(possible_blockage_pos); // skip self
+          for (int i = 0; i < HALO_RADIUS; i++) {
+            if (iter.next(possible_blockage_pos)) {
+              int2 dir = make_int2(possible_blockage_pos.x - int(idx_2d_.x),
+                                   possible_blockage_pos.y - int(idx_2d_.y));
+              ASSERT(((int)idx_2d_.x + dir.x) >= 0 &&
+                     ((int)idx_2d_.x + dir.x) < settings_.geo_ref.width &&
+                     ((int)idx_2d_.y + dir.y) >= 0 &&
+                     ((int)idx_2d_.y + dir.y) < settings_.geo_ref.height);
+              int blockage_ix =
+                  (local_x_ + dir.x) + (local_y_ + dir.y) * shared_width_;
+              ASSERT(0 <= blockage_ix &&
+                     blockage_ix < ((blockDim.x + HALO_RADIUS * 2) *
+                                    (blockDim.y + HALO_RADIUS * 2)));
 
-          int blockage_ix =
-              (local_x_ + dir.x) + (local_y_ + dir.y) * shared_width_;
+              Point possible_blockage = shared_[blockage_ix];
 
-          ASSERT(0 <= blockage_ix &&
-                 blockage_ix < ((blockDim.x + HALO_RADIUS * 2) *
-                                (blockDim.y + HALO_RADIUS * 2)));
-
-          Point possible_blockage = shared_[blockage_ix];
-
-          if (!(possible_blockage.time < MAX_TIME)) {
-            // If we haven't analyzed the blockage point yet then we can't
-            // use the reference in this iteration. If the reference is
-            // combustible then retry
-            reference = PointRef_NULL;
-          } else {
-            if (!(similar_fires_(possible_blockage.fire, fire) &&
-                  similar_fires_(possible_blockage.fire, reference.fire))) {
-              reference = PointRef(neighbor.time, neighbor_pos, neighbor.fire);
-            };
-          };
+              if (!(possible_blockage.time < MAX_TIME)) {
+                // If we haven't analyzed the blockage point yet then we can't
+                // use the reference in this iteration. If the reference is
+                // combustible then retry
+                reference = PointRef_NULL;
+                break;
+              } else {
+                if (!(possible_blockage.reference.pos.x ==
+                          neighbor.reference.pos.x &&
+                      possible_blockage.reference.pos.y ==
+                          neighbor.reference.pos.y)) {
+                  // print_info("cambio ref");
+                  reference =
+                      PointRef(neighbor.time, neighbor_pos, neighbor.fire);
+                  break;
+                };
+              };
+            } else {
+              break;
+            }
+          }
+          if (!similar_fires_(reference.fire, neighbor.fire)) {
+            reference = PointRef(neighbor.time, neighbor_pos, neighbor.fire);
+          }
 
           if (reference.time < MAX_TIME) {
             float t = time_to(settings_.geo_ref, reference, idx_2d_);

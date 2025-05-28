@@ -17,13 +17,16 @@ use uom::si::velocity::meter_per_second;
 
 const BLOCK_WIDTH: usize = 16;
 const BLOCK_HEIGHT: usize = 16;
-const SHARED_SIZE: usize = (BLOCK_WIDTH + 2) * (BLOCK_HEIGHT + 2);
+const BLOCK_BUFFER: usize = 1;
+const SHARED_SIZE: usize = (BLOCK_WIDTH+BLOCK_BUFFER*2) * (BLOCK_HEIGHT+BLOCK_BUFFER*2);
 
 unsafe fn read_volatile<T: Copy>(p: *const T) -> T {
+    //*p
     core::intrinsics::volatile_load(p)
 }
 unsafe fn write_volatile<T: Copy>(p: *mut T, v: T) {
-    core::intrinsics::volatile_store(p, v)
+    //*p = v
+    core::intrinsics::volatile_store(p,v)
 }
 
 #[kernel]
@@ -31,12 +34,14 @@ unsafe fn write_volatile<T: Copy>(p: *mut T, v: T) {
 pub unsafe fn propag(
     geo_ref: GeoReference,
     max_time: float::T,
+    num_blocks: usize,
     speed_max: &[Option<float::T>],
     azimuth_max: &[Option<float::T>],
     eccentricity: &[Option<float::T>],
     time: *mut Option<float::T>,
     refs_x: *mut Option<usize>,
     refs_y: *mut Option<usize>,
+    //progress: *mut f32,
 ) {
     // Arrays in shared memory for fast analysis within block
     let shared: *mut Option<Point> = shared_array![Option<Point>; SHARED_SIZE];
@@ -60,11 +65,11 @@ pub unsafe fn propag(
 
     // Our global index
     let global_ix = (idx_2d.x + idx_2d.y * width) as usize;
-    let to_global_off = |ox, oy| {
+    let to_global_off = |ox,oy| {
         let x = idx_2d.x as i32 + ox;
         let y = idx_2d.y as i32 + oy;
-        if x >= 0 && x < width as i32 && y >= 0 && y < height as i32 {
-            Some((x + y * width as i32) as usize)
+        if x>=0 && x<width as i32  && y>=0 && y<height as i32 {
+            Some((x + y*width as i32) as usize)
         } else {
             None
         }
@@ -72,16 +77,10 @@ pub unsafe fn propag(
 
     // Our index into the shared area
     let shared_ix = compute_shared_ix(&pos).expect("pos must have shared ix");
-    let to_shared_off = |x, y| {
-        let pos = IVec2 {
-            x: pos.x as _,
-            y: pos.y as _,
-        };
-        let pos = pos + IVec2 { x, y };
-        let pos = USizeVec2 {
-            x: pos.x as _,
-            y: pos.y as _,
-        };
+    let to_shared_off = |x,y| {
+        let pos = IVec2 { x: pos.x as _, y: pos.y as _};
+        let pos = pos + IVec2{x,y};
+        let pos = USizeVec2 { x: pos.x as _, y: pos.y as _};
         compute_shared_ix(&pos)
     };
 
@@ -113,50 +112,87 @@ pub unsafe fn propag(
     };
 
     // Preload boundaries
-    let preload_point = |x, y| {
+    let preload_point = |x,y| {
         let shared_off = to_shared_off(x, y);
         let global_off = to_global_off(x, y);
         match (shared_off, global_off) {
             (Some(shared_off), Some(global_off)) => {
-                *shared.add(shared_off) = Point::load(
-                    &geo_ref,
-                    pos,
-                    global_off,
-                    speed_max,
-                    azimuth_max,
-                    eccentricity,
-                    time,
-                    refs_x,
-                    refs_y,
-                );
+                *shared.add(shared_off) =
+                    Point::load(
+                        &geo_ref,
+                        pos,
+                        global_off,
+                        speed_max,
+                        azimuth_max,
+                        eccentricity,
+                        time,
+                        refs_x,
+                        refs_y,
+                    );
+            },
+            (Some(shared_off), None) => {
+                *shared.add(shared_off) = None
             }
-            (Some(shared_off), None) => *shared.add(shared_off) = None,
-            _ => (),
+            _ => ()
         }
     };
+    let buf = BLOCK_BUFFER as i32;
     if thread::thread_idx_x() == 0 && thread::thread_idx_y() == 0 {
-        preload_point(-1, -1);
+        //reload_point(-1,-1);
+        for i in -buf..1 {
+            for j in -buf..1 {
+                preload_point(i,j);
+            }
+        }
+    } else if thread::thread_idx_x() as usize == BLOCK_WIDTH-1 && thread::thread_idx_y() == 0 {
+        //preload_point(1,-1);
+        for i in 0..(buf+1) {
+            for j in -buf..1 {
+                preload_point(i,j);
+            }
+        }
+    } else if thread::thread_idx_x() as usize == BLOCK_WIDTH-1 && thread::thread_idx_y() as usize == BLOCK_HEIGHT -1 {
+        //preload_point(1,1);
+        for i in 0..(buf+1) {
+            for j in 0..(buf+1) {
+                preload_point(i,j);
+            }
+        }
+    } else if thread::thread_idx_x() == 0 && thread::thread_idx_y() as usize == BLOCK_HEIGHT -1 {
+        //preload_point(-1,1);
+        for i in -buf..1 {
+            for j in 1..(buf+1) {
+                preload_point(i,j);
+            }
+        }
     } else if thread::thread_idx_y() == 0 {
-        preload_point(0, -1);
-    } else if thread::thread_idx_x() as usize == BLOCK_WIDTH - 1 && thread::thread_idx_y() == 0 {
-        preload_point(1, -1);
-    } else if thread::thread_idx_x() as usize == BLOCK_WIDTH - 1 {
-        preload_point(1, 0);
-    } else if thread::thread_idx_x() as usize == BLOCK_WIDTH - 1
-        && thread::thread_idx_y() as usize == BLOCK_HEIGHT - 1
-    {
-        preload_point(1, 1);
-    } else if thread::thread_idx_y() as usize == BLOCK_HEIGHT - 1 {
-        preload_point(0, 1);
-    } else if thread::thread_idx_x() == 0 && thread::thread_idx_y() as usize == BLOCK_HEIGHT - 1 {
-        preload_point(-1, 1);
+        //preload_point(0,-1);
+        for j in -buf..1 {
+            preload_point(0,j);
+        }
+    } else if thread::thread_idx_x() as usize == BLOCK_WIDTH-1 {
+        //preload_point(1,0);
+        for i in 0..(buf+1) {
+            preload_point(i,0);
+        }
+    } else if thread::thread_idx_y() as usize == BLOCK_HEIGHT -1 {
+        //preload_point(0,1);
+        for j in 0..buf+1 {
+            preload_point(0,j);
+        }
     } else if thread::thread_idx_x() == 0 {
-        preload_point(-1, 0);
+        //preload_point(-1,0);
+        for i in -buf..1 {
+            preload_point(i,0);
+        }
     }
     *shared.add(shared_ix) = me;
+
     thread::sync_threads();
 
     let mut best_fire: Option<Point> = None;
+
+    let mut improved = 0;
 
     ////////////////////////////////////////////////////////////////////////
     // Begin neighbor analysys
@@ -238,7 +274,7 @@ pub unsafe fn propag(
             // Update the best_fire with the one with lowest access time
             //self::println!("lelo: {:?}, {:?}", point, point);
             best_fire = match (point, best_fire) {
-                (Some(point), Some(best_fire)) if point.time < best_fire.time => Some(point),
+                (Some(point), Some(best_fire)) if point.time + 1e-6 < best_fire.time => Some(point),
                 (Some(point), None) => Some(point),
                 _ => best_fire,
             };
@@ -246,15 +282,36 @@ pub unsafe fn propag(
         ///////////////////////////////////////////////////
         // End of neighbor analysys, save point if improves
         ///////////////////////////////////////////////////
-        match (me, best_fire) {
-            (Some(me), Some(best_fire)) if best_fire.time < me.time => {
-                best_fire.save(global_ix, time, refs_x, refs_y)
+        improved = match (me, best_fire) {
+            (Some(me), Some(best_fire)) if best_fire.time + 1e-6 < me.time => {
+                best_fire.save(global_ix, time, refs_x, refs_y);
+                1
+            },
+            /*
+            (Some(me), _) => {
+                me.save(global_ix, time, refs_x, refs_y);
+                1
+            },
+            */
+            (None, Some(best_fire)) => {
+                best_fire.save(global_ix, time, refs_x, refs_y);
+                1
             }
-            (Some(me), _) => me.save(global_ix, time, refs_x, refs_y),
-            (None, Some(best_fire)) => best_fire.save(global_ix, time, refs_x, refs_y),
-            _ => (),
-        }
+            _ => 0,
+        };
+    } // in_bounds
+    //thread::grid_fence();
+    /*
+    let any_improved = thread::sync_threads_count(improved) > 0;
+    if any_improved
+        && thread::thread_idx_x() == 0
+        && thread::thread_idx_y() == 0
+    {
+        let block_ix = (thread::block_idx_x() + thread::block_idx_y() * thread::grid_dim_x()) as usize;
+        assert!(block_ix < num_blocks);
+        *progress.add(block_ix) = 1.0;
     }
+    */
 }
 
 // TODO: Fine-tune these constants and make them configurable
@@ -265,47 +322,57 @@ fn similar_fires(a: FireSimpleCuda, b: FireSimpleCuda) -> bool {
 }
 
 fn compute_shared_ix(pos: &USizeVec2) -> Option<usize> {
-    let shared_x = pos.x % (BLOCK_WIDTH);
-    let shared_y = pos.y % (BLOCK_HEIGHT);
-    let shared_bx = pos.x / (BLOCK_WIDTH);
-    let shared_by = pos.y / (BLOCK_HEIGHT);
+    let shared_x = pos.x%(BLOCK_WIDTH);
+    let shared_y = pos.y%(BLOCK_HEIGHT);
+    let shared_bx = pos.x/(BLOCK_WIDTH);
+    let shared_by = pos.y/(BLOCK_HEIGHT);
     let my_bx = thread::block_idx_x() as usize;
     let my_by = thread::block_idx_y() as usize;
-    let is_top_neighbor = shared_by == my_by - 1;
-    let is_bottom_neighbor = shared_by == my_by + 1;
-    let is_left_neighbor = shared_bx == my_bx - 1;
-    let is_right_neighbor = shared_bx == my_bx + 1;
+    let is_top_neighbor = shared_by as i32 == my_by as i32 -1;
+    let is_bottom_neighbor = shared_by as i32 == my_by as i32 +1;
+    let is_left_neighbor = shared_bx as i32 == my_bx as i32 -1;
+    let is_right_neighbor = shared_bx as i32 == my_bx as i32 +1;
 
-    if let Some((shared_x, shared_y)) = match (
+    if let Some ((shared_x, shared_y)) = match (
         is_top_neighbor,
         is_bottom_neighbor,
         is_left_neighbor,
-        is_right_neighbor,
+        is_right_neighbor
     ) {
         //TL
-        (true, false, true, false) => Some((0, 0)),
+        ( true, false, true, false) =>
+            Some((0, 0)),
         // T
-        (true, false, false, false) => Some((shared_x + 1, 0)),
+        ( true, false, false, false) =>
+            Some((shared_x+BLOCK_BUFFER, 0)),
         // TR
-        (true, false, false, true) => Some((BLOCK_WIDTH + 1, 0)),
+        ( true, false, false, true) =>
+            Some((BLOCK_WIDTH+BLOCK_BUFFER, 0)),
         // R
-        (false, false, false, true) => Some((BLOCK_WIDTH + 1, shared_y + 1)),
+        ( false, false, false, true) =>
+            Some((BLOCK_WIDTH+BLOCK_BUFFER, shared_y+BLOCK_BUFFER)),
         // BR
-        (false, true, false, true) => Some((BLOCK_WIDTH + 1, BLOCK_HEIGHT + 1)),
+        ( false, true, false, true) =>
+            Some((BLOCK_WIDTH+BLOCK_BUFFER, BLOCK_HEIGHT+BLOCK_BUFFER)),
         // B
-        (false, true, false, false) => Some((shared_x + 1, 0)),
+        ( false, true, false, false) =>
+            Some((shared_x+BLOCK_BUFFER, 0)),
         // BL
-        (false, true, true, false) => Some((0, BLOCK_HEIGHT + 1)),
+        ( false, true, true, false) =>
+            Some((0, BLOCK_HEIGHT+BLOCK_BUFFER)),
         // L
-        (false, false, true, false) => Some((0, shared_y + 1)),
+        ( false, false, true, false) =>
+            Some((0, shared_y+BLOCK_BUFFER)),
         // This block
-        (false, false, false, false) if shared_bx == my_bx && shared_by == my_by => {
-            Some((shared_x + 1, shared_y + 1))
-        }
+        ( false, false, false, false)
+            if shared_bx == my_bx
+                && shared_by == my_by =>
+            Some((shared_x+BLOCK_BUFFER, shared_y+BLOCK_BUFFER)),
 
         _ => None,
-    } {
-        Some((shared_x + (shared_y) * (BLOCK_WIDTH + 2)))
+    }
+    {
+        Some((shared_x + (shared_y) * (BLOCK_WIDTH+(2*BLOCK_BUFFER))))
     } else {
         None
     }
@@ -371,40 +438,17 @@ impl Point {
         ref_x: *const Option<usize>,
         ref_y: *const Option<usize>,
     ) -> Option<Self> {
-        if read_volatile(time.add(idx)).is_some() {
-            //self::println!("time: {:?}", pos);
-        };
         let p_time = read_volatile(time.add(idx))?;
         let fire = load_fire(idx, speed_max, azimuth_max, eccentricity);
-        /*
-        if time[idx].is_some() {
-            self::println!("fogo: {:?}", pos);
-        };
-        */
         let ref_pos = USizeVec2 {
             x: read_volatile(ref_x.add(idx))?,
             y: read_volatile(ref_y.add(idx))?,
         };
-        /*
-        if time[idx].is_some() {
-            self::println!("ref_pos: {:?}", ref_pos);
-        };
-        */
         let reference = match (fire) {
             (Some(_)) if ref_pos != pos => {
                 let ref_ix: usize = ref_pos.x + ref_pos.y * geo_ref.size[0] as usize;
-                /*
-                self::println!(
-                    "fuego tiemposo! {:?} {:?} {:?}",
-                    pos,
-                    ref_pos,
-                    time[ref_ix].is_some()
-                );
-                */
                 let fire = load_fire(ref_ix, speed_max, azimuth_max, eccentricity)?;
-                //self::println!("fuego tiemposo1 {} {:?}", time[ref_ix].is_some(), (ref_ix%1000, ref_ix.div(1000)));
                 let r_time = read_volatile(time.add(ref_ix))?;
-                //self::println!("fuego tiemposo2");
                 Some(PointRef {
                     time: r_time,
                     pos_x: ref_pos.x,
@@ -420,14 +464,6 @@ impl Point {
             }),
             _ => None,
         };
-        /*
-        self::println!(
-            "fuego tiempo! {:?} {:?} {:?}",
-            pos,
-            fire.is_some(),
-            reference.is_some()
-        );
-        */
         Some(Point {
             time: p_time,
             fire,
@@ -442,11 +478,11 @@ impl Point {
         ref_x: *mut Option<usize>,
         ref_y: *mut Option<usize>,
     ) {
-        let pos = (idx % 1000, idx / 1000);
         write_volatile(time.add(idx), Some(self.time));
         write_volatile(ref_x.add(idx), Some(self.reference.pos_x));
         write_volatile(ref_y.add(idx), Some(self.reference.pos_y));
     }
+
     fn as_reference(&self, pos: USizeVec2) -> Option<PointRef> {
         Some(PointRef {
             time: self.time,
@@ -510,7 +546,11 @@ unsafe fn iter_neighbors(
             };
             // If this neighbor is outside this block or global area
             // continue
-            if pos.x < 0 || pos.x >= width as _ || pos.y < 0 || pos.y >= height as _ {
+            if pos.x < 0
+                || pos.x >= width as _
+                || pos.y < 0
+                || pos.y >= height as _
+            {
                 None
             } else {
                 let pos = USizeVec2 {

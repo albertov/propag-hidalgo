@@ -20,28 +20,23 @@ const BLOCK_HEIGHT: usize = 16;
 const SHARED_SIZE: usize = BLOCK_WIDTH * BLOCK_HEIGHT;
 
 unsafe fn read_volatile<T: Copy>(p: *const T) -> T {
-    *p
-    //core::intrinsics::volatile_load(p)
+    core::intrinsics::volatile_load(p)
 }
 unsafe fn write_volatile<T: Copy>(p: *mut T, v: T) {
-    *p = v;
-    //core::intrinsics::volatile_store(p,v)
+    core::intrinsics::volatile_store(p, v)
 }
 
 #[kernel]
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
 pub unsafe fn propag(
-    geo_ref: &GeoReference,
+    geo_ref: GeoReference,
     max_time: float::T,
     speed_max: &[Option<float::T>],
     azimuth_max: &[Option<float::T>],
     eccentricity: &[Option<float::T>],
-    time: &[Option<float::T>],
-    refs_x: &[Option<usize>],
-    refs_y: &[Option<usize>],
-    out_time: *mut Option<float::T>,
-    out_refs_x: *mut Option<usize>,
-    out_refs_y: *mut Option<usize>,
+    time: *mut Option<float::T>,
+    refs_x: *mut Option<usize>,
+    refs_y: *mut Option<usize>,
 ) {
     // Arrays in shared memory for fast analysis within block
     let shared: *mut Option<Point> = shared_array![Option<Point>; SHARED_SIZE];
@@ -79,7 +74,7 @@ pub unsafe fn propag(
             (
                 fire,
                 Point::load(
-                    geo_ref,
+                    &geo_ref,
                     pos,
                     global_ix,
                     speed_max,
@@ -96,9 +91,6 @@ pub unsafe fn propag(
         (None, None)
     };
     *shared.add(shared_ix) = me;
-    if me.is_some() {
-        //println!("eeeo={}, {}", fire.is_some(), me.is_some());
-    };
     thread::sync_threads();
 
     let mut best_fire: Option<Point> = None;
@@ -123,15 +115,15 @@ pub unsafe fn propag(
                 };
                 //println!("checkeo blockeo");
                 let possible_blockage_pos = geometry::line_to(pos, other).nth(1)?;
-                let shared_x = (possible_blockage_pos.x as usize)%BLOCK_WIDTH;
-                let shared_y = (possible_blockage_pos.y as usize)%BLOCK_HEIGHT;
-                let shared_bx = (possible_blockage_pos.x as usize)/BLOCK_WIDTH;
-                let shared_by = (possible_blockage_pos.y as usize)/BLOCK_HEIGHT;
+                let shared_x = (possible_blockage_pos.x as usize) % BLOCK_WIDTH;
+                let shared_y = (possible_blockage_pos.y as usize) % BLOCK_HEIGHT;
+                let shared_bx = (possible_blockage_pos.x as usize) / BLOCK_WIDTH;
+                let shared_by = (possible_blockage_pos.y as usize) / BLOCK_HEIGHT;
                 let shared_blockage_ix = {
                     if shared_x >= 0
-                       && shared_y >= 0
-                       && shared_x < BLOCK_WIDTH
-                       && shared_y < BLOCK_HEIGHT
+                        && shared_y >= 0
+                        && shared_x < BLOCK_WIDTH
+                        && shared_y < BLOCK_HEIGHT
                         && shared_bx == thread::block_idx_x() as usize
                         && shared_by == thread::block_idx_y() as usize
                     {
@@ -206,10 +198,10 @@ pub unsafe fn propag(
         ///////////////////////////////////////////////////
         match (me, best_fire) {
             (Some(me), Some(best_fire)) if best_fire.time < me.time => {
-                best_fire.save(global_ix, out_time, out_refs_x, out_refs_y)
+                best_fire.save(global_ix, time, refs_x, refs_y)
             }
-            (Some(me), _) => me.save(global_ix, out_time, out_refs_x, out_refs_y),
-            (None, Some(best_fire)) => best_fire.save(global_ix, out_time, out_refs_x, out_refs_y),
+            (Some(me), _) => me.save(global_ix, time, refs_x, refs_y),
+            (None, Some(best_fire)) => best_fire.save(global_ix, time, refs_x, refs_y),
             _ => (),
         }
     }
@@ -271,21 +263,21 @@ struct Point {
 }
 
 impl Point {
-    fn load(
+    unsafe fn load(
         geo_ref: &GeoReference,
         pos: USizeVec2,
         idx: usize,
         speed_max: &[Option<float::T>],
         azimuth_max: &[Option<float::T>],
         eccentricity: &[Option<float::T>],
-        time: &[Option<float::T>],
-        ref_x: &[Option<usize>],
-        ref_y: &[Option<usize>],
+        time: *const Option<float::T>,
+        ref_x: *const Option<usize>,
+        ref_y: *const Option<usize>,
     ) -> Option<Self> {
-        if time[idx].is_some() {
+        if read_volatile(time.add(idx)).is_some() {
             //self::println!("time: {:?}", pos);
         };
-        let p_time = time[idx]?;
+        let p_time = read_volatile(time.add(idx))?;
         let fire = load_fire(idx, speed_max, azimuth_max, eccentricity);
         /*
         if time[idx].is_some() {
@@ -293,8 +285,8 @@ impl Point {
         };
         */
         let ref_pos = USizeVec2 {
-            x: ref_x[idx]?,
-            y: ref_y[idx]?,
+            x: read_volatile(ref_x.add(idx))?,
+            y: read_volatile(ref_y.add(idx))?,
         };
         /*
         if time[idx].is_some() {
@@ -314,7 +306,7 @@ impl Point {
                 */
                 let fire = load_fire(ref_ix, speed_max, azimuth_max, eccentricity)?;
                 //self::println!("fuego tiemposo1 {} {:?}", time[ref_ix].is_some(), (ref_ix%1000, ref_ix.div(1000)));
-                let r_time = time[ref_ix]?;
+                let r_time = read_volatile(time.add(ref_ix))?;
                 //self::println!("fuego tiemposo2");
                 Some(PointRef {
                     time: r_time,
@@ -353,11 +345,10 @@ impl Point {
         ref_x: *mut Option<usize>,
         ref_y: *mut Option<usize>,
     ) {
-        let pos = (idx%1000, idx/1000);
-        //println!("save: {:?} {:?}", pos, self.reference.pos());
-        *time.add(idx) = Some(self.time);
-        *ref_x.add(idx) = Some(self.reference.pos_x);
-        *ref_y.add(idx) = Some(self.reference.pos_y);
+        let pos = (idx % 1000, idx / 1000);
+        write_volatile(time.add(idx), Some(self.time));
+        write_volatile(ref_x.add(idx), Some(self.reference.pos_x));
+        write_volatile(ref_y.add(idx), Some(self.reference.pos_y));
     }
     fn as_reference(&self, pos: USizeVec2) -> Option<PointRef> {
         Some(PointRef {

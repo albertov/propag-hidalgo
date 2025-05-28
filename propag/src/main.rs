@@ -101,45 +101,46 @@ fn main() -> Result<(), Box<dyn Error>> {
     let slope_gpu = slope.as_slice().as_dbuf()?;
     let aspect_gpu = aspect.as_slice().as_dbuf()?;
 
-    // input/output vectors
-    let mut time: Vec<Option<float::T>> = std::iter::repeat(None).take(model.len()).collect();
-    let mut refs_x: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
-    let mut refs_y: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
-    let mut out_time: Vec<Option<float::T>> = std::iter::repeat(None).take(model.len()).collect();
-    let mut out_refs_x: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
-    let mut out_refs_y: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
-
-    let mut speed_max: Vec<Option<float::T>> = std::iter::repeat(None).take(model.len()).collect();
-    let mut azimuth_max: Vec<Option<float::T>> =
-        std::iter::repeat(None).take(model.len()).collect();
-    let mut eccentricity: Vec<Option<float::T>> =
-        std::iter::repeat(None).take(model.len()).collect();
-    let mut block_progress: Vec<float::T> = std::iter::repeat(0.0)
-        .take(linear_grid_size as usize)
-        .collect();
-
-    let max_time: float::T = 60.0 * 60.0 * 10.0;
-    time[(100 + 200 * geo_ref.size[0]) as usize] = Some(0.0);
-    refs_x[(100 + 200 * geo_ref.size[0]) as usize] = Some(100);
-    refs_y[(100 + 200 * geo_ref.size[0]) as usize] = Some(200);
-
-    let mut speed_max_buf = speed_max.as_slice().as_dbuf()?;
-    let mut azimuth_max_buf = azimuth_max.as_slice().as_dbuf()?;
-    let mut eccentricity_buf = eccentricity.as_slice().as_dbuf()?;
-    let mut refs_x_buf = refs_x.as_slice().as_dbuf()?;
-    let mut refs_y_buf = refs_y.as_slice().as_dbuf()?;
-    let mut time_buf = time.as_slice().as_dbuf()?;
-    let mut out_refs_x_buf = out_refs_x.as_slice().as_dbuf()?;
-    let mut out_refs_y_buf = out_refs_y.as_slice().as_dbuf()?;
-    let mut out_time_buf = out_time.as_slice().as_dbuf()?;
-
     let (_, block_size2) = pre_burn.suggested_launch_configuration(0, 0.into())?;
     let grid_size2 = (model.len() as u32).div_ceil(block_size2) + 1;
 
-    let geo_ref_var = DeviceVariable::new(geo_ref)?;
-    let max_time_var = DeviceVariable::new(max_time)?;
-    unsafe {
-        ({
+    ({
+        // input/output vectors
+        let mut time: Vec<Option<float::T>> = std::iter::repeat(None).take(model.len()).collect();
+        let mut refs_x: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
+        let mut refs_y: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
+        let mut out_time: Vec<Option<float::T>> =
+            std::iter::repeat(None).take(model.len()).collect();
+        let mut out_refs_x: Vec<Option<usize>> =
+            std::iter::repeat(None).take(model.len()).collect();
+        let mut out_refs_y: Vec<Option<usize>> =
+            std::iter::repeat(None).take(model.len()).collect();
+
+        let mut speed_max: Vec<Option<float::T>> =
+            std::iter::repeat(None).take(model.len()).collect();
+        let mut azimuth_max: Vec<Option<float::T>> =
+            std::iter::repeat(None).take(model.len()).collect();
+        let mut eccentricity: Vec<Option<float::T>> =
+            std::iter::repeat(None).take(model.len()).collect();
+        let mut block_progress: Vec<float::T> = std::iter::repeat(0.0)
+            .take(linear_grid_size as usize)
+            .collect();
+
+        let max_time: float::T = 60.0 * 60.0 * 10.0;
+        time[(100 + 200 * geo_ref.size[0]) as usize] = Some(0.0);
+        refs_x[(100 + 200 * geo_ref.size[0]) as usize] = Some(100);
+        refs_y[(100 + 200 * geo_ref.size[0]) as usize] = Some(200);
+
+        let mut speed_max_buf = speed_max.as_slice().as_dbuf()?;
+        let mut azimuth_max_buf = azimuth_max.as_slice().as_dbuf()?;
+        let mut eccentricity_buf = eccentricity.as_slice().as_dbuf()?;
+        let mut refs_x_buf = refs_x.as_slice().as_dbuf()?;
+        let mut refs_y_buf = refs_y.as_slice().as_dbuf()?;
+        let mut time_buf = time.as_slice().as_dbuf()?;
+        let mut out_refs_x_buf = out_refs_x.as_slice().as_dbuf()?;
+        let mut out_refs_y_buf = out_refs_y.as_slice().as_dbuf()?;
+        let mut out_time_buf = out_time.as_slice().as_dbuf()?;
+        unsafe {
             launch!(
                 // slices are passed as two parameters, the pointer and the length.
                 pre_burn<<<grid_size2, block_size2, 0, stream>>>(
@@ -175,12 +176,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .collect();
             stream.synchronize()?;
             loop {
-                time_buf.copy_to(&mut time)?;
                 let num_times = time.iter().filter(|t| t.is_some()).count();
                 launch!(
                     // slices are passed as two parameters, the pointer and the length.
                     propag<<<grid_size, block_size, 0, stream>>>(
-                        geo_ref_var.as_device_ptr(),
+                        geo_ref,
                         max_time,
                         speed_max_buf.as_device_ptr(),
                         speed_max_buf.len(),
@@ -189,31 +189,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                         eccentricity_buf.as_device_ptr(),
                         eccentricity_buf.len(),
                         time_buf.as_device_ptr(),
-                        time_buf.len(),
                         refs_x_buf.as_device_ptr(),
-                        refs_x_buf.len(),
                         refs_y_buf.as_device_ptr(),
-                        refs_y_buf.len(),
-                        out_time_buf.as_device_ptr(),
-                        out_refs_x_buf.as_device_ptr(),
-                        out_refs_y_buf.as_device_ptr(),
                     )
                 )?;
                 stream.synchronize()?;
-                out_time_buf.copy_to(&mut time)?;
+                time_buf.copy_to(&mut time)?;
                 let num_times_after = time.iter().filter(|t| t.is_some()).count();
                 println!("num_times_after={}", num_times_after);
                 let width = geo_ref.size[0];
                 if num_times_after == num_times {
                     break;
                 }
-                out_time_buf.copy_to(&mut time_buf)?;
-                out_refs_x_buf.copy_to(&mut refs_x_buf)?;
-                out_refs_y_buf.copy_to(&mut refs_y_buf)?;
             }
-        });
-    }
-    time_buf.copy_to(&mut time)?;
-    assert!(time.len() > 1);
+        };
+    });
+    //time_buf.copy_to(&mut time)?;
+    //assert!(time.len() > 1);
     Ok(())
 }

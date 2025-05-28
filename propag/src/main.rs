@@ -23,7 +23,7 @@ static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
 static PTX_C: &str = include_str!("../../target/cuda/propag_c.ptx");
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("Calculating with GPU Propag",);
+    println!("Calculating with GPU Propag");
     let max_time: f32 = 60.0 * 60.0 * 10.0;
     let px = Vec2 { x: 5.0, y: 5.0 };
     let geo_ref: GeoReference = GeoReference::south_up(

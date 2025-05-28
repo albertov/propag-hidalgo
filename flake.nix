@@ -20,6 +20,7 @@
   outputs =
     inputs@{
       self,
+      flake-utils,
       flake-parts,
       treefmt-nix,
       rust-overlay,
@@ -67,6 +68,16 @@
               firelib
               ;
           };
+          apps.make_deb = flake-utils.lib.mkApp {
+            drv = pkgs.writeShellApplication {
+              name = "make_deb";
+              runtimeInputs = [ pkgs.nix ];
+              text = ''
+                nix bundle --bundler github:NixOS/bundlers#toDEB .# -o bundle
+              '';
+            };
+          };
+
           devShells.default = pkgs.mkShell {
             inputsFrom = [
               pkgs.firelib

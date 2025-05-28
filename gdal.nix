@@ -67,7 +67,6 @@
   poppler,
   postgresql,
   proj,
-  python3,
   qhull,
   rav1e,
   sqlite,
@@ -112,61 +111,37 @@ stdenv.mkDerivation (finalAttrs: {
   ];
 
   cmakeFlags = [
-    "-DGDAL_USE_INTERNAL_LIBS=ON"
+    "-DGDAL_USE_INTERNAL_LIBS=OFF"
   ];
 
   buildInputs = [
+    tiledb
     c-blosc
-    #brunsli
-    #cfitsio
-    #crunch
-    #curl
-    #cryptopp
+    brunsli
+    curl
     libdeflate
-    #expat
-    #libgeotiff
+    expat
+    libgeotiff
     geos
-    #giflib
-    #libjpeg
-    #json_c
+    giflib
+    libjpeg
+    json_c
     lerc
     xz
-    #(libxml2.override { enableHttp = true; })
+    (libxml2.override { enableHttp = true; })
     lz4
-    #openjpeg
-    #openssl
-    #pcre2
-    #libpng
+    openjpeg
+    openssl
+    pcre2
+    libpng
     proj
-    #qhull
-    #libspatialite
+    qhull
+    libspatialite
     sqlite
-    #libtiff
-    #gtest
-    #libwebp
+    libtiff
+    libwebp
     zlib
     zstd
-    #python3
-    #python3.pkgs.numpy
   ];
   enableParallelBuilding = true;
-
-  doInstallCheck = false;
-
-  __darwinAllowLocalNetworking = true;
-
-  meta = with lib; {
-    changelog = "https://github.com/OSGeo/gdal/blob/v${finalAttrs.version}/NEWS.md";
-    description = "Translator library for raster geospatial data formats";
-    homepage = "https://www.gdal.org/";
-    license = licenses.mit;
-    maintainers =
-      with maintainers;
-      teams.geospatial.members
-      ++ [
-        marcweber
-        dotlambda
-      ];
-    platforms = platforms.unix;
-  };
 })

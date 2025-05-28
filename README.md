@@ -1,31 +1,81 @@
 # propag25
 
 
-# Install (Linux)
+# Development (Linux)
 
-There are two ways to build this project, with or without Nix. Nix is
-recommended for CUDA development since the dependencies for it are installed
-automatically.
+## Install nix
 
-## Without Nix (eg Ubuntu)
+TBD
 
-### Install rustup
+## Build
 
-Rustup takes care of installing the Rust compiler (rustc), the rust package manager
-(Cargo) and other tools
+Enter the development shell
 
 ```console
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s
+$ nix develop
 ```
 
-### Build
+Inside the dev shell run cargo
 
 ```console
-cargo build
+$ cargo build
 ```
 
-### Run tests
+## Run tests
 
 ```console
-cargo test
+$ cargo test
 ```
+
+# Building a Debian package
+
+```console
+$ nix run .#make_deb
+```
+
+This will produce a Debian package inside a directory symlinked at `bundle`
+
+```console
+$ ls bundle/propag-git-bin-propag_1.0_amd64.deb 
+bundle/propag-git-bin-propag_1.0_amd64.deb
+```
+
+# Testing the Debian package
+
+After building the package, start up a docker container. The NVIDA Container
+Toolkit installed needs to be installed in the host.
+
+```console
+$ export IMAGE="nvidia/cuda:12.6.3-runtime-ubuntu24.04"
+$ docker run --device nvidia.com/gpu=all -it --rm -v $(readlink -f bundle):/bundle $IMAGE
+```
+
+Inside the container, install the `*.deb` package in `/package` and run `propag`
+
+```console
+# dpkg -i /bundle/*.deb
+# propag
+Calculating with GPU Propag
+fire_pos=USizeVec2(500, 500)
+Generating input data
+Loading module
+Getting function
+max_active_blocks_per_multiprocessor=1
+max_total_blocks=128
+using geo_ref=GeoReference { width: 1024, height: 1024, epsg: 25830, transform:
+GeoTransform { gt: GT { x0: 0.0, dx: 5.0, rx: 0.0, y0: 0.0, ry: 0.0, dy: 5.0 },
+inv: GT { x0: 0.0, dx: 0.19999999, rx: -0.0, y0: 0.0, ry: -0.0, dy: 0.19999999 }
+} }
+grid_size=GridSize { x: 11, y: 11, z: 1 }
+blocks_size=BlockSize { x: 24, y: 24, z: 1 }
+super_grid_size=(4, 4)
+for 1048576 elems
+10 loops: 79.4600234 ms
+config_max_time=36000
+max_time=Some(35999.9)
+max_time=Some(0.0)
+num_times_after=447822
+Generating times geotiff
+```
+
+(or just install it without docker if on a debian-based system)

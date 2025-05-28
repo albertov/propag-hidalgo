@@ -87,13 +87,8 @@ in
         which
       ];
 
-      /*
-        postInstall = with final; ''
-          wrapProgram $out/bin/propag \
-            --prefix LD_LIBRARY_PATH : /usr/lib \
-            --prefix LD_LIBRARY_PATH : /usr/lib64 \
-        '';
-      */
+      # Remove unneeded references (propably in the embedded PTX) to massively
+      # reduce closure size from ~7Gb to ~200M
       fixupPhase = ''
         remove-references-to \
           -t ${final.myRustToolchain} \

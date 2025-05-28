@@ -196,6 +196,92 @@ pub static ref STANDARD_CATALOG : Catalog = {
                 ParticleDef::standard(ParticleType::Dead, 0.0920, 30.0),
             ]).unwrap(),
         }),
+        Fuel::make(FuelDef {
+            name: String::try_from("NFFL07").unwrap(),
+            desc: String::try_from("Southern Rough").unwrap(),
+            depth: Length::new::<foot>(2.5),
+            mext: Ratio::new::<ratio>(0.40),
+            adjust: Ratio::new::<ratio>(1.0),
+            particles: Vec::from_slice(&[
+                ParticleDef::standard(ParticleType::Dead, 0.0520, 1750.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0860, 109.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0690, 30.0),
+                ParticleDef::standard(ParticleType::Wood, 0.0170, 1550.0),
+            ]).unwrap(),
+        }),
+        Fuel::make(FuelDef {
+            name: String::try_from("NFFL08").unwrap(),
+            desc: String::try_from("Closed Timber Litter").unwrap(),
+            depth: Length::new::<foot>(0.2),
+            mext: Ratio::new::<ratio>(0.30),
+            adjust: Ratio::new::<ratio>(1.0),
+            particles: Vec::from_slice(&[
+                ParticleDef::standard(ParticleType::Dead, 0.0690, 2000.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0460, 109.0),
+                ParticleDef::standard(ParticleType::Dead, 0.1150, 30.0),
+            ]).unwrap(),
+        }),
+        Fuel::make(FuelDef {
+            name: String::try_from("NFFL09").unwrap(),
+            desc: String::try_from("Hardwood Litter").unwrap(),
+            depth: Length::new::<foot>(0.2),
+            mext: Ratio::new::<ratio>(0.25),
+            adjust: Ratio::new::<ratio>(1.0),
+            particles: Vec::from_slice(&[
+                ParticleDef::standard(ParticleType::Dead, 0.1340, 2500.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0190, 109.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0070, 30.0),
+            ]).unwrap(),
+        }),
+        Fuel::make(FuelDef {
+            name: String::try_from("NFFL10").unwrap(),
+            desc: String::try_from("Timber (litter & understory)").unwrap(),
+            depth: Length::new::<foot>(1.0),
+            mext: Ratio::new::<ratio>(0.25),
+            adjust: Ratio::new::<ratio>(1.0),
+            particles: Vec::from_slice(&[
+                ParticleDef::standard(ParticleType::Dead, 0.1380, 2000.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0920, 109.0),
+                ParticleDef::standard(ParticleType::Dead, 0.2300, 30.0),
+                ParticleDef::standard(ParticleType::Wood, 0.0920, 1500.0),
+            ]).unwrap(),
+        }),
+        Fuel::make(FuelDef {
+            name: String::try_from("NFFL11").unwrap(),
+            desc: String::try_from("Light Logging Slash").unwrap(),
+            depth: Length::new::<foot>(1.0),
+            mext: Ratio::new::<ratio>(0.15),
+            adjust: Ratio::new::<ratio>(1.0),
+            particles: Vec::from_slice(&[
+                ParticleDef::standard(ParticleType::Dead, 0.0690, 1500.0),
+                ParticleDef::standard(ParticleType::Dead, 0.2070, 109.0),
+                ParticleDef::standard(ParticleType::Dead, 0.2530, 30.0),
+            ]).unwrap(),
+        }),
+        Fuel::make(FuelDef {
+            name: String::try_from("NFFL12").unwrap(),
+            desc: String::try_from("Medium Logging Slash").unwrap(),
+            depth: Length::new::<foot>(2.3),
+            mext: Ratio::new::<ratio>(0.20),
+            adjust: Ratio::new::<ratio>(1.0),
+            particles: Vec::from_slice(&[
+                ParticleDef::standard(ParticleType::Dead, 0.1840, 1500.0),
+                ParticleDef::standard(ParticleType::Dead, 0.6440, 109.0),
+                ParticleDef::standard(ParticleType::Dead, 0.7590, 30.0),
+            ]).unwrap(),
+        }),
+        Fuel::make(FuelDef {
+            name: String::try_from("NFFL13").unwrap(),
+            desc: String::try_from("Heavy Logging Slash").unwrap(),
+            depth: Length::new::<foot>(3.0),
+            mext: Ratio::new::<ratio>(0.25),
+            adjust: Ratio::new::<ratio>(1.0),
+            particles: Vec::from_slice(&[
+                ParticleDef::standard(ParticleType::Dead, 0.3220, 1500.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0580, 109.0),
+                ParticleDef::standard(ParticleType::Dead, 1.2880, 30.0),
+            ]).unwrap(),
+        }),
     ]).unwrap()
     };
 }

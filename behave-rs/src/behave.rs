@@ -698,7 +698,7 @@ mod tests {
     ) -> (Spread, SpreadAtAzimuth) {
         unsafe {
             let name = CString::new("standard").unwrap();
-            let catalog = Fire_FuelCatalogCreateStandard(name.as_ptr(), 20);
+            let catalog = Fire_FuelCatalogCreateStandard(name.as_ptr(), 13);
             let mut m = [
                 terrain.d1hr.get::<ratio>(),
                 terrain.d10hr.get::<ratio>(),
@@ -787,7 +787,7 @@ mod tests {
 
     impl Arbitrary for ValidModel {
         fn arbitrary(g: &mut Gen) -> Self {
-            let models = &(0..7).collect::<Vec<_>>()[..]; //FIXME
+            let models = &(0..13).collect::<Vec<_>>()[..];
             Self(*g.choose(models).unwrap())
         }
     }

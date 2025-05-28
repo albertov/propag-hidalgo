@@ -156,12 +156,12 @@ __global__ void propag(const Settings &settings, const float *speed_max,
   // Calculate global indices
   int global_x = idx_2d.x;
   int global_y = idx_2d.y;
-  int shared_width = blockDim.x + HALO_RADIUS * 2;
 
   // Calculate local (shared memory) indices
   int local_x = threadIdx.x + HALO_RADIUS;
   int local_y = threadIdx.y + HALO_RADIUS;
   int local_ix = local_x + local_y * shared_width;
+  int shared_width = blockDim.x + HALO_RADIUS * 2;
 
   //////////////////////////////////////////////////////
   // First phase, load data from global to shared memory
@@ -182,24 +182,29 @@ __global__ void propag(const Settings &settings, const float *speed_max,
 
     // Load the halo regions
     bool x_near_x0 = threadIdx.x < HALO_RADIUS;
-    bool x_near_x1 = threadIdx.x >= blockDim.x - HALO_RADIUS;
     bool y_near_y0 = threadIdx.y < HALO_RADIUS;
-    bool y_near_y1 = threadIdx.y >= blockDim.y - HALO_RADIUS;
-    // Top halo
     if (y_near_y0) {
+      // Top halo
       LOAD(local_x, local_y - HALO_RADIUS, global_x, global_y - HALO_RADIUS);
+      // Bottom halo
+      LOAD(local_x, local_y + blockDim.y, global_x, global_y + blockDim.y);
     }
-    // Bottom halo
-    if (y_near_y1) {
-      LOAD(local_x, local_y + HALO_RADIUS, global_x, global_y + HALO_RADIUS);
-    }
-    // Left halo
     if (x_near_x0) {
+      // Left halo
       LOAD(local_x - HALO_RADIUS, local_y, global_x - HALO_RADIUS, global_y);
+      // Right halo
+      LOAD(local_x + blockDim.x, local_y, global_x + blockDim.x, global_y);
     }
-    // Right halo
-    if (x_near_x1) {
-      LOAD(local_x + HALO_RADIUS, local_y, global_x + HALO_RADIUS, global_y);
+    if (x_near_x0 && y_near_y0) {
+      // corners
+      LOAD(local_x - HALO_RADIUS, local_y - HALO_RADIUS, global_x - HALO_RADIUS,
+           global_y - HALO_RADIUS);
+      LOAD(local_x + blockDim.x, local_y - HALO_RADIUS, global_x + blockDim.x,
+           global_y - HALO_RADIUS);
+      LOAD(local_x + blockDim.x, local_y + blockDim.y, global_x + blockDim.x,
+           global_y + blockDim.y);
+      LOAD(local_x - HALO_RADIUS, local_y + blockDim.y, global_x - HALO_RADIUS,
+           global_y + blockDim.y);
     }
 
   }; // end in_bounds

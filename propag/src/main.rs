@@ -23,7 +23,8 @@ use uom::si::velocity::meter_per_second;
 extern crate timeit;
 
 mod loader;
-const THREAD_BLOCK_AXIS_LENGTH: u32 = 16;
+//TODO: Calculate max size that we can use on device. Must be multiple of 8 for best performance
+const THREAD_BLOCK_AXIS_LENGTH: u32 = 24;
 
 static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
 static PTX_C: &str = include_str!("../../target/cuda/propag_c.ptx");
@@ -31,12 +32,24 @@ static PTX_C: &str = include_str!("../../target/cuda/propag_c.ptx");
 fn main() -> Result<(), Box<dyn Error>> {
     println!("Calculating with GPU Propag",);
     let max_time: f32 = 60.0 * 60.0 * 10.0;
+    let px = Vec2 { x: 5.0, y: 5.0 };
     let geo_ref: GeoReference = GeoReference::south_up(
-        (Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 256.0, y: 256.0 }),
-        Vec2 { x: 1.0, y: 1.0 },
+        (
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 {
+                x: px.x * 1024.0,
+                y: px.y * 1024.0,
+            },
+        ),
+        px,
         25830,
     )
     .unwrap();
+    let settings = Settings {
+        geo_ref,
+        max_time,
+        find_ref_change: false,
+    };
     let fire_pos = USizeVec2 {
         x: geo_ref.width as usize / 2 - THREAD_BLOCK_AXIS_LENGTH as usize / 2,
         y: geo_ref.height as usize / 2 - THREAD_BLOCK_AXIS_LENGTH as usize / 2,
@@ -188,11 +201,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
             stream.synchronize()?;
             //println!("propag");
-            let settings = Settings {
-                geo_ref,
-                max_time,
-                find_ref_change: true,
-            };
             //println!("propag");
             loop {
                 let mut worked: Vec<UnifiedBox<u32>> =
@@ -287,41 +295,43 @@ fn main() -> Result<(), Box<dyn Error>> {
     band.write((0, 0), band.size(), &mut buf)?;
 
     // Write refs vectors
-    println!("Generating refs shapefile");
-    let shape = DriverManager::get_driver_by_name("ESRI Shapefile")?;
-    let mut ds = shape.create_vector_only("refs")?;
-    let mut layer = ds.create_layer(LayerOptions {
-        name: "fire_references",
-        srs: Some(&srs),
-        ty: gdal_sys::OGRwkbGeometryType::wkbLineString,
-        ..Default::default()
-    })?;
-    for i in 0..geo_ref.width {
-        for j in 0..geo_ref.height {
-            let ix = (i + j * geo_ref.width) as usize;
-            if boundary_change[ix] == 1 {
-                let dst = geo_ref.backward(USizeVec2 {
-                    x: i as usize,
-                    y: j as usize,
-                });
-                let dst = dst
-                    + Vec2 {
-                        x: geo_ref.transform.dx() / 2.0,
-                        y: geo_ref.transform.dy() / 2.0,
-                    };
-                let src = geo_ref.backward(USizeVec2 {
-                    x: refs_x[ix] as usize,
-                    y: refs_y[ix] as usize,
-                });
-                let src = src
-                    + Vec2 {
-                        x: geo_ref.transform.dx() / 2.0,
-                        y: geo_ref.transform.dy() / 2.0,
-                    };
-                let geom = Geometry::from_wkt(
-                    (format!("LINESTRING({} {}, {} {})", src.x, src.y, dst.x, dst.y)).as_str(),
-                )?;
-                layer.create_feature(geom)?;
+    if settings.find_ref_change {
+        println!("Generating refs shapefile");
+        let shape = DriverManager::get_driver_by_name("ESRI Shapefile")?;
+        let mut ds = shape.create_vector_only("refs")?;
+        let mut layer = ds.create_layer(LayerOptions {
+            name: "fire_references",
+            srs: Some(&srs),
+            ty: gdal_sys::OGRwkbGeometryType::wkbLineString,
+            ..Default::default()
+        })?;
+        for i in 0..geo_ref.width {
+            for j in 0..geo_ref.height {
+                let ix = (i + j * geo_ref.width) as usize;
+                if boundary_change[ix] == 1 {
+                    let dst = geo_ref.backward(USizeVec2 {
+                        x: i as usize,
+                        y: j as usize,
+                    });
+                    let dst = dst
+                        + Vec2 {
+                            x: geo_ref.transform.dx() / 2.0,
+                            y: geo_ref.transform.dy() / 2.0,
+                        };
+                    let src = geo_ref.backward(USizeVec2 {
+                        x: refs_x[ix] as usize,
+                        y: refs_y[ix] as usize,
+                    });
+                    let src = src
+                        + Vec2 {
+                            x: geo_ref.transform.dx() / 2.0,
+                            y: geo_ref.transform.dy() / 2.0,
+                        };
+                    let geom = Geometry::from_wkt(
+                        (format!("LINESTRING({} {}, {} {})", src.x, src.y, dst.x, dst.y)).as_str(),
+                    )?;
+                    layer.create_feature(geom)?;
+                }
             }
         }
     }

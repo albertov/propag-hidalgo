@@ -16,14 +16,25 @@ pub enum ParticleType {
 }
 
 #[derive(Clone, Copy)]
-pub struct Particle {
+pub struct ParticleDef {
     pub type_: ParticleType,
     pub load: ArealMassDensity, // fuel loading
-    pub savr: ReciprocalLength, // surface area to volume ratio
+    pub savr: Ratio, // surface area to volume ratio
     pub density: MassDensity,
     pub heat: AvailableEnergy,
     pub si_total: Ratio,     // total silica content
     pub si_effective: Ratio, // effective silica content
+}
+
+#[derive(Clone, Copy)]
+pub struct Particle {
+    pub type_: ParticleType,
+    pub load: f64,
+    pub savr: f64,
+    pub density: f64,
+    pub heat: f64,
+    pub si_total: f64,
+    pub si_effective: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -59,15 +70,15 @@ pub struct SpreadAtAzimuth {
 
 pub struct Combustion {
     pub fuel: Fuel,
-    pub live_area_weight: Ratio,
-    pub live_rx_factor: HeatFluxDensity,
-    pub dead_area_weight: Ratio,
-    pub dead_rx_factor: HeatFluxDensity,
-    pub fine_dead_factor: ArealMassDensity,
-    pub live_ext_factor: Ratio,
-    pub fuel_bed_bulk_dens: MassDensity,
-    pub residence_time: Time,
-    pub flux_ratio: Ratio,
+    pub live_area_weight: f64,
+    pub live_rx_factor: f64,
+    pub dead_area_weight: f64,
+    pub dead_rx_factor: f64,
+    pub fine_dead_factor: f64,
+    pub live_ext_factor: f64,
+    pub fuel_bed_bulk_dens: f64,
+    pub residence_time: f64,
+    pub flux_ratio: f64,
     pub slope_k: f64,
     pub wind_b: f64,
     pub wind_e: f64,
@@ -90,16 +101,16 @@ pub struct FuelDef {
     pub depth: Length,
     pub mext: Ratio,
     pub adjust: Ratio,
-    pub particles: Vec<Particle>,
+    pub particles: Vec<ParticleDef>,
 }
 
 #[derive(Clone)]
 pub struct Fuel {
     pub name: String,
     pub desc: String,
-    pub depth: Length,
-    pub mext: Ratio,
-    pub adjust: Ratio,
+    pub depth: f64,
+    pub mext: f64,
+    pub adjust: f64,
     pub alive_particles: Vec<Particle>,
     pub dead_particles: Vec<Particle>,
 }
@@ -123,7 +134,7 @@ lazy_static::lazy_static! {
             depth: Length::new::<foot>(1.0),
             mext: Ratio::new::<ratio>(0.12),
             adjust: Ratio::new::<ratio>(1.0),
-            particles: vec![Particle::standard(ParticleType::Dead, 0.0340, 3500.0)],
+            particles: vec![ParticleDef::standard(ParticleType::Dead, 0.0340, 3500.0)],
         }),
         Fuel::make(FuelDef {
             name: String::from("NFFL02"),
@@ -132,10 +143,10 @@ lazy_static::lazy_static! {
             mext: Ratio::new::<ratio>(0.15),
             adjust: Ratio::new::<ratio>(1.0),
             particles: vec![
-                Particle::standard(ParticleType::Dead, 0.0920, 3000.0),
-                Particle::standard(ParticleType::Dead, 0.0460, 109.0),
-                Particle::standard(ParticleType::Dead, 0.0230, 30.0),
-                Particle::standard(ParticleType::Herb, 0.0230, 1500.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0920, 3000.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0460, 109.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0230, 30.0),
+                ParticleDef::standard(ParticleType::Herb, 0.0230, 1500.0),
             ],
         }),
         Fuel::make(FuelDef {
@@ -144,7 +155,7 @@ lazy_static::lazy_static! {
             depth: Length::new::<foot>(2.5),
             mext: Ratio::new::<ratio>(0.25),
             adjust: Ratio::new::<ratio>(1.0),
-            particles: vec![Particle::standard(ParticleType::Dead, 0.1380, 1500.0)],
+            particles: vec![ParticleDef::standard(ParticleType::Dead, 0.1380, 1500.0)],
         }),
         Fuel::make(FuelDef {
             name: String::from("NFFL04"),
@@ -153,10 +164,10 @@ lazy_static::lazy_static! {
             mext: Ratio::new::<ratio>(0.2),
             adjust: Ratio::new::<ratio>(1.0),
             particles: vec![
-                Particle::standard(ParticleType::Dead, 0.2300, 2000.0),
-                Particle::standard(ParticleType::Dead, 0.1840, 109.0),
-                Particle::standard(ParticleType::Dead, 0.0920, 30.0),
-                Particle::standard(ParticleType::Wood, 0.2300, 1500.0),
+                ParticleDef::standard(ParticleType::Dead, 0.2300, 2000.0),
+                ParticleDef::standard(ParticleType::Dead, 0.1840, 109.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0920, 30.0),
+                ParticleDef::standard(ParticleType::Wood, 0.2300, 1500.0),
             ],
         }),
         Fuel::make(FuelDef {
@@ -166,9 +177,9 @@ lazy_static::lazy_static! {
             mext: Ratio::new::<ratio>(0.2),
             adjust: Ratio::new::<ratio>(1.0),
             particles: vec![
-                Particle::standard(ParticleType::Dead, 0.0460, 2000.0),
-                Particle::standard(ParticleType::Dead, 0.0230, 109.0),
-                Particle::standard(ParticleType::Wood, 0.0920, 1500.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0460, 2000.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0230, 109.0),
+                ParticleDef::standard(ParticleType::Wood, 0.0920, 1500.0),
             ],
         }),
         Fuel::make(FuelDef {
@@ -178,9 +189,9 @@ lazy_static::lazy_static! {
             mext: Ratio::new::<ratio>(0.25),
             adjust: Ratio::new::<ratio>(1.0),
             particles: vec![
-                Particle::standard(ParticleType::Dead, 0.0690, 1750.0),
-                Particle::standard(ParticleType::Dead, 0.1150, 109.0),
-                Particle::standard(ParticleType::Wood, 0.0920, 30.0),
+                ParticleDef::standard(ParticleType::Dead, 0.0690, 1750.0),
+                ParticleDef::standard(ParticleType::Dead, 0.1150, 109.0),
+                ParticleDef::standard(ParticleType::Wood, 0.0920, 30.0),
             ],
         }),
     ]

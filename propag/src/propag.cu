@@ -93,7 +93,9 @@ public:
       }
       grid.sync();
     } while (grid_improved); // end grid loop
-    fill_ref_change();
+    if (settings_.find_ref_change) {
+      fill_ref_change();
+    }
   }
 
 private:

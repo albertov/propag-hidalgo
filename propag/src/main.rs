@@ -194,7 +194,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
             stream.synchronize()?;
             //println!("propag");
-            let settings = Settings { geo_ref, max_time };
+            let settings = Settings { geo_ref, max_time, find_ref_change: true };
             println!("propag");
             loop {
                 let mut worked: Vec<UnifiedBox<u32>> =

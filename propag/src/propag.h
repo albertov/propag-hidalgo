@@ -64,6 +64,7 @@ public:
 typedef struct Settings {
   GeoReference geo_ref;
   float max_time;
+  bool find_ref_change;
 } Settings;
 
 class ALIGN Point {

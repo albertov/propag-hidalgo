@@ -123,7 +123,7 @@ public:
     };
     if (in_bounds_) {
       Point me = shared_[local_ix_];
-      if (fire_is_null(me.fire)) {
+      if (fire_is_null(me.fire) || me.time > settings_.max_time) {
         time_[global_ix_] = FLT_MAX;
       };
     };

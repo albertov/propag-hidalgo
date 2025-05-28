@@ -1,7 +1,7 @@
 self: inputs: system: final: prev:
 let
 
-  rust_cuda_sha256 = "sha256-sqkQ1LsqDr9ZeEa1ixSLZ8P7TRJxlOY4CKYLYAmrhQo=";
+  rust_cuda_sha256 = "sha256-jScxBAjLryFa5tUTgfifAEaVW+xqTE1WVLkjjun4jmY=";
 
   inherit (final) lib buildPackages stdenv;
   libclang = buildPackages.llvmPackages.libclang.lib;
@@ -32,8 +32,8 @@ let
     # Remove unneeded references (propably in the embedded PTX) to massively
     # reduce closure size from ~7Gb to ~200M
     fixupPhase = with final; ''
-      if [[ -d $out/bin ]]; then
-        find $out/bin -type f -exec \
+      if [[ -d $out ]]; then
+        find $out -type f -exec \
           remove-references-to \
             -t ${myRustToolchain} \
             -t ${cudaPackages.backendStdenv.cc} \
@@ -134,7 +134,7 @@ in
 
       });
 
-  cudaPackages = prev.cudaPackages_12;
+  cudaPackages = prev.cudaPackages_12_8;
 
   cudaCombined = final.symlinkJoin {
     name = "cuda-combined";
@@ -162,6 +162,10 @@ in
         targetLlvmLibraries = targetPackages.llvmPackages_7.libraries or llvmPackages_7.libraries;
       }
     );
+  # for llvmPackages_7
+  libbfd = prev.libbfd // {
+    hasPluginAPI = false;
+  };
 
   myRustToolchain = final.buildPackages.rust-bin.fromRustupToolchainFile ../crates/rust-toolchain.toml;
 
@@ -204,6 +208,7 @@ in
           patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 $exe
         done
         find $out -name '*.so' -exec patchelf --remove-rpath {} \;
+        find $out -name '*.so' -exec patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 {} \;
       '';
 
 }

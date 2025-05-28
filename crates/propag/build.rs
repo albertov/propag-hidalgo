@@ -1,5 +1,6 @@
 #![feature(exit_status_error)]
 use cuda_builder::CudaBuilder;
+use cuda_builder::NvvmArch;
 use std::process::Command;
 
 fn main() {
@@ -12,6 +13,7 @@ fn main() {
     println!("cargo::rerun-if-changed={}", dest);
     CudaBuilder::new("../firelib")
         .copy_to(dest)
+        .arch(NvvmArch::Compute80)
         .build()
         .unwrap();
 

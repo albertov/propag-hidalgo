@@ -14,7 +14,7 @@ pkgs.mkShell {
   '';
   env = {
     # So we can link against CUDA runtime API while developing
-    LD_LIBRARY_PATH = "${pkgs.linuxPackages.nvidia_x11}/lib";
+    LD_LIBRARY_PATH = "/run/opengl-driver/lib/";
 
     QGIS_PREFIX_PATH = qgis;
 
@@ -30,8 +30,6 @@ pkgs.mkShell {
   };
   packages = with pkgs; [
     cmake
-    linuxPackages.nvidia_x11
-    linuxPackages.nvidia_x11.bin
     git
     cudaPackages.cuda_gdb
     cargo-watch

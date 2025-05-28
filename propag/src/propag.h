@@ -97,48 +97,6 @@ __device__ inline FireSimpleCuda load_fire(size_t idx, const float *speed_max,
   return FireSimpleCuda(speed_max[idx], azimuth_max[idx], eccentricity[idx]);
 }
 
-__device__ inline Point
-load_point(const GeoReference &geo_ref, uint2 pos, size_t idx,
-           const float *speed_max, const float *azimuth_max,
-           const float *eccentricity, volatile float *time,
-           volatile unsigned short *ref_x, volatile unsigned short *ref_y) {
-  Point result =
-      Point(time[idx], load_fire(idx, speed_max, azimuth_max, eccentricity),
-            PointRef());
-
-  if (result.time < MAX_TIME) {
-    result.reference.pos = make_ushort2(ref_x[idx], ref_y[idx]);
-    ASSERT(!(result.reference.pos.x == USHRT_MAX ||
-             result.reference.pos.y == USHRT_MAX));
-    ASSERT(result.reference.pos.x < geo_ref.width ||
-           result.reference.pos.y < geo_ref.height);
-    size_t ref_ix =
-        result.reference.pos.x + result.reference.pos.y * geo_ref.width;
-
-    if (result.reference.pos.x == pos.x && result.reference.pos.y == pos.y) {
-      result.reference.fire = result.fire;
-      result.reference.time = result.time;
-    } else {
-      result.reference.time = time[ref_ix];
-      result.reference.fire =
-          load_fire(ref_ix, speed_max, azimuth_max, eccentricity);
-    };
-    ASSERT(result.reference.time != MAX_TIME);
-  };
-  return result;
-}
-
-#define LOAD(LOCAL_X, LOCAL_Y, GLOBAL_X, GLOBAL_Y)                             \
-  if ((GLOBAL_X >= 0) && (GLOBAL_X) < (int)width && (GLOBAL_Y >= 0) &&         \
-      (GLOBAL_Y) < (int)height) {                                              \
-    shared[(LOCAL_X) + (LOCAL_Y) * shared_width] =                             \
-        load_point(settings.geo_ref, make_uint2(GLOBAL_X, GLOBAL_Y),           \
-                   (GLOBAL_X) + (GLOBAL_Y) * width, speed_max, azimuth_max,    \
-                   eccentricity, time, refs_x, refs_y);                        \
-  } else {                                                                     \
-    shared[(LOCAL_X) + (LOCAL_Y) * shared_width] = Point_NULL;                 \
-  }
-
 __device__ inline bool is_point_null(const Point &p) {
   return !(p.time < MAX_TIME);
 }

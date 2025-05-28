@@ -54,9 +54,23 @@ public:
     ASSERT(block_ix_ < gridDim.x * gridDim.y);
   };
 
-  __device__ void run() {};
+  __device__ inline void mark_progress(unsigned p) { progress_[block_ix_] = p; }
 
-  // private:
+  __device__ inline bool update_point(Point p) {
+    if (in_bounds_ && p.time < MAX_TIME) {
+      // printf("best time %f\n", best.time);
+      time_[global_ix_] = p.time;
+      refs_x_[global_ix_] = p.reference.pos.x;
+      refs_y_[global_ix_] = p.reference.pos.y;
+      return true;
+    }
+    return false;
+  }
+
+  __device__ inline void update_shared_point(Point p) {
+    shared_[local_ix_] = p;
+  }
+
   __device__ inline void load_points_into_shared_memory(bool first_iteration) {
     if (in_bounds_) {
       // Load the central block data
@@ -94,10 +108,32 @@ public:
     int2 global = make_int2(global_x_ + offset.x, global_y_ + offset.y);
     if (global.x >= 0 && global.x < settings_.geo_ref.width && global.y >= 0 &&
         global.y < settings_.geo_ref.height) {
-      shared_[local.x + local.y * shared_width_] =
-          load_point(settings_.geo_ref, make_uint2(global.x, global.y),
-                     global.x + global.y * settings_.geo_ref.width, speed_max_,
-                     azimuth_max_, eccentricity_, time_, refs_x_, refs_y_);
+      uint2 pos = make_uint2(global.x, global.y);
+      size_t idx = global.x + global.y * settings_.geo_ref.width;
+      Point p = Point(time_[idx],
+                      load_fire(idx, speed_max_, azimuth_max_, eccentricity_),
+                      PointRef());
+
+      if (p.time < MAX_TIME) {
+        p.reference.pos = make_ushort2(refs_x_[idx], refs_y_[idx]);
+        ASSERT(!(p.reference.pos.x == USHRT_MAX ||
+                 p.reference.pos.y == USHRT_MAX));
+        ASSERT(p.reference.pos.x < settings_.geo_ref.width ||
+               p.reference.pos.y < settings_.geo_ref.height);
+        size_t ref_ix =
+            p.reference.pos.x + p.reference.pos.y * settings_.geo_ref.width;
+
+        if (p.reference.pos.x == pos.x && p.reference.pos.y == pos.y) {
+          p.reference.fire = p.fire;
+          p.reference.time = p.time;
+        } else {
+          p.reference.time = time_[ref_ix];
+          p.reference.fire =
+              load_fire(ref_ix, speed_max_, azimuth_max_, eccentricity_);
+        };
+        ASSERT(p.reference.time != MAX_TIME);
+      };
+      shared_[local.x + local.y * shared_width_] = p;
     } else {
       shared_[local.x + local.y * shared_width_] = Point_NULL;
     }
@@ -234,32 +270,12 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
                               azimuth_max, eccentricity, time, refs_x, refs_y,
                               progress, shared, &grid_improved);
 
-  unsigned width = settings.geo_ref.width;
-  unsigned height = settings.geo_ref.height;
-
-  uint2 gridIx = make_uint2(grid_x, grid_y);
-
-  uint2 idx_2d = index_2d(gridIx);
-
-  size_t global_ix = idx_2d.x + idx_2d.y * width;
-
-  bool in_bounds = idx_2d.x < width && idx_2d.y < height;
-
-  size_t block_ix = blockIdx.x + blockIdx.y * gridDim.x;
-  ASSERT(block_ix < gridDim.x * gridDim.y);
-
-  // Calculate local (shared memory) indices
-  int local_x = threadIdx.x + HALO_RADIUS;
-  int local_y = threadIdx.y + HALO_RADIUS;
-  int shared_width = blockDim.x + HALO_RADIUS * 2;
-  int local_ix = local_x + local_y * shared_width;
-
   bool first_iteration = true;
   do { // Grid loop
     bool any_improved = false;
     // Initialize progress to no-progress
     if (threadIdx.x == 0 && threadIdx.y == 0) {
-      progress[block_ix] = 0;
+      sim.mark_progress(0);
       grid_improved = false;
     };
     do { // Block loop
@@ -280,14 +296,7 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
       ///////////////////////////////////////////////////
       // End of neighbor analysys, save point if improves
       ///////////////////////////////////////////////////
-      bool improved = in_bounds && best.time < MAX_TIME;
-      if (improved) {
-        // printf("best time %f\n", best.time);
-        ASSERT(global_ix < settings.geo_ref.width * settings.geo_ref.height);
-        time[global_ix] = best.time;
-        refs_x[global_ix] = best.reference.pos.x;
-        refs_y[global_ix] = best.reference.pos.y;
-      };
+      bool improved = sim.update_point(best);
 
       ///////////////////////////////////////////////////
       // Wait for other threads to end their analysis and
@@ -296,11 +305,10 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
       ///////////////////////////////////////////////////
       any_improved = __syncthreads_or(improved);
       if (improved) {
-        // write our Point to shared mem *after* __syncthreads_or
-        shared[local_x + local_y * shared_width] = best;
+        sim.update_shared_point(best);
       }
       if (any_improved && threadIdx.x == 0 && threadIdx.y == 0) {
-        progress[block_ix] = 1;
+        sim.mark_progress(1);
       };
       __syncthreads();
     } while (any_improved); // end block loop

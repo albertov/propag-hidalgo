@@ -16,7 +16,6 @@ use std::error::Error;
 #[macro_use]
 extern crate timeit;
 
-//TODO: Calculate max size that we can use on device
 const THREAD_BLOCK_AXIS_LENGTH: u32 = 19;
 
 static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
@@ -30,8 +29,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         (
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 {
-                x: px.x * 1024.0,
-                y: px.y * 1024.0,
+                x: px.x * 4096.0,
+                y: px.y * 4096.0,
             },
         ),
         px,
@@ -93,7 +92,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let radius = HALO_RADIUS as u32;
     let shmem_size = (block_size.x + radius * 2) * (block_size.y + radius * 2);
-    let shmem_bytes = shmem_size * 32; //FIXME: std::mem::size_of::<Point>() as u32;
+    let shmem_bytes = shmem_size * 24; //FIXME: std::mem::size_of::<Point>() as u32;
                                        //assert_eq!(std::mem::size_of::<Point>(), 64);
 
     let max_active_blocks =

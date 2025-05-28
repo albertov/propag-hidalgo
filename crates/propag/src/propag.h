@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define ALIGN __align__(16)
+#define ALIGN
 #define ASSERT(X) assert(X)
 
 __device__ static inline void set_fire(FireSimpleCuda volatile *me,

@@ -30,7 +30,7 @@ impl Terrain {
 }
 
 impl SpreadAtAzimuth {
-    pub fn almost_eq(&self, other: &SpreadAtAzimuth) -> bool {
+    pub fn almost_eq(&self, other: &Self) -> bool {
         #[allow(unused)]
         fn cmp(msg: &str, a: f64, b: f64) -> bool {
             let r = (a - b).abs() < SMIDGEN;
@@ -94,7 +94,7 @@ impl Spread {
         }
     }
 
-    pub fn almost_eq(&self, other: &Spread) -> bool {
+    pub fn almost_eq(&self, other: &Self) -> bool {
         #[allow(unused)]
         fn cmp(msg: &str, a: f64, b: f64) -> bool {
             let r = (a - b).abs() < SMIDGEN;
@@ -104,7 +104,6 @@ impl Spread {
             }
             r
         }
-        //TODO: extract using base units
         cmp(
             "rx_int",
             self.rx_int.get::<btu_sq_foot_min>(),
@@ -402,29 +401,29 @@ impl Fuel {
         let wind_e = r.powf(e) / c;
         (wind_b, wind_k, wind_e)
     }
+}
 
-    pub fn combustion(&self) -> Combustion {
-        let (wind_b, wind_k, wind_e) = self.wind_bke();
+impl Combustion {
+    pub fn make(def: FuelDef) -> Self {
+        let fuel = Fuel::make(def);
+        let (wind_b, wind_k, wind_e) = fuel.wind_bke();
         Combustion {
-            fuel: self.clone(),
-            live_area_weight: self.life_area_weight(Life::Alive),
-            live_rx_factor: self.life_rx_factor(Life::Alive),
-            dead_area_weight: self.life_area_weight(Life::Dead),
-            dead_rx_factor: self.life_rx_factor(Life::Dead),
-            fine_dead_factor: self.life_fine_load(Life::Dead),
-            live_ext_factor: self.live_ext_factor(),
-            fuel_bed_bulk_dens: self.bulk_density(),
-            residence_time: self.residence_time(),
-            flux_ratio: self.flux_ratio(),
-            slope_k: self.slope_k(),
+            fuel: fuel.clone(),
+            live_area_weight: fuel.life_area_weight(Life::Alive),
+            live_rx_factor: fuel.life_rx_factor(Life::Alive),
+            dead_area_weight: fuel.life_area_weight(Life::Dead),
+            dead_rx_factor: fuel.life_rx_factor(Life::Dead),
+            fine_dead_factor: fuel.life_fine_load(Life::Dead),
+            live_ext_factor: fuel.live_ext_factor(),
+            fuel_bed_bulk_dens: fuel.bulk_density(),
+            residence_time: fuel.residence_time(),
+            flux_ratio: fuel.flux_ratio(),
+            slope_k: fuel.slope_k(),
             wind_b,
             wind_e,
             wind_k,
         }
     }
-}
-
-impl Combustion {
     pub fn spread(&self, terrain: &Terrain) -> Spread {
         if self.fuel.alive_particles.is_empty() && self.fuel.dead_particles.is_empty() {
             Spread::no_spread()
@@ -473,9 +472,7 @@ impl Combustion {
             }
         };
         use WindSlopeSituation::*;
-        let situation = self.wind_slope_situation(terrain);
-        println!("{:?}", situation);
-        match situation {
+        match self.wind_slope_situation(terrain) {
             NoSpread => (phi_ew, 0.0, 0.0, 0.0),
             NoSlopeNoWind => (phi_ew, 0.0, speed0, 0.0),
             WindNoSlope => check_wind_limit(phi_ew, wind_speed, speed_max1, wind_az),
@@ -668,7 +665,7 @@ mod tests {
 
     #[test]
     fn particles_works() {
-        assert_eq!(STANDARD_CATALOG.get(4).unwrap().particles().count(), 4)
+        assert_eq!(STANDARD_CATALOG.get(4).unwrap().fuel.particles().count(), 4)
     }
 
     quickcheck::quickcheck! {
@@ -687,7 +684,7 @@ mod tests {
     ) -> (Spread, SpreadAtAzimuth) {
         match STANDARD_CATALOG.get(model) {
             Some(fuel) => {
-                let spread = fuel.combustion().spread(terrain);
+                let spread = fuel.spread(terrain);
                 let spread_az = spread.at_azimuth(azimuth);
                 (spread, spread_az)
             }

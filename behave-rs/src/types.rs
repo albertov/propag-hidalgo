@@ -70,6 +70,7 @@ pub struct SpreadAtAzimuth {
     pub flame: Length,
 }
 
+#[derive(Clone)]
 pub struct Combustion {
     pub fuel: Fuel,
     pub live_area_weight: f64,
@@ -117,12 +118,12 @@ pub struct Fuel {
     pub dead_particles: Vec<Particle, 20>,
 }
 
-pub type Catalog = Vec<Fuel, 20>;
+pub type Catalog = Vec<Combustion, 20>;
 
 lazy_static::lazy_static! {
 pub static ref STANDARD_CATALOG : Catalog = {
     Vec::from_slice(&[
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NoFuel").unwrap(),
             desc: String::try_from("No Combustible Fuel").unwrap(),
             depth: Length::new::<foot>(0.1),
@@ -130,7 +131,7 @@ pub static ref STANDARD_CATALOG : Catalog = {
             adjust: Ratio::new::<ratio>(1.0),
             particles: Vec::new(),
         }),
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NFFL01").unwrap(),
             desc: String::try_from("Short Grass (1 ft)").unwrap(),
             depth: Length::new::<foot>(1.0),
@@ -138,7 +139,7 @@ pub static ref STANDARD_CATALOG : Catalog = {
             adjust: Ratio::new::<ratio>(1.0),
             particles: Vec::from_slice(&[ParticleDef::standard(ParticleType::Dead, 0.0340, 3500.0)]).unwrap(),
         }),
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NFFL02").unwrap(),
             desc: String::try_from("Timber (grass & understory)").unwrap(),
             depth: Length::new::<foot>(1.0),
@@ -151,7 +152,7 @@ pub static ref STANDARD_CATALOG : Catalog = {
                 ParticleDef::standard(ParticleType::Herb, 0.0230, 1500.0),
             ]).unwrap(),
         }),
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NFFL03").unwrap(),
             desc: String::try_from("Tall Grass (2.5 ft)").unwrap(),
             depth: Length::new::<foot>(2.5),
@@ -159,7 +160,7 @@ pub static ref STANDARD_CATALOG : Catalog = {
             adjust: Ratio::new::<ratio>(1.0),
             particles: Vec::from_slice(&[ParticleDef::standard(ParticleType::Dead, 0.1380, 1500.0)]).unwrap(),
         }),
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NFFL04").unwrap(),
             desc: String::try_from("Chaparral (6 ft)").unwrap(),
             depth: Length::new::<foot>(6.0),
@@ -172,7 +173,7 @@ pub static ref STANDARD_CATALOG : Catalog = {
                 ParticleDef::standard(ParticleType::Wood, 0.2300, 1500.0),
             ]).unwrap(),
         }),
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NFFL05").unwrap(),
             desc: String::try_from("Brush (2 ft)").unwrap(),
             depth: Length::new::<foot>(2.0),
@@ -184,7 +185,7 @@ pub static ref STANDARD_CATALOG : Catalog = {
                 ParticleDef::standard(ParticleType::Wood, 0.0920, 1500.0),
             ]).unwrap(),
         }),
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NFFL06").unwrap(),
             desc: String::try_from("Dormant Brush & Hardwood Slash").unwrap(),
             depth: Length::new::<foot>(2.5),
@@ -196,7 +197,7 @@ pub static ref STANDARD_CATALOG : Catalog = {
                 ParticleDef::standard(ParticleType::Dead, 0.0920, 30.0),
             ]).unwrap(),
         }),
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NFFL07").unwrap(),
             desc: String::try_from("Southern Rough").unwrap(),
             depth: Length::new::<foot>(2.5),
@@ -209,7 +210,7 @@ pub static ref STANDARD_CATALOG : Catalog = {
                 ParticleDef::standard(ParticleType::Wood, 0.0170, 1550.0),
             ]).unwrap(),
         }),
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NFFL08").unwrap(),
             desc: String::try_from("Closed Timber Litter").unwrap(),
             depth: Length::new::<foot>(0.2),
@@ -221,7 +222,7 @@ pub static ref STANDARD_CATALOG : Catalog = {
                 ParticleDef::standard(ParticleType::Dead, 0.1150, 30.0),
             ]).unwrap(),
         }),
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NFFL09").unwrap(),
             desc: String::try_from("Hardwood Litter").unwrap(),
             depth: Length::new::<foot>(0.2),
@@ -233,7 +234,7 @@ pub static ref STANDARD_CATALOG : Catalog = {
                 ParticleDef::standard(ParticleType::Dead, 0.0070, 30.0),
             ]).unwrap(),
         }),
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NFFL10").unwrap(),
             desc: String::try_from("Timber (litter & understory)").unwrap(),
             depth: Length::new::<foot>(1.0),
@@ -246,7 +247,7 @@ pub static ref STANDARD_CATALOG : Catalog = {
                 ParticleDef::standard(ParticleType::Wood, 0.0920, 1500.0),
             ]).unwrap(),
         }),
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NFFL11").unwrap(),
             desc: String::try_from("Light Logging Slash").unwrap(),
             depth: Length::new::<foot>(1.0),
@@ -258,7 +259,7 @@ pub static ref STANDARD_CATALOG : Catalog = {
                 ParticleDef::standard(ParticleType::Dead, 0.2530, 30.0),
             ]).unwrap(),
         }),
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NFFL12").unwrap(),
             desc: String::try_from("Medium Logging Slash").unwrap(),
             depth: Length::new::<foot>(2.3),
@@ -270,7 +271,7 @@ pub static ref STANDARD_CATALOG : Catalog = {
                 ParticleDef::standard(ParticleType::Dead, 0.7590, 30.0),
             ]).unwrap(),
         }),
-        Fuel::make(FuelDef {
+        Combustion::make(FuelDef {
             name: String::try_from("NFFL13").unwrap(),
             desc: String::try_from("Heavy Logging Slash").unwrap(),
             depth: Length::new::<foot>(3.0),

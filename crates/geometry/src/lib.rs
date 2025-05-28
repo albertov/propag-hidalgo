@@ -1,6 +1,5 @@
 #![no_std]
 
-#[cfg(test)]
 #[cfg(not(target_os = "cuda"))]
 extern crate std;
 
@@ -19,6 +18,9 @@ extern crate cust_core;
 
 #[cfg(target_os = "cuda")]
 use cuda_std::GpuFloat;
+
+#[cfg(not(target_os = "cuda"))]
+use num_traits::Float;
 
 #[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
 #[repr(C)]
@@ -631,7 +633,7 @@ mod test {
                 Vec2 { x: 180.0, y: 90.0 },
             ),
             Vec2 { x: 0.1, y: 0.1 },
-            4326,
+            "",
         )
         .ok_or("should not happen")?;
         assert_eq!(
@@ -694,7 +696,7 @@ mod test {
                 Vec2 { x: 180.0, y: 90.0 },
             ),
             Vec2 { x: 0.1, y: 0.1 },
-            4326,
+            "",
         )
         .ok_or("should not happen")?;
         assert_eq!(

@@ -69,6 +69,8 @@ in
       mainProgram = "qgis";
     };
   });
+  geometry = final.callPackage ./pkgs/geometry.nix { };
+
   propag = final.callPackage ./pkgs/propag.nix {
     # Otherwise deb package is huge
     # gdal = final.gdal-small;

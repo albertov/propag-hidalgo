@@ -3,7 +3,7 @@
 //////////////////////////////////////////////////////////////////////////////
 /// Propagator
 //////////////////////////////////////////////////////////////////////////////
-class ALIGN Propagator {
+class Propagator {
   const Settings &settings_;
   const uint2 gridIx_;
   const uint2 idx_2d_;
@@ -139,7 +139,7 @@ private:
               shared_[(local_x_ + i) + (local_y_ + j) * shared_width_];
 
           // not burning, skip it
-          if (!(neighbor.time < FLT_MAX && !fire_is_null(neighbor.fire))) {
+          if (!(neighbor.time < settings_.max_time && !fire_is_null(neighbor.fire))) {
             continue;
           };
 
@@ -203,7 +203,7 @@ private:
   }
 
   __device__ inline bool update_point(Point p) {
-    if (p.time < settings_.max_time && p.time < shared_[local_ix_].time) {
+    if (p.time < shared_[local_ix_].time) {
       ASSERT(in_bounds_);
       shared_[local_ix_] = p;
       commit_point();

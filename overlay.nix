@@ -1,6 +1,6 @@
 inputs: final: prev:
 let
-  rust_cuda_sha256 = "sha256-PZtc4Iyr5OwiClDJMQ4iGz8y8VjnrbJMf5R09+TUCkY=";
+  rust_cuda_sha256 = "sha256-3cpFOdAdoKLnd5HB9ryNWIUOXlF/g1cm8RA+0nAQDK0=";
   inherit (final) lib buildPackages stdenv;
   libclang = buildPackages.llvmPackages.libclang.lib;
   clangMajorVer = builtins.head (lib.splitString "." (lib.getVersion buildPackages.clang));

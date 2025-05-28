@@ -30,9 +30,11 @@ impl Terrain {
 }
 
 impl SpreadAtAzimuth {
-    fn almost_eq(&self, other: &SpreadAtAzimuth) -> bool {
+    pub fn almost_eq(&self, other: &SpreadAtAzimuth) -> bool {
+        #[allow(unused)]
         fn cmp(msg: &str, a: f64, b: f64) -> bool {
             let r = (a - b).abs() < SMIDGEN;
+            #[cfg(test)]
             if !r {
                 println!("{}: {} /= {}", msg, a, b);
             }
@@ -92,9 +94,11 @@ impl Spread {
         }
     }
 
-    fn almost_eq(&self, other: &Spread) -> bool {
+    pub fn almost_eq(&self, other: &Spread) -> bool {
+        #[allow(unused)]
         fn cmp(msg: &str, a: f64, b: f64) -> bool {
             let r = (a - b).abs() < SMIDGEN;
+            #[cfg(test)]
             if !r {
                 println!("{}: {} /= {}", msg, a, b);
             }

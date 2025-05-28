@@ -121,8 +121,8 @@ impl From<FireSimpleCudaRef<'_>> for FireSimple {
 
 #[cfg_attr(not(target_os = "cuda"), derive(Debug))]
 pub struct TimeFeature {
-    time: float::T,
-    geom: gdal::vector::Geometry,
+    pub time: float::T,
+    pub geom: gdal::vector::Geometry,
 }
 
 #[repr(C)]
@@ -286,21 +286,13 @@ pub unsafe extern "C" fn FFIPropagation_run(
     match std::panic::catch_unwind(|| {
         let propag: Propagation = propag.try_into().map_err(PropagGdalError)?;
         let geo_ref = propag.settings.geo_ref;
-        let time = rasterize_times(
-            &propag.initial_ignited_elements,
-            propag.initial_ignited_elements_crs.clone(),
-            &geo_ref,
-        )
-        .map_err(PropagGdalError)?;
-        let propag_result = propagate(&propag, time)?;
+        let propag_result = propagate(&propag)?;
         println!(
             "block_size={:?}, grid_size={:?}, super_grid_size={:?}",
             &propag_result.block_size, &propag_result.grid_size, &propag_result.super_grid_size
         );
         write_times(&propag_result.time, &geo_ref, &propag.output_path).map_err(PropagGdalError)?;
-        if let Some(ref out_path) = propag.refs_output_path {
-            write_refs(&propag_result, out_path).map_err(PropagGdalError)?;
-        }
+        write_refs(&propag_result, &propag).map_err(PropagGdalError)?;
         write_boundaries(&propag_result, &propag).map_err(PropagGdalError)?;
         Ok::<(), PropagError>(())
     }) {
@@ -335,10 +327,16 @@ pub struct PropagResults {
     pub super_grid_size: GridSize,
 }
 
-fn propagate(propag: &Propagation, mut time: Vec<f32>) -> Result<PropagResults, PropagError> {
+pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
     let settings = propag.settings;
     let geo_ref = settings.geo_ref;
     let len = geo_ref.len() as usize;
+    let mut time = rasterize_times(
+        &propag.initial_ignited_elements,
+        propag.initial_ignited_elements_crs.clone(),
+        &geo_ref,
+    )
+    .map_err(PropagGdalError)?;
     use PropagError::*;
     let terrain = propag
         .terrain_loader
@@ -673,46 +671,48 @@ fn write_refs(
         geo_ref,
         ..
     }: &PropagResults,
-    output_path: &str,
+    propag: &Propagation,
 ) -> gdal::errors::Result<()> {
-    let gpkg = DriverManager::get_driver_by_name("GPKG")?;
-    let mut ds = gpkg.create_vector_only(output_path)?;
-    let srs = crate::loader::to_spatial_ref(&geo_ref.proj)?;
-    let mut layer = ds.create_layer(LayerOptions {
-        name: "fire_references",
-        srs: Some(&srs),
-        ty: gdal_sys::OGRwkbGeometryType::wkbLineString,
-        ..Default::default()
-    })?;
-    for i in 0..geo_ref.width {
-        for j in 0..geo_ref.height {
-            let ix = (i + j * geo_ref.width) as usize;
-            if boundary_change[ix] == 1 {
-                let dst = geo_ref.backward(USizeVec2 {
-                    x: i as usize,
-                    y: j as usize,
-                });
-                let dst = dst
-                    + Vec2 {
-                        x: geo_ref.transform.dx() / 2.0,
-                        y: geo_ref.transform.dy() / 2.0,
-                    };
-                let src = geo_ref.backward(USizeVec2 {
-                    x: refs_x[ix] as usize,
-                    y: refs_y[ix] as usize,
-                });
-                let src = src
-                    + Vec2 {
-                        x: geo_ref.transform.dx() / 2.0,
-                        y: geo_ref.transform.dy() / 2.0,
-                    };
-                let geom = Geometry::from_wkt(
-                    (format!("LINESTRING({} {}, {} {})", src.x, src.y, dst.x, dst.y)).as_str(),
-                )?;
-                layer.create_feature(geom)?;
+    if let Some(ref output_path) = &propag.refs_output_path {
+        let gpkg = DriverManager::get_driver_by_name("GPKG")?;
+        let mut ds = gpkg.create_vector_only(output_path)?;
+        let srs = crate::loader::to_spatial_ref(&geo_ref.proj)?;
+        let mut layer = ds.create_layer(LayerOptions {
+            name: "fire_references",
+            srs: Some(&srs),
+            ty: gdal_sys::OGRwkbGeometryType::wkbLineString,
+            ..Default::default()
+        })?;
+        for i in 0..geo_ref.width {
+            for j in 0..geo_ref.height {
+                let ix = (i + j * geo_ref.width) as usize;
+                if boundary_change[ix] == 1 {
+                    let dst = geo_ref.backward(USizeVec2 {
+                        x: i as usize,
+                        y: j as usize,
+                    });
+                    let dst = dst
+                        + Vec2 {
+                            x: geo_ref.transform.dx() / 2.0,
+                            y: geo_ref.transform.dy() / 2.0,
+                        };
+                    let src = geo_ref.backward(USizeVec2 {
+                        x: refs_x[ix] as usize,
+                        y: refs_y[ix] as usize,
+                    });
+                    let src = src
+                        + Vec2 {
+                            x: geo_ref.transform.dx() / 2.0,
+                            y: geo_ref.transform.dy() / 2.0,
+                        };
+                    let geom = Geometry::from_wkt(
+                        (format!("LINESTRING({} {}, {} {})", src.x, src.y, dst.x, dst.y)).as_str(),
+                    )?;
+                    layer.create_feature(geom)?;
+                }
             }
         }
-    }
+    };
     Ok(())
 }
 

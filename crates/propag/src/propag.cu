@@ -19,26 +19,23 @@ class Propagator {
   const float *__restrict__ const azimuth_max_;
   const float *__restrict__ const eccentricity_;
 
-  volatile float *__restrict__ time_;
-  volatile unsigned short *__restrict__ refs_x_;
-  volatile unsigned short *__restrict__ refs_y_;
-  volatile float *__restrict__ refs_time_;
-  volatile unsigned short *__restrict__ refs_change_;
+  volatile float *time_;
+  volatile unsigned short *refs_x_;
+  volatile unsigned short *refs_y_;
+  volatile float *refs_time_;
+  volatile unsigned short *refs_change_;
 
   __shared__ Point *shared_;
 
 public:
-  __device__ Propagator(const Settings settings, const unsigned grid_x,
-                        const unsigned grid_y,
-                        const float *__restrict__ speed_max,
-                        const float *__restrict__ azimuth_max,
-                        const float *__restrict__ eccentricity,
-                        float volatile *__restrict__ time,
-                        unsigned short volatile *__restrict__ refs_x,
-                        unsigned short volatile *__restrict__ refs_y,
-                        volatile float *__restrict__ refs_time,
-                        unsigned short volatile *__restrict__ ref_change,
-                        __shared__ Point *shared)
+  __device__
+  Propagator(const Settings settings, const unsigned grid_x,
+             const unsigned grid_y, const float *__restrict__ speed_max,
+             const float *__restrict__ azimuth_max,
+             const float *__restrict__ eccentricity,
+             float volatile *__restrict__ time, unsigned short volatile *refs_x,
+             unsigned short volatile *refs_y, volatile float *refs_time,
+             unsigned short volatile *ref_change, __shared__ Point *shared)
       : settings_(settings), gridIx_(make_uint2(grid_x, grid_y)),
         idx_2d_(index_2d(gridIx_)),
         global_ix_(idx_2d_.x + idx_2d_.y * settings_.geo_ref.width),
@@ -171,22 +168,16 @@ private:
             int2 possible_blockage_pos;
             iter.next(possible_blockage_pos); // skip self
             while (iter.next(possible_blockage_pos)) {
-              int2 dir = make_int2(possible_blockage_pos.x - int(idx_2d_.x),
-                                   possible_blockage_pos.y - int(idx_2d_.y));
               ASSERT(pos_in_bounds(possible_blockage_pos));
-              Point possible_blockage = load_point(
-                  make_int2(possible_blockage_pos.x, possible_blockage_pos.y));
-              ;
-              if (!(possible_blockage.time < FLT_MAX)) {
-                // If we haven't analyzed the blockage point yet then we
-                // can't use the reference in this iteration.
-                return Point_NULL;
-              }
-
+              size_t blockage_idx =
+                  possible_blockage_pos.x +
+                  possible_blockage_pos.y * settings_.geo_ref.width;
+              FireSimpleCuda blockage_fire = load_fire(
+                  blockage_idx, speed_max_, azimuth_max_, eccentricity_);
               if (!( // Check that the possible blockage has a similar fire
                      // as the reference candidate.
                      // Otherwise use neighbor as reference
-                      similar_fires(possible_blockage.fire, neighbor.fire))) {
+                      similar_fires(blockage_fire, neighbor.fire))) {
                 reference = PointRef(neighbor.time, neighbor_pos);
                 break;
               };

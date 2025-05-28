@@ -51,51 +51,65 @@ public:
         refs_x_(refs_x), refs_y_(refs_y), refs_change_(ref_change),
         shared_(shared) {
     ASSERT(block_ix_ < gridDim.x * gridDim.y);
+    ASSERT(!(settings_.geo_ref.width < 1 || settings_.geo_ref.height < 1));
   };
 
   __device__ void run(unsigned *worked, unsigned *progress) {
     __shared__ bool grid_improved;
     bool first_iteration = true;
-    ASSERT(!(settings_.geo_ref.width < 1 || settings_.geo_ref.height < 1));
     do { // Grid loop
       if (threadIdx.x == 0 && threadIdx.y == 0) {
+        // Reset the block-local grid_improved flag if we're the block leader
         grid_improved = false;
         if (blockIdx.x == 0 && blockIdx.y == 0) {
+          // Reset the grid-global progress flag if we're also the grid leader
           *progress = 0;
         }
       };
-      // First phase, load data from global to shared memory
+      // First phase, load data from global to shared memory.
+      // We keep track if this is the first iteration or not because
+      // we only need load this pixel's data once. On the rest of iterations
+      // we just load the halo into shared mem because it's the only place
+      // things could have changed outside of this thread.
       load_points_into_shared_memory(first_iteration);
       first_iteration = false;
 
-      // Begin neighbor analysys
       Point best;
+      // Sync here to wait for the shared Point data to have been
+      // updated by other threads
       __syncthreads();
+      // Begin neighbor analysys
       find_neighbor_with_least_access_time(&best);
+      // Sync here because it's faster to do so
       __syncthreads();
-      // End of neighbor analysys, save point if improves
+      // End of neighbor analysys, update point in global and shared memory
+      // if it improves
       bool improved = update_point(best);
-      // Wait for other threads to end their analysis and
+      // Sync to wait for other threads to end their analysis and
       // check if any has improved. Then if we're the first
       // thread of the block mark progress
       bool block_improved = __syncthreads_or(improved);
       if (block_improved && threadIdx.x == 0 && threadIdx.y == 0) {
-        // No need for atomic here because it's enough to flip
-        // it != 0
+        // Signal that at least one block in this grid has progressed.
+        // No need for atomic here because it's enough to flip it != 0
         *progress = 1;
       }
 
-      // Block has finished. Check if others have too and set grid_improved.
-      // Analysys ends when grid has not improved
-      cooperative_groups::grid_group grid = cooperative_groups::this_grid();
-      grid.sync();
+      // Block has finished. Check if others have too after syncing grid to
+      // set shared grid_improved in (shared mem) for the rest of the block.
+      cooperative_groups::this_grid().sync();
       if (threadIdx.x == 0 && threadIdx.y == 0) {
+        // Update grid_improved flag if we're the block leader
         grid_improved = *progress > 0;
         if (grid_improved && blockIdx.x == 0 && blockIdx.y == 0) {
+          // If we're also the grid leader, signal the kernel launcher
+          // that this grid has worked on this round
           *worked = 1;
         }
       }
-      grid.sync();
+      // Sync here to wait for the grid_improved flag to have the correct value
+      __syncthreads();
+      // Analysys ends when grid has not improved
     } while (grid_improved); // end grid loop
     if (settings_.find_ref_change) {
       fill_ref_change();
@@ -128,21 +142,20 @@ private:
           Point neighbor =
               shared_[(local_x_ + i) + (local_y_ + j) * shared_width_];
 
+          // not burning, skip it
           if (!(neighbor.time < MAX_TIME && !neighbor.fire.is_null())) {
-            // not burning, skip it
             continue;
           };
 
+          // The neighbor's reference is me, refuse to burn myself again
           PointRef reference = neighbor.reference;
+          ASSERT(reference.is_valid(settings_.geo_ref));
           if ((reference.pos.x == idx_2d_.x && reference.pos.y == idx_2d_.y)) {
             continue;
           }
 
-          ASSERT((reference.time < MAX_TIME && reference.pos.x != USHRT_MAX &&
-                  reference.pos.y != USHRT_MAX));
-          ASSERT(!reference.fire.is_null());
-
-          // Check if neighbor's reference is usable
+          // Check if the path to neighbor's reference is not blocked by a
+          // point with a different reference or fire
           DDA iter(idx_2d_, make_uint2(reference.pos.x, reference.pos.y));
 
           int2 possible_blockage_pos;
@@ -177,7 +190,7 @@ private:
                           neighbor.reference.pos.y &&
                       similar_fires(possible_blockage.fire,
                                     neighbor.reference.fire))) {
-                  // print_info("cambio ref");
+                  // Reference is not usable, use the neighbor as reference
                   reference =
                       PointRef(neighbor.time, neighbor_pos, neighbor.fire);
                   break;
@@ -191,12 +204,11 @@ private:
             reference = PointRef(neighbor.time, neighbor_pos, neighbor.fire);
           }
 
-          if (reference.time < MAX_TIME) {
+          // Calculate time from refeence to us if reference is valid
+          if (reference.is_valid(settings_.geo_ref)) {
             float t = time_from_ref(reference);
             if (t < settings_.max_time && t < best.time &&
                 (is_new || t < me.time)) {
-              ASSERT(!(reference.pos.x == USHRT_MAX ||
-                       reference.pos.y == USHRT_MAX));
               best = Point(t, fire, reference);
             }
           }
@@ -240,17 +252,17 @@ private:
         load_point_at_offset(make_int2(-HALO_RADIUS, blockDim.y));
         load_point_at_offset(make_int2(blockDim.x, blockDim.y));
       }
-      if (x_near_x0) {
-        // Left halo
-        load_point_at_offset(make_int2(-HALO_RADIUS, 0));
-        // Right halo
-        load_point_at_offset(make_int2(blockDim.x, 0));
-      }
       if (y_near_y0) {
         // Top halo
         load_point_at_offset(make_int2(0, -HALO_RADIUS));
         // Bottom halo
         load_point_at_offset(make_int2(0, blockDim.y));
+      }
+      if (x_near_x0) {
+        // Left halo
+        load_point_at_offset(make_int2(-HALO_RADIUS, 0));
+        // Right halo
+        load_point_at_offset(make_int2(blockDim.x, 0));
       }
     }
   }

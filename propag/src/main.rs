@@ -37,8 +37,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         (
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 {
-                x: px.x * 1024.0,
-                y: px.y * 1024.0,
+                x: px.x * 4096.0,
+                y: px.y * 4096.0,
             },
         ),
         px,

@@ -50,14 +50,22 @@ in
     builtins.head
       (inputs.nix-utils.rpmDebUtils.${system}.buildFakeSingleDeb null null).buildInputs;
 
+  qgis = prev.qgis.override {
+    extraPythonPackages =
+      ps: with ps; [
+        ipython
+        jupyter
+        qtconsole
+      ];
+  };
   propag = final.callPackage ./pkgs/propag.nix {
     # Otherwise deb package is huge
-    gdal = final.gdal-small;
+    # gdal = final.gdal-small;
   };
 
   py-propag = final.callPackage ./pkgs/py-propag.nix {
     # Otherwise deb package is huge
-    gdal = final.gdal-small;
+    # gdal = final.gdal-small;
   };
 
   buildWorkspacePythonPackage =
@@ -96,7 +104,7 @@ in
 
   gdal-small = final.callPackage ./gdal.nix { };
 
-  gdal = final.gdal-small;
+  #gdal = final.gdal-small;
 
   /*
     gdal = prev.gdal.override {

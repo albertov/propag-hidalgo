@@ -2,6 +2,7 @@ pkgs:
 pkgs.mkShell {
   inputsFrom = [
     pkgs.propag
+    pkgs.py-propag
   ];
   shellHook = ''
     ${pkgs.pre-commit.shellHook}
@@ -30,12 +31,18 @@ pkgs.mkShell {
     valgrind
     rustup
     gdb
+    qgis
     python3
     python3.pkgs.ipython
     python3.pkgs.gdal
     python3.pkgs.numpy
+    python3.pkgs.pyqt5
+    python3.pkgs.pyqt5
+    python3.pkgs.pyqt-builder
     maturin
     gdal
+    qtcreator
+    qt5.full
     #clippy
   ];
 }

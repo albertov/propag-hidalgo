@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/plugins/propag25" >
+        <file>flame.svg</file>
+    </qresource>
+</RCC>

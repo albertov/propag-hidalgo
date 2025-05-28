@@ -10,3 +10,4 @@ propag.docker
 .env
 refs
 .pre-commit-config.yaml
+__pycache__

@@ -5,6 +5,7 @@ use crate::units::heat_flux_density::btu_sq_foot_min;
 use crate::units::linear_power_density::btu_foot_sec;
 use crate::units::radiant_exposure::btu_sq_foot;
 use crate::units::*;
+use const_soft_float::soft_f64::SoftF64;
 use uom::si::angle::degree;
 use uom::si::angle::radian;
 use uom::si::f64::*;
@@ -249,7 +250,7 @@ impl ParticleDef {
     }
     const fn sigma_factor(&self) -> f64 {
         let savr = savr_to_imperial(&self.savr);
-        safe_div(-138.0, savr)
+        SoftF64(safe_div(-138.0, savr)).exp().to_f64()
     }
 }
 const fn safe_div(a: f64, b: f64) -> f64 {
@@ -418,7 +419,7 @@ impl Fuel {
         }
         r
     }
-    fn life_fine_load(&self, life: Life) -> f64 {
+    const fn life_fine_load(&self, life: Life) -> f64 {
         let mut r = 0.0;
         let mut i = 0;
         let particles = self.life_particles(life);
@@ -427,10 +428,11 @@ impl Fuel {
             if p.is_sentinel() {
                 break;
             }
-            r += match life {
-                Life::Alive => p.load * (-500.0 / p.savr).exp(),
-                Life::Dead => p.load * p.sigma_factor.exp(),
-            };
+            r += p.load
+                * match life {
+                    Life::Alive => SoftF64(-500.0).div(SoftF64(p.savr)).exp().to_f64(),
+                    Life::Dead => p.sigma_factor,
+                };
             i += 1
         }
         r
@@ -491,10 +493,10 @@ impl Fuel {
         }
         r
     }
-    fn life_eta_s(&self, life: Life) -> f64 {
+    const fn life_eta_s(&self, life: Life) -> f64 {
         let seff: f64 = self.life_seff(life);
         if seff > SMIDGEN {
-            let eta = 0.174 / seff.powf(0.19);
+            let eta = 0.174 / SoftF64(seff).powf(SoftF64(0.19)).to_f64();
             if eta < 1.0 {
                 eta
             } else {
@@ -508,11 +510,15 @@ impl Fuel {
         self.life_area_weight(Life::Alive) * self.life_savr(Life::Alive)
             + self.life_area_weight(Life::Dead) * self.life_savr(Life::Dead)
     }
-    fn ratio(&self, sigma: f64, beta: f64) -> f64 {
-        beta / (3.348 / sigma.powf(0.8189))
+    const fn ratio(&self, sigma: f64, beta: f64) -> f64 {
+        beta / (3.348 / SoftF64(sigma).powf(SoftF64(0.8189)).to_f64())
     }
-    fn flux_ratio(&self, sigma: f64, beta: f64) -> f64 {
-        ((0.792 + 0.681 * sigma.sqrt()) * (beta + 0.1)).exp() / (192.0 + 0.2595 * sigma)
+    const fn flux_ratio(&self, sigma: f64, beta: f64) -> f64 {
+        ((SoftF64(0.792).add(SoftF64(0.681).mul(SoftF64(sigma).sqrt())))
+            .mul(SoftF64(beta).add(SoftF64(0.1))))
+        .exp()
+        .to_f64()
+            / (192.0 + 0.2595 * sigma)
     }
     const fn beta(&self) -> f64 {
         let mut r = 0.0;
@@ -538,22 +544,25 @@ impl Fuel {
         }
         safe_div(r, self.depth)
     }
-    fn gamma(&self, sigma: f64, beta: f64) -> f64 {
-        let sigma15 = sigma.powf(1.5);
-        let gamma_max = sigma15 / (495.0 + 0.0594 * sigma15);
-        let aa = 133.0 / sigma.powf(0.7913);
-        let rt = self.ratio(sigma, beta);
-        gamma_max * rt.powf(aa) * (aa * (1.0 - rt)).exp()
+    const fn gamma(&self, sigma: f64, beta: f64) -> f64 {
+        let rt = SoftF64(self.ratio(sigma, beta));
+        let sigma15 = SoftF64(sigma).powf(SoftF64(1.5));
+        let gamma_max = sigma15.div(SoftF64(495.0).add(SoftF64(0.0594).mul(sigma15)));
+        let aa = SoftF64(133.0).div(SoftF64(sigma).powf(SoftF64(0.7913)));
+        gamma_max
+            .mul(rt.powf(aa))
+            .mul(aa.mul(SoftF64(1.0).sub(rt)).exp())
+            .to_f64()
     }
 
-    fn life_rx_factor(&self, life: Life, sigma: f64, beta: f64) -> f64 {
+    const fn life_rx_factor(&self, life: Life, sigma: f64, beta: f64) -> f64 {
         self.life_load(life)
             * self.life_heat(life)
             * self.life_eta_s(life)
             * self.gamma(sigma, beta)
     }
 
-    fn live_ext_factor(&self) -> f64 {
+    const fn live_ext_factor(&self) -> f64 {
         2.9 * safe_div(
             self.life_fine_load(Life::Dead),
             self.life_fine_load(Life::Alive),
@@ -589,23 +598,26 @@ impl Fuel {
         384.0 / sigma
     }
 
-    fn slope_k(&self, beta: f64) -> f64 {
-        5.275 * beta.powf(-0.3)
+    const fn slope_k(&self, beta: f64) -> f64 {
+        5.275 * SoftF64(beta).powf(SoftF64(-0.3)).to_f64()
     }
 
-    fn wind_bke(&self, sigma: f64, beta: f64) -> (f64, f64, f64) {
-        let wind_b = 0.02526 * sigma.powf(0.54);
+    const fn wind_bke(&self, sigma: f64, beta: f64) -> (f64, f64, f64) {
+        let wind_b = 0.02526 * SoftF64(sigma).powf(SoftF64(0.54)).to_f64();
         let r = self.ratio(sigma, beta);
-        let c = 7.47 * ((-0.133) * (sigma.powf(0.55))).exp();
-        let e = 0.715 * ((-0.000359) * sigma).exp();
-        let wind_k = c * r.powf(-e);
-        let wind_e = r.powf(e) / c;
+        let c = 7.47
+            * (SoftF64(-0.133).mul(SoftF64(sigma).powf(SoftF64(0.55))))
+                .exp()
+                .to_f64();
+        let e = 0.715 * SoftF64((-0.000359) * sigma).exp().to_f64();
+        let wind_k = c * SoftF64(r).powf(SoftF64(-e)).to_f64();
+        let wind_e = SoftF64(r).powf(SoftF64(e)).to_f64() / c;
         (wind_b, wind_k, wind_e)
     }
 }
 
 impl Combustion {
-    pub fn make(fuel: Fuel) -> Self {
+    pub const fn make(fuel: Fuel) -> Self {
         let sigma = fuel.sigma();
         let beta = fuel.beta();
         let (wind_b, wind_k, wind_e) = fuel.wind_bke(sigma, beta);
@@ -781,7 +793,7 @@ impl Combustion {
                 (250.0 + 1116.0 * p.moisture(terrain))
                     * p.area_weight
                     * self.life_area_weight(p.life)
-                    * p.sigma_factor.exp()
+                    * p.sigma_factor
             })
             .sum();
         self.fuel_bed_bulk_dens * x
@@ -846,7 +858,7 @@ impl Combustion {
 
     fn wfmd(&self, terrain: &Terrain) -> f64 {
         iter_particles(self.life_particles(Life::Dead))
-            .map(|p| p.moisture(terrain) * p.sigma_factor.exp() * p.load)
+            .map(|p| p.moisture(terrain) * p.sigma_factor * p.load)
             .sum()
     }
     const fn life_area_weight(&self, life: Life) -> f64 {

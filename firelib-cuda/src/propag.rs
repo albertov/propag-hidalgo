@@ -17,11 +17,12 @@ use uom::si::angle::{degree, radian};
 use uom::si::ratio::ratio;
 use uom::si::velocity::meter_per_second;
 
-const BUFFER_RADIUS: usize = 3;
+pub const HALO_RADIUS: usize = 1;
 
 #[kernel]
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
 pub unsafe fn propag(
+    settings: Settings,
     speed_max: &[float::T],
     azimuth_max: &[float::T],
     eccentricity: &[float::T],
@@ -29,13 +30,12 @@ pub unsafe fn propag(
     refs_x: *mut usize,
     refs_y: *mut usize,
     progress: *mut u32,
-    geo_ref: GeoReference,
-    max_time: f32,
-    shmem_size: usize,
 ) {
     // Arrays in shared memory for fast analysis within block
     let shared: *mut Point = dynamic_shared_mem();
+    let Settings { geo_ref, max_time } = settings;
     let when_lt_max_time = |p: Point| if p.time < max_time { Some(p) } else { None };
+
 
     // Dimensions of the total area
     let width = geo_ref.size[0] as u32;
@@ -128,7 +128,7 @@ pub unsafe fn propag(
             None
         };
         // Preload boundaries
-        let radius = BUFFER_RADIUS as i32;
+        let radius = HALO_RADIUS as i32;
         let x_near_border = (thread::thread_idx_x() as i32) < radius;
         let y_near_border = (thread::thread_idx_y() as i32) < radius;
         if x_near_border {
@@ -261,9 +261,11 @@ pub unsafe fn propag(
             },
             */
             Some(best_fire) => {
+                /*
                 if Some(ix) = compute_shared_ix(&pos) {
                     *shared.add(ix) = best_fire;
                 };
+                */
                 best_fire.save(global_ix, time, refs_x, refs_y);
                 1
             }
@@ -289,12 +291,12 @@ fn similar_fires(a: FireSimpleCuda, b: FireSimpleCuda) -> bool {
 }
 
 fn compute_shared_ix(pos: &USizeVec2) -> Option<usize> {
-    let shared_x = (pos.x % (thread::block_dim_x() as usize)) + BUFFER_RADIUS;
-    let shared_y = (pos.y % (thread::block_dim_y() as usize)) + BUFFER_RADIUS;
-    if shared_x < (thread::block_dim_x() as usize) + BUFFER_RADIUS * 2
-        && shared_y < (thread::block_dim_y() as usize) + BUFFER_RADIUS * 2
+    let shared_x = (pos.x % (thread::block_dim_x() as usize)) + HALO_RADIUS;
+    let shared_y = (pos.y % (thread::block_dim_y() as usize)) + HALO_RADIUS;
+    if shared_x < (thread::block_dim_x() as usize) + HALO_RADIUS * 2
+        && shared_y < (thread::block_dim_y() as usize) + HALO_RADIUS * 2
     {
-        let ix = shared_x + shared_y * ((thread::block_dim_x() as usize) + BUFFER_RADIUS * 2);
+        let ix = shared_x + shared_y * ((thread::block_dim_x() as usize) + HALO_RADIUS * 2);
         /*
         if !ix < SHARED_SIZE {
             println!("caca ix shared: {:?}", ix);
@@ -467,6 +469,13 @@ impl Neighbor {
     fn reference(&self) -> PointRef {
         self.point.reference
     }
+}
+
+#[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
+#[repr(C)]
+pub struct Settings {
+    pub geo_ref: GeoReference,
+    pub max_time: f32
 }
 
 unsafe fn iter_neighbors(

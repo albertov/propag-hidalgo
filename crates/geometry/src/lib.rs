@@ -305,14 +305,14 @@ impl Iterator for DDA {
                     x: x + self.step.x,
                     y: y + self.step.y,
                 });
-                self.t_max = self.t_max + self.delta;
+                self.t_max += self.delta;
                 ret
             }
             Some(IVec2 { x, y }) if self.t_max.x < self.t_max.y => {
                 let ret = self.cur;
                 self.cur = Some(IVec2 {
                     x: self.step.x + x,
-                    y: y,
+                    y,
                 });
                 self.t_max = DVec2 {
                     x: self.t_max.x + self.delta.x,
@@ -352,10 +352,7 @@ pub fn neighbor_in_direction(from: IVec2, to: IVec2) -> IVec2 {
                 y: y + step.y,
             }
         } else if t_max.x > t_max.y {
-            IVec2 {
-                x: step.x + x,
-                y: y,
-            }
+            IVec2 { x: step.x + x, y }
         } else {
             IVec2 { x, y: step.y + y }
         }

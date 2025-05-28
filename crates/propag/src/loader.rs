@@ -20,9 +20,9 @@ impl WarpedDataset {
         let dst_gt = geo_ref.transform.as_array_64();
         unsafe {
             let trans = GDALCreateGenImgProjTransformer3(
-                std::ffi::CString::new(src.projection())?.as_ptr() as *const i8,
+                std::ffi::CString::new(src.projection())?.as_ptr(),
                 src.geo_transform()?.as_ptr(),
-                std::ffi::CString::new(spatial_ref.to_wkt()?.as_str())?.as_ptr() as *const i8,
+                std::ffi::CString::new(spatial_ref.to_wkt()?.as_str())?.as_ptr(),
                 dst_gt.as_ptr(),
             );
             let n_bands = src.raster_count();

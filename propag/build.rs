@@ -20,10 +20,12 @@ fn main() {
     cbindgen::Builder::new()
         .with_crate("../firelib-cuda")
         .with_language(cbindgen::Language::C)
-        .with_after_include("
+        .with_after_include( "
+        #include \"geometry.h\"
         #define T float
         #define Max_MAX SIZE_MAX
-        ")
+        ",
+        )
         //.with_parse_deps(true)
         .generate()
         .expect("Unable to generate bindings")

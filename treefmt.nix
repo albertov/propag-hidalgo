@@ -5,4 +5,10 @@
   projectRootFile = "flake.nix";
   programs.nixfmt.enable = true;
   programs.rustfmt.enable = true;
+  programs.clang-format.enable = true;
+  programs.clang-format.includes = [
+    "*.cu"
+    "*.c"
+    "*.h"
+  ];
 }

@@ -1,11 +1,11 @@
 use core::ops::Div;
 use core::ptr::NonNull;
-use firelib_rs::float::*;
 use core::sync::atomic::Ordering;
 use cuda_std::shared::dynamic_shared_mem;
 use cuda_std::thread::*;
 use cuda_std::*;
 use firelib_rs::float;
+use firelib_rs::float::*;
 use firelib_rs::*;
 use geometry::GeoReference;
 use glam::f32::*;
@@ -19,7 +19,7 @@ use uom::si::velocity::meter_per_second;
 
 pub const HALO_RADIUS: usize = 4;
 #[cfg(not(target_os = "cuda"))]
-pub const PI : f32 = 3.141592653589793;
+pub const PI: f32 = 3.141592653589793;
 
 #[kernel]
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
@@ -321,7 +321,7 @@ impl PointRef {
             y: to.y as _,
         };
         let bearing = Angle::new::<radian>(geo_ref.bearing(from_pos, to));
-        let fire : FireSimple = self.fire.into();
+        let fire: FireSimple = self.fire.into();
         let speed = fire.spread(bearing).speed().get::<meter_per_second>();
         let distance = geo_ref.distance(from_pos, to);
         let time = self.time;
@@ -358,7 +358,6 @@ pub struct Point {
     pub fire: FireSimpleCuda,
     pub reference: PointRef,
 }
-
 
 impl Point {
     pub const NULL: Self = Self {
@@ -414,7 +413,13 @@ impl Point {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern fn save(&self, idx: usize, time: *mut f32, ref_x: *mut usize, ref_y: *mut usize) {
+    pub unsafe extern "C" fn save(
+        &self,
+        idx: usize,
+        time: *mut f32,
+        ref_x: *mut usize,
+        ref_y: *mut usize,
+    ) {
         write_volatile(time.add(idx), self.time);
         write_volatile(ref_x.add(idx), self.reference.pos_x);
         write_volatile(ref_y.add(idx), self.reference.pos_y);
@@ -563,7 +568,6 @@ pub unsafe fn pre_burn(
         }
     }
 }
-
 
 #[cfg_attr(not(target_os = "cuda"), derive(StructOfArray), soa_derive(Debug))]
 #[derive(Copy, Clone, Debug, PartialEq, cust_core::DeviceCopy)]

@@ -22,6 +22,7 @@ class ALIGN Propagator {
   volatile float *time_;
   volatile unsigned short *refs_x_;
   volatile unsigned short *refs_y_;
+  volatile unsigned short *refs_change_;
 
   __shared__ Point *shared_;
 
@@ -31,6 +32,7 @@ public:
                         const float *azimuth_max, const float *eccentricity,
                         float volatile *time, unsigned short volatile *refs_x,
                         unsigned short volatile *refs_y,
+                        unsigned short volatile *ref_change,
                         __shared__ Point *shared)
       : settings_(settings), gridIx_(make_uint2(grid_x, grid_y)),
         idx_2d_(index_2d(gridIx_)),
@@ -43,7 +45,8 @@ public:
         shared_width_(blockDim.x + HALO_RADIUS * 2),
         local_ix_(local_x_ + local_y_ * shared_width_), speed_max_(speed_max),
         azimuth_max_(azimuth_max), eccentricity_(eccentricity), time_(time),
-        refs_x_(refs_x), refs_y_(refs_y), shared_(shared) {
+        refs_x_(refs_x), refs_y_(refs_y), refs_change_(ref_change),
+        shared_(shared) {
     ASSERT(block_ix_ < gridDim.x * gridDim.y);
   };
 
@@ -90,6 +93,7 @@ public:
       }
       grid.sync();
     } while (grid_improved); // end grid loop
+    fill_ref_change();
   }
 
 private:
@@ -158,14 +162,16 @@ private:
             // combustible then retry
             reference = PointRef_NULL;
           } else {
-            if (!(similar_fires_(possible_blockage.fire, fire) && similar_fires_(possible_blockage.fire, reference.fire))) {
+            if (!(similar_fires_(possible_blockage.fire, fire) &&
+                  similar_fires_(possible_blockage.fire, reference.fire))) {
               reference = PointRef(neighbor.time, neighbor_pos, neighbor.fire);
             };
           };
 
           if (reference.time < MAX_TIME) {
             float t = time_to(settings_.geo_ref, reference, idx_2d_);
-            if (t < settings_.max_time && t < best.time && (is_new || t < me.time)) {
+            if (t < settings_.max_time && t < best.time &&
+                (is_new || t < me.time)) {
               ASSERT(!(reference.pos.x == USHRT_MAX ||
                        reference.pos.y == USHRT_MAX));
               best = Point(t, fire, reference);
@@ -190,7 +196,7 @@ private:
   }
 
   __device__ inline bool update_point(Point p) {
-    Point &me  = shared_[local_ix_];
+    Point &me = shared_[local_ix_];
     if (in_bounds_ && p.time < me.time && p.time < settings_.max_time) {
       // printf("best time %f\n", best.time);
       refs_x_[global_ix_] = p.reference.pos.x;
@@ -274,62 +280,88 @@ private:
   __device__ void print_info(const char msg[]) const {
     static const char true_[] = "true";
     static const char false_[] = "false";
-    printf(
-        "-------------------------------------------------------------\n"
-        "%s\n"
-        "-------------------------------------------------------------\n"
-        "width=%d\n"
-        "height=%d\n"
-        "gridIx=(%d, %d)\n"
-        "blockDim=(%d, %d)\n"
-        "idx_2d=(%d, %d)\n"
-        "modBlockSize=(%d, %d)\n"
-        "local_xy=(%d, %d)\n"
-        "global_ix=%  ld\n"
-        "in_bounds_=%s\n"
-        "block_ix_=%ld\n"
-        "shared_width_=%d\n"
-        "local_ix_=%d\n"
-        "time=%.4f\n"
-        "has_fire=%s\n"
-        "ref_x=%d\n"
-        "ref_y=%d\n",
-        msg,
-        settings_.geo_ref.width,
-        settings_.geo_ref.height,
-        gridIx_.x, gridIx_.y,
-        blockDim.x, blockDim.y,
-        idx_2d_.x, idx_2d_.y, idx_2d_.x % blockDim.x, idx_2d_.y % blockDim.y,
-        local_x_, local_y_,
-        global_ix_,
-        (in_bounds_? true_:  false_),
-        block_ix_,
-        shared_width_,
-        local_ix_,
-        (in_bounds_? time_[global_ix_] : MAX_TIME),
-        (in_bounds_? (speed_max_[global_ix_] != 0.0? true_ : false_) : false_),
-        (in_bounds_? refs_x_[global_ix_] : USHRT_MAX),
-        (in_bounds_? refs_y_[global_ix_] : USHRT_MAX)
-    );
+    printf("-------------------------------------------------------------\n"
+           "%s\n"
+           "-------------------------------------------------------------\n"
+           "width=%d\n"
+           "height=%d\n"
+           "gridIx=(%d, %d)\n"
+           "blockDim=(%d, %d)\n"
+           "idx_2d=(%d, %d)\n"
+           "modBlockSize=(%d, %d)\n"
+           "local_xy=(%d, %d)\n"
+           "global_ix=%  ld\n"
+           "in_bounds_=%s\n"
+           "block_ix_=%ld\n"
+           "shared_width_=%d\n"
+           "local_ix_=%d\n"
+           "time=%.4f\n"
+           "has_fire=%s\n"
+           "ref_x=%d\n"
+           "ref_y=%d\n",
+           msg, settings_.geo_ref.width, settings_.geo_ref.height, gridIx_.x,
+           gridIx_.y, blockDim.x, blockDim.y, idx_2d_.x, idx_2d_.y,
+           idx_2d_.x % blockDim.x, idx_2d_.y % blockDim.y, local_x_, local_y_,
+           global_ix_, (in_bounds_ ? true_ : false_), block_ix_, shared_width_,
+           local_ix_, (in_bounds_ ? time_[global_ix_] : MAX_TIME),
+           (in_bounds_ ? (speed_max_[global_ix_] != 0.0 ? true_ : false_)
+                       : false_),
+           (in_bounds_ ? refs_x_[global_ix_] : USHRT_MAX),
+           (in_bounds_ ? refs_y_[global_ix_] : USHRT_MAX));
   }
 
+  __device__ inline void fill_ref_change() {
+    if (in_bounds_) {
+      const Point me = shared_[local_ix_];
+      if (is_point_null(me)) {
+        return;
+      }
+      unsigned short changed = 0;
+#pragma unroll
+      for (int i = -1; i < 2; i++) {
+#pragma unroll
+        for (int j = -1; j < 2; j++) {
+          // Skip self
+          if (i == 0 && j == 0)
+            continue;
+          int2 neighbor_pos = make_int2((int)idx_2d_.x + i, (int)idx_2d_.y + j);
+
+          // skip out-of-bounds neighbors
+          if (!(neighbor_pos.x >= 0 && neighbor_pos.y >= 0 &&
+                neighbor_pos.x < settings_.geo_ref.width &&
+                neighbor_pos.y < settings_.geo_ref.height))
+            continue;
+
+          const Point neighbor =
+              shared_[(local_x_ + i) + (local_y_ + j) * shared_width_];
+
+          if (is_point_null(neighbor))
+            continue;
+
+          changed |= (neighbor.reference.pos.x != me.reference.pos.x) |
+                     (neighbor.reference.pos.y != me.reference.pos.y);
+        }
+      }
+      refs_change_[global_ix_] = changed;
+    }
+  }
 };
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-__global__ void propag(const Settings settings, unsigned grid_x,
-                       unsigned grid_y, unsigned *worked,
-                       const float *speed_max, const float *azimuth_max,
-                       const float *eccentricity, float volatile *time,
-                       unsigned short volatile *refs_x,
-                       unsigned short volatile *refs_y,
-                       unsigned volatile *progress) {
+__global__ void
+propag(const Settings settings, unsigned grid_x, unsigned grid_y,
+       unsigned *worked, const float *speed_max, const float *azimuth_max,
+       const float *eccentricity, float volatile *time,
+       unsigned short volatile *refs_x, unsigned short volatile *refs_y,
+       unsigned short volatile *ref_change, unsigned volatile *progress) {
   extern __shared__ Point shared[];
 
-  Propagator sim = Propagator(settings, grid_x, grid_y, speed_max, azimuth_max,
-                              eccentricity, time, refs_x, refs_y, shared);
+  Propagator sim =
+      Propagator(settings, grid_x, grid_y, speed_max, azimuth_max, eccentricity,
+                 time, refs_x, refs_y, ref_change, shared);
 
   sim.run(worked, progress);
 }

@@ -4,12 +4,13 @@ use cust::device::DeviceAttribute;
 use cust::function::{BlockSize, GridSize};
 use cust::memory::UnifiedBox;
 use cust::prelude::*;
-use firelib_cuda::{Point, Settings, HALO_RADIUS};
+use firelib_cuda::{Settings, HALO_RADIUS, SIZEOF_FBC_SHARED_ITEM};
 use firelib_rs::float;
 use firelib_rs::float::*;
 use firelib_rs::*;
 use gdal::raster::*;
 use gdal::spatial_ref::SpatialRef;
+use gdal::vector::*;
 use gdal::*;
 use min_max_traits::Max;
 use num_traits::Float;
@@ -28,10 +29,7 @@ static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
 static PTX_C: &str = include_str!("../../target/cuda/propag_c.ptx");
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!(
-        "Calculating with GPU Propag {}",
-        std::mem::size_of::<Point>()
-    );
+    println!("Calculating with GPU Propag",);
     let max_time: f32 = 60.0 * 60.0 * 10.0;
     let geo_ref: GeoReference = GeoReference::south_up(
         (
@@ -87,18 +85,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     // retrieve the add kernel from the module so we can calculate the right launch config.
     let propag_c = module_c.get_function("propag")?;
     let pre_burn = module.get_function("standard_simple_burn")?;
+    let find_boundary_changes = module.get_function("find_boundary_changes")?;
 
     let block_size = BlockSize {
         x: THREAD_BLOCK_AXIS_LENGTH,
         y: THREAD_BLOCK_AXIS_LENGTH,
         z: 1,
     };
-    let grid_size = GridSize {
-        x: geo_ref.width.div_ceil(block_size.x),
-        y: geo_ref.height.div_ceil(block_size.y),
-        z: 1,
-    };
-    let linear_grid_size: usize = (grid_size.x * grid_size.y * grid_size.z) as usize;
 
     let linear_block_size = block_size.x * block_size.y * block_size.z;
     let radius = HALO_RADIUS as u32;
@@ -124,10 +117,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
 
     println!(
-        "using geo_ref={:?}\ngrid_size={:?}\nblocks_size={:?}\nlinear_grid_size={}\nsuper_grid_size={:?}\nfor {} elems",
-        geo_ref, grid_size, block_size, linear_grid_size, super_grid_size, len
+        "using geo_ref={:?}\ngrid_size={:?}\nblocks_size={:?}\nsuper_grid_size={:?}\nfor {} elems",
+        geo_ref, grid_size, block_size, super_grid_size, len
     );
-    for i in (-30..30) {
+    let lo: i32 = -30;
+    for i in (lo..30) {
         model[fire_pos.x + (i as usize) + (fire_pos.y + 5) * geo_ref.width as usize] = 0;
         model[fire_pos.x + (i as usize) + (fire_pos.y + 6) * geo_ref.width as usize] = 0;
         model[fire_pos.x + (i as usize) + (fire_pos.y + 7) * geo_ref.width as usize] = 0;
@@ -148,6 +142,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut time: Vec<f32> = std::iter::repeat(Max::MAX).take(model.len()).collect();
     let mut refs_x: Vec<u16> = std::iter::repeat(Max::MAX).take(model.len()).collect();
     let mut refs_y: Vec<u16> = std::iter::repeat(Max::MAX).take(model.len()).collect();
+    let mut boundary_change: Vec<u16> = std::iter::repeat(0).take(model.len()).collect();
+
+    let find_boundaries_grid_size = GridSize {
+        x: geo_ref.width.div_ceil(block_size.x),
+        y: geo_ref.height.div_ceil(block_size.y),
+        z: 1,
+    };
 
     timeit!({
         let mut speed_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
@@ -167,10 +168,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut refs_x_buf = refs_x.as_slice().as_dbuf()?;
         let mut refs_y_buf = refs_y.as_slice().as_dbuf()?;
         let mut time_buf = time.as_slice().as_dbuf()?;
+        let mut boundary_change_buf = boundary_change.as_slice().as_dbuf()?;
         let (_, pre_burn_block_size) = pre_burn.suggested_launch_configuration(0, 0.into())?;
         let pre_burn_grid_size = geo_ref.len().div_ceil(pre_burn_block_size);
         unsafe {
-            //println!("pre burn");
+            println!("pre burn");
             launch!(
                 // slices are passed as two parameters, the pointer and the length.
                 pre_burn<<<pre_burn_grid_size, pre_burn_block_size, 0, stream>>>(
@@ -192,12 +194,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
             stream.synchronize()?;
             //println!("propag");
-            let settings = Settings { geo_ref, max_time};
+            let settings = Settings { geo_ref, max_time };
+            println!("propag");
             loop {
                 let mut worked: Vec<UnifiedBox<u32>> =
                     Vec::with_capacity((super_grid_size.0 * super_grid_size.1) as usize);
                 for grid_x in (0..super_grid_size.0) {
                     for grid_y in (0..super_grid_size.1) {
+                        let linear_grid_size: usize =
+                            (grid_size.x * grid_size.y * grid_size.z) as usize;
                         let mut progress: Vec<u32> =
                             std::iter::repeat(0).take(linear_grid_size).collect();
                         let mut progress_buf = progress.as_slice().as_dbuf()?;
@@ -215,6 +220,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 time_buf.as_device_ptr(),
                                 refs_x_buf.as_device_ptr(),
                                 refs_y_buf.as_device_ptr(),
+                                boundary_change_buf.as_device_ptr(),
                                 progress_buf.as_device_ptr(),
                             )
                         )?;
@@ -226,6 +232,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     break;
                 }
             }
+            stream.synchronize()?;
+            println!("find boundary_change done");
             /*
             refs_x_buf.copy_to(&mut refs_x)?;
             refs_y_buf.copy_to(&mut refs_y)?;
@@ -238,6 +246,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             */
         };
         time_buf.copy_to(&mut time)?;
+        boundary_change_buf.copy_to(&mut boundary_change)?;
+        refs_x_buf.copy_to(&mut refs_x)?;
+        refs_y_buf.copy_to(&mut refs_y)?;
     });
     let good_times: Vec<f32> = time
         .iter()
@@ -257,22 +268,64 @@ fn main() -> Result<(), Box<dyn Error>> {
     //time_buf.copy_to(&mut time)?;
     //assert!(time.len() > 1);
 
-    let d = DriverManager::get_driver_by_name("GTIFF")?;
+    // Write times raster
+    println!("Generating times geotiff");
+    let gtiff = DriverManager::get_driver_by_name("GTIFF")?;
     let options = RasterCreationOptions::from_iter(["TILED=YES", "BLOCKXSIZE=16", "BLOCKYSIZE=16"]);
-    let mut ds = d.create_with_band_type_with_options::<f32, _>(
+    let mut ds = gtiff.create_with_band_type_with_options::<f32, _>(
         "tiempos.tif",
         geo_ref.width as usize,
         geo_ref.height as usize,
         1,
         &options,
     )?;
-    let sr = SpatialRef::from_epsg(geo_ref.epsg)?;
-    ds.set_spatial_ref(&sr)?;
+    let srs = SpatialRef::from_epsg(geo_ref.epsg)?;
+    ds.set_spatial_ref(&srs)?;
     ds.set_geo_transform(&geo_ref.transform.as_array_64())?;
     let mut band = ds.rasterband(1)?;
     let no_data: f32 = Max::MAX;
     band.set_no_data_value(Some(no_data as f64))?;
     let mut buf = Buffer::new(band.size(), time);
     band.write((0, 0), band.size(), &mut buf)?;
+
+    // Write refs vectors
+    println!("Generating refs shapefile");
+    let shape = DriverManager::get_driver_by_name("ESRI Shapefile")?;
+    let mut ds = shape.create_vector_only("refs")?;
+    let mut layer = ds.create_layer(LayerOptions {
+        name: "fire_references",
+        srs: Some(&srs),
+        ty: gdal_sys::OGRwkbGeometryType::wkbLineString,
+        ..Default::default()
+    })?;
+    for i in 0..geo_ref.width {
+        for j in 0..geo_ref.height {
+            let ix = (i + j * geo_ref.width) as usize;
+            if boundary_change[ix] == 1 {
+                let dst = geo_ref.backward(USizeVec2 {
+                    x: i as usize,
+                    y: j as usize,
+                });
+                let dst = dst
+                    + Vec2 {
+                        x: geo_ref.transform.dx() / 2.0,
+                        y: geo_ref.transform.dy() / 2.0,
+                    };
+                let src = geo_ref.backward(USizeVec2 {
+                    x: refs_x[ix] as usize,
+                    y: refs_y[ix] as usize,
+                });
+                let src = src
+                    + Vec2 {
+                        x: geo_ref.transform.dx() / 2.0,
+                        y: geo_ref.transform.dy() / 2.0,
+                    };
+                let geom = Geometry::from_wkt(
+                    (format!("LINESTRING({} {}, {} {})", src.x, src.y, dst.x, dst.y)).as_str(),
+                )?;
+                layer.create_feature(geom)?;
+            }
+        }
+    }
     Ok(())
 }

@@ -26,7 +26,7 @@ fn main() {
             "fuel={}\nfire={:?}\nspeedAtAz={:?}",
             std::str::from_utf8(&fuel.name).unwrap(),
             fire,
-            fire.at_azimuth(Angle::new::<degree>(25.0)).speed()
+            fire.spread(Angle::new::<degree>(25.0)).speed()
         )
     }
 }

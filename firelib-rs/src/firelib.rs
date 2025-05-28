@@ -240,7 +240,7 @@ impl<'a> Fire {
         Length::new::<foot>(Self::flame_length(self.byrams_max().get::<btu_foot_sec>()))
     }
 
-    pub fn at_azimuth(&'a self, azimuth: Angle) -> Spread<'a> {
+    pub fn spread(&'a self, azimuth: Angle) -> Spread<'a> {
         let azimuth = azimuth.get::<radian>();
         let azimuth_max = self.azimuth_max.get::<radian>();
         let angle = {

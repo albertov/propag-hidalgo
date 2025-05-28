@@ -200,7 +200,7 @@ mod tests {
             .get(model)
             .and_then(|fuel| fuel.burn(terrain))
             .map(|fire| {
-                let spread_az = SpreadAtAzimuth::from_spread(&fire.at_azimuth(azimuth));
+                let spread_az = SpreadAtAzimuth::from_spread(&fire.spread(azimuth));
                 (fire, spread_az)
             })
             .unwrap_or((Fire::null(), SpreadAtAzimuth::null()))

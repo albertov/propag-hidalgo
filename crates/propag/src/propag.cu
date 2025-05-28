@@ -117,8 +117,8 @@ public:
 
 private:
   __device__ inline Point find_neighbor_with_least_access_time() {
-    Point best = shared_[local_ix_];
     if (in_bounds_) {
+      Point best = shared_[local_ix_];
 #pragma unroll
       for (int j = -1; j < 2; j++) {
 #pragma unroll
@@ -197,13 +197,14 @@ private:
           }
         };
       };
+      return best;
     };
-    return best;
+    return Point_NULL;
   }
 
   __device__ inline bool update_point(Point p) {
-    const Point &me = shared_[local_ix_];
-    if (p.time < me.time && p.time < settings_.max_time) {
+    if (p.time < settings_.max_time && p.time < shared_[local_ix_].time) {
+      ASSERT(in_bounds_);
       shared_[local_ix_] = p;
       commit_point();
       return true;

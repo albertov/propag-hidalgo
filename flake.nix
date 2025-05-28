@@ -57,14 +57,20 @@
           };
           devShells.default = pkgs.mkShell {
             inputsFrom = [
-              self'.packages.firelib-rs
+              pkgs.firelib-rs
             ];
+            env = {
+              inherit (pkgs.firelib-rs)
+                BINDGEN_EXTRA_CLANG_ARGS
+                LIBCLANG_PATH
+                ;
+            };
             packages = with pkgs; [
               git
-              cargo
+              #cargo
               cargo-watch
-              rust-bindgen
-              rustfmt
+              #rust-bindgen
+              #rustfmt
             ];
           };
           # for `nix fmt`

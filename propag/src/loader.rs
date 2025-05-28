@@ -43,8 +43,8 @@ impl WarpedDataset {
             let gt = gt.as_mut_ref();
             let dst_ds = GDALCreateWarpedVRT(
                 src.c_dataset(),
-                geo_ref.size[0],
-                geo_ref.size[1],
+                geo_ref.size[0] as i32,
+                geo_ref.size[1] as i32,
                 gt.as_mut_ptr(),
                 opts,
             );

@@ -3,6 +3,14 @@ name = "propag"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "bench"
+path = "src/bench.rs"
+
+[[bin]]
+name = "propag"
+path = "src/main.rs"
+
 [dependencies]
 cust = { git = "https://github.com/albertov/Rust-CUDA", branch = "cuda_12" }
 rand = "0.9.0"

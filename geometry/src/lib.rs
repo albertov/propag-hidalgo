@@ -106,14 +106,18 @@ where
     T: CoordFloat,
 {
     pub transform: GeoTransform<T>,
-    pub size: [i32; 2],
+    pub size: [u32; 2],
     pub crs: Crs,
 }
 
 impl<T> GeoReference<T>
 where
-    T: CoordFloat + Clone + From<i32> + AbsDiffEq,
+    T: CoordFloat + Clone + From<u32> + AbsDiffEq,
 {
+    pub fn len(&self) -> u32 {
+        self.size[0] * self.size[1]
+    }
+
     pub fn forward(&self, p: Coord<T>) -> Coord<usize> {
         self.transform.forward(p)
     }

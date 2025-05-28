@@ -1,4 +1,6 @@
 use core::ops::Div;
+use core::ptr::NonNull;
+use core::ptr::{read_volatile,write_volatile};
 use cuda_std::prelude::*;
 use cuda_std::thread::*;
 use core::sync::atomic::Ordering;
@@ -20,6 +22,7 @@ const SHARED_SIZE: usize = BLOCK_WIDTH * BLOCK_HEIGHT;
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
 pub unsafe fn propag(
     geo_ref: GeoReference<f64>,
+    num_blocks: u32,
     max_time: float::T,
     model: &[usize],
     d1hr: &[float::T],
@@ -37,6 +40,7 @@ pub unsafe fn propag(
     time: *mut Option<float::T>,
     refs_x: *mut Option<usize>,
     refs_y: *mut Option<usize>,
+    progress: *mut f32,
 ) {
     // Arrays in shared memory for fast analysis within block
     let shared = shared_array![Option<Point<float::T>>; SHARED_SIZE];
@@ -49,6 +53,8 @@ pub unsafe fn propag(
 
     // Index of this thread into total area
     let idx_2d = thread::index_2d();
+    let in_bounds = idx_2d.x < width && idx_2d.y < height;
+    let blk_idx = (thread::block_idx_x() + thread::block_idx_y() * thread::grid_dim_x()) as usize;
 
     // Our position in global pixel coords
     let pos = Coord {
@@ -62,14 +68,41 @@ pub unsafe fn propag(
     // Our index into the shared area
     let shared_ix = thread::thread_idx_x() as usize + thread::thread_idx_y() as usize * BLOCK_WIDTH;
 
+    if in_bounds {
+        // load initial fire
+        let terrain = TerrainCuda {
+            d1hr: d1hr[global_ix],
+            d10hr: d10hr[global_ix],
+            d100hr: d100hr[global_ix],
+            herb: herb[global_ix],
+            wood: wood[global_ix],
+            wind_speed: wind_speed[global_ix],
+            wind_azimuth: wind_azimuth[global_ix],
+            slope: slope[global_ix],
+            aspect: aspect[global_ix],
+        };
+        if let Some(fire) =
+            Catalog::STANDARD.burn_simple(model[global_ix], &terrain.into())
+        {
+            let fire = Into::<FireSimpleCuda>::into(fire);
+            *speed_max.wrapping_add(global_ix) = Some(fire.speed_max);
+            *azimuth_max.wrapping_add(global_ix) = Some(fire.azimuth_max);
+            *eccentricity.wrapping_add(global_ix) = Some(fire.eccentricity);
+            *refs_x.wrapping_add(global_ix) = Some(pos.x);
+            *refs_y.wrapping_add(global_ix) = Some(pos.y);
+        };
+    };
+    thread::sync_threads();
+
     // FIXME: Grid level sync
-    'grid_loop: for _ in (0..1000) {
-        'block_loop: loop {
+    let mut any_improved : f32 = 0.0;
+    'grid_loop: for _ in 0..100  {
+        loop {
             ////////////////////////////////////////////////////////////////////////
             // First phase, load data from global to shared memory
             ////////////////////////////////////////////////////////////////////////
             // are we in-bounds of the target raster?
-            if idx_2d.x < width && idx_2d.y < height {
+            let me = if in_bounds {
                 let me = Point::<float::T>::load(
                     global_ix,
                     time,
@@ -80,47 +113,25 @@ pub unsafe fn propag(
                     refs_y,
                 );
                 *shared.wrapping_add(shared_ix) = me;
-            }
-            // Wait until all other threads have reached this point so we can safely
-            // read from shared memory
+                me
+            } else {
+                None
+            };
             thread::sync_threads();
 
             ////////////////////////////////////////////////////////////////////////
             // Begin neighbor analysys
             ////////////////////////////////////////////////////////////////////////
-            let mut best_fire: Option<Point<float::T>> = None;
+            let fire : Option<FireSimple> = me.and_then(|x| x.fire);
+            let mut best_fire: Option<Point<float::T>> = me;
+            let mut improved = 0;
             for neighbor in iter_neighbors(&geo_ref, shared) {
                 // neighbor has fire
-                let fire: Option<FireSimple> = (*shared.wrapping_add(shared_ix)).map_or(
-                    {
-                        let terrain = TerrainCuda {
-                            d1hr: d1hr[global_ix],
-                            d10hr: d10hr[global_ix],
-                            d100hr: d100hr[global_ix],
-                            herb: herb[global_ix],
-                            wood: wood[global_ix],
-                            wind_speed: wind_speed[global_ix],
-                            wind_azimuth: wind_azimuth[global_ix],
-                            slope: slope[global_ix],
-                            aspect: aspect[global_ix],
-                        };
-                        Catalog::STANDARD.burn_simple(model[global_ix], &terrain.into())
-                    },
-                    |p| p.fire,
-                );
-                let neighbor_as_reference = || match neighbor.as_reference() {
-                    Some(reference) => {
-                        let time = reference.time_to(&geo_ref, pos);
-                        when_lt_max_time(Point {
-                            time,
-                            fire,
-                            reference: Some(reference),
-                        })
-                    }
-                    None => None,
-                };
                 let reference = (|| {
                     let neigh_ref = neighbor.effective_ref()?;
+                    if neigh_ref.pos == neighbor.pos {
+                        return Some(neigh_ref)
+                    }
                     let pos = Coord {
                         x: pos.x as float::T,
                         y: pos.y as float::T,
@@ -152,6 +163,7 @@ pub unsafe fn propag(
                         None
                     }
                 })();
+                self::println!("lelo: {:?}, {:?}, {:?}", pos, fire.is_some(), reference.map(|p|p.pos));
                 let point = match (fire, reference) {
                     // We are combustible and reference can be used
                     (Some(fire), Some(reference)) => {
@@ -164,11 +176,23 @@ pub unsafe fn propag(
                             })
                         } else {
                             // Reference is not valid, use the neighbor
-                            neighbor_as_reference()
+                            match neighbor.as_reference() {
+                                Some(reference) => {
+                                    let time = reference.time_to(&geo_ref, pos);
+                                    when_lt_max_time(Point {
+                                        time,
+                                        fire: neighbor.point.fire,
+                                        reference: Some(reference),
+                                    })
+                                }
+                                None => None,
+                            }
                         }
                     }
-                    // We are combustible but reference is not valid, use the neighbor
-                    (Some(_), None) => neighbor_as_reference(),
+                    // We are combustible but reference is not valid, use self as ref
+                    (Some(fire), None) => me.map(|me| Point {
+                        reference: me.as_reference(pos),
+                        ..me}),
                     // We are not combustible but reference can be used.
                     // We assign an access time but a None fire
                     (None, Some(reference)) => {
@@ -184,15 +208,19 @@ pub unsafe fn propag(
                 };
                 // Update the best_fire with the one with lowest access time
                 best_fire = match (point, best_fire) {
-                    (Some(point), Some(best_fire)) if point.time < best_fire.time => Some(point),
+                    (Some(point), Some(best_fire)) if point.time < best_fire.time => {
+                        //self::println!("caca");
+                        improved = 1;
+                        Some(point)
+                    },
                     _ => best_fire,
                 };
             }
             ///////////////////////////////////////////////////
             // End of neighbor analysys, save point if improves
             ///////////////////////////////////////////////////
-            let improved = if best_fire.is_some() { 1 } else { 0 };
             if thread::sync_threads_or(improved) != 0 {
+                any_improved = 1.0;
                 if let Some(point) = best_fire {
                     point.save(
                         global_ix,
@@ -207,12 +235,20 @@ pub unsafe fn propag(
             } else {
                 // If no threads in this block have improved
                 // break the block_loop
-                break 'block_loop;
+                break
             } 
         } // end block_loop
-        // TODO
+        thread::sync_threads();
+        write_volatile(progress.wrapping_add(blk_idx), any_improved);
         thread::grid_fence();
-    } // end grid_loop
+        /*
+        if (0..num_blocks as usize)
+            .all(|i| read_volatile(progress.wrapping_add(blk_idx)) == 0.0)
+        {
+            break 'grid_loop
+        }
+        */
+    } // end block_loop
 }
 
 // TODO: Fine-tune these constants and make them configurable
@@ -241,8 +277,8 @@ impl<T: CoordFloat> PointRef<T> {
     }
 }
 
-#[derive(Copy, Clone)]
 #[repr(C)]
+#[derive(Copy, Clone, Debug)]
 struct PointRef<T>
 where
     T: CoordFloat,
@@ -252,8 +288,8 @@ where
     fire: FireSimple,
 }
 
-#[derive(Copy, Clone)]
 #[repr(C)]
+#[derive(Copy, Clone, Debug)]
 struct Point<T>
 where
     T: CoordFloat,
@@ -273,37 +309,33 @@ impl Point<float::T> {
         ref_x: *const Option<usize>,
         ref_y: *const Option<usize>,
     ) -> Option<Self> {
-        let p_time = (*time.wrapping_add(idx))?;
-        let fire = Some(FireSimpleCuda {
-            azimuth_max: (*azimuth_max.wrapping_add(idx))?,
-            speed_max: (*speed_max.wrapping_add(idx))?,
-            eccentricity: (*eccentricity.wrapping_add(idx))?,
-        })
-        .map(|f| f.into());
-        let ref_pos: Option<Coord<usize>> = Some(Coord {
-            x: (*ref_x.wrapping_add(idx))?,
-            y: (*ref_y.wrapping_add(idx))?,
-        });
-        let reference: Option<PointRef<float::T>> = ref_pos.and_then(|ref_pos| {
-            let ref_ix: usize = ref_pos.x + ref_pos.y * BLOCK_WIDTH;
-            let time = (*time.wrapping_add(ref_ix))?;
-            let fire = Some(FireSimpleCuda {
-                azimuth_max: (*azimuth_max.wrapping_add(ref_ix))?,
-                speed_max: (*speed_max.wrapping_add(ref_ix))?,
-                eccentricity: (*eccentricity.wrapping_add(ref_ix))?,
-            })
-            .expect("reference is not combustible")
-            .into();
-            Some(PointRef {
-                time,
-                pos: ref_pos,
-                fire,
-            })
-        });
-        Some(Point {
-            time: p_time,
-            fire,
-            reference,
+        (*time.wrapping_add(idx)).and_then(|p_time| {
+            let fire = match (*azimuth_max.wrapping_add(idx),
+                   *speed_max.wrapping_add(idx),
+                   *eccentricity.wrapping_add(idx)) {
+                (Some(azimuth_max), Some(speed_max), Some(eccentricity)) =>
+                Some((FireSimpleCuda { azimuth_max, speed_max, eccentricity, }).into()),
+                _ => {
+                    None
+                }
+            };
+            let ref_pos = match (*ref_x.wrapping_add(idx), *ref_y.wrapping_add(idx)) {
+                (Some(x), Some(y)) => Some(Coord {x,y}),
+                _ => None
+            };
+            let reference: Option<PointRef<float::T>> = ref_pos.and_then(|ref_pos| {
+                let ref_ix: usize = ref_pos.x + ref_pos.y * BLOCK_WIDTH;
+                let time = (*time.wrapping_add(ref_ix))?;
+                let fire = Some(FireSimpleCuda {
+                    azimuth_max: (*azimuth_max.wrapping_add(ref_ix))?,
+                    speed_max: (*speed_max.wrapping_add(ref_ix))?,
+                    eccentricity: (*eccentricity.wrapping_add(ref_ix))?,
+                })
+                .expect("reference is not combustible")
+                .into();
+                Some(PointRef { time, pos: ref_pos, fire, })
+            });
+            Some(Point { time: p_time, fire, reference, })
         })
     }
 
@@ -336,6 +368,13 @@ impl Point<float::T> {
             *ref_y.wrapping_add(idx) = None;
         }
     }
+    fn as_reference(&self, pos: Coord<usize>) -> Option<PointRef<float::T>> {
+        Some(PointRef {
+            time: self.time,
+            pos,
+            fire: self.fire?,
+        })
+    }
 }
 
 struct Neighbor {
@@ -345,11 +384,7 @@ struct Neighbor {
 
 impl Neighbor {
     fn as_reference(&self) -> Option<PointRef<float::T>> {
-        Some(PointRef {
-            time: self.point.time,
-            pos: self.pos,
-            fire: self.point.fire?,
-        })
+        self.point.as_reference(self.pos)
     }
     fn effective_ref(&self) -> Option<PointRef<float::T>> {
         self.point.reference.or(self.as_reference())

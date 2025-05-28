@@ -20,7 +20,10 @@ fn main() {
     cbindgen::Builder::new()
         .with_crate("../firelib-cuda")
         .with_language(cbindgen::Language::C)
-        .with_after_include("#define T float")
+        .with_after_include("
+        #define T float
+        #define Max_MAX SIZE_MAX
+        ")
         //.with_parse_deps(true)
         .generate()
         .expect("Unable to generate bindings")

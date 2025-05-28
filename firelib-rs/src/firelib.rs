@@ -1,14 +1,14 @@
-#[cfg(feature = "std")]
+#[cfg(not(target_os = "cuda"))]
 extern crate std;
 
-#[cfg(feature = "std")]
+#[cfg(not(target_os = "cuda"))]
 use std::vec::Vec;
 
 #[cfg(target_os = "cuda")]
 extern crate cuda_std;
 
 #[cfg(not(target_os = "cuda"))]
-extern crate cust;
+extern crate cust_core;
 
 #[cfg(target_os = "cuda")]
 use cuda_std::GpuFloat;
@@ -77,7 +77,7 @@ pub struct Particle {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[cfg_attr(feature = "std", derive(StructOfArray), soa_derive(Debug))]
+#[cfg_attr(not(target_os = "cuda"), derive(StructOfArray), soa_derive(Debug))]
 #[repr(C)]
 pub struct Terrain {
     pub d1hr: Ratio,
@@ -91,12 +91,9 @@ pub struct Terrain {
     pub aspect: Angle,
 }
 
-#[cfg_attr(
-    not(target_os = "cuda"),
-    derive(Copy, Clone, Debug, cust::DeviceCopy, StructOfArray),
-    soa_derive(Debug)
-)]
+#[cfg_attr(not(target_os = "cuda"), derive(StructOfArray), soa_derive(Debug))]
 #[repr(C)]
+#[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
 pub struct TerrainCuda {
     pub d1hr: float::T,
     pub d10hr: float::T,
@@ -176,12 +173,9 @@ pub struct Fire {
     pub eccentricity: Ratio,
     pub residence_time: Time,
 }
-#[cfg_attr(
-    not(target_os = "cuda"),
-    derive(Copy, Clone, Debug, cust::DeviceCopy, StructOfArray),
-    soa_derive(Debug)
-)]
+#[cfg_attr(not(target_os = "cuda"), derive(StructOfArray), soa_derive(Debug))]
 #[repr(C)]
+#[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
 pub struct FireCuda {
     pub rx_int: float::T,
     pub speed0: float::T,
@@ -462,7 +456,7 @@ impl<'a> Fire {
             // 0.0. If speed_max is small we don't care about this
             // discrepancy
             fuzzy_cmp_azimuths("azimuth_max", self.azimuth_max, other.azimuth_max) || {
-                #[cfg(feature = "std")]
+                #[cfg(not(target_os = "cuda"))]
                 {
                     use std::println;
                     println!(
@@ -1221,7 +1215,7 @@ pub(crate) fn fuzzy_cmp_smidgen(msg: &str, a: float::T, b: float::T, smidgen: fl
     let min = a.min(b).abs();
     let diff = (a - b).abs();
     let r = diff < smidgen || diff / min < MAX_FUZZY_CMP_DIFF;
-    #[cfg(feature = "std")]
+    #[cfg(not(target_os = "cuda"))]
     #[cfg(test)]
     if !r {
         std::println!("{}: {} /= {}", msg, a, b);

@@ -13,22 +13,23 @@
 #define ALIGN __align__(16)
 #define ASSERT(X) assert(X)
 
-__device__ inline void set_fire(FireSimpleCuda volatile *me,
-                                const FireSimpleCuda &other) {
+__device__ static inline void set_fire(FireSimpleCuda volatile *me,
+                                       const FireSimpleCuda &other) {
   me->speed_max = other.speed_max;
   me->azimuth_max = other.azimuth_max;
   me->eccentricity = other.eccentricity;
 }
 
-__device__ inline FireSimpleCuda load_fire(size_t idx, const float *speed_max,
-                                           const float *azimuth_max,
-                                           const float *eccentricity) {
+__device__ static inline FireSimpleCuda load_fire(size_t idx,
+                                                  const float *speed_max,
+                                                  const float *azimuth_max,
+                                                  const float *eccentricity) {
   return {.speed_max = speed_max[idx],
           .azimuth_max = azimuth_max[idx],
           .eccentricity = eccentricity[idx]};
 }
 
-__device__ inline bool fire_is_null(const FireSimpleCuda &me) {
+__device__ static inline bool fire_is_null(const FireSimpleCuda &me) {
   return me.speed_max == 0.0;
 }
 

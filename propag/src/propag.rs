@@ -31,6 +31,7 @@ pub struct Settings {
 
 impl Settings {
     #[unsafe(no_mangle)]
+    // This one is so cbindgen export FireSimpleCuda
     pub extern "C" fn create_settings(
         geo_ref: GeoReference,
         max_time: f32,
@@ -59,13 +60,13 @@ impl FireSimpleCuda {
         azimuth_max: 0.0,
         eccentricity: 0.0,
     };
-
+    // This one is so cbindgen export FireSimpleCuda
     #[unsafe(no_mangle)]
     pub extern "C" fn create_fire(
         speed_max: float::T,
         azimuth_max: float::T,
         eccentricity: float::T,
-    ) -> Self {
+    ) -> FireSimpleCuda {
         Self {
             speed_max,
             azimuth_max,

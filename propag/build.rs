@@ -10,7 +10,7 @@ fn main() {
 
     let dest = format!("{}/firelib.ptx", target_dir);
     println!("cargo::rerun-if-changed={}", dest);
-    CudaBuilder::new("../firelib-cuda")
+    CudaBuilder::new("../firelib-rs")
         .copy_to(dest)
         .build()
         .unwrap();

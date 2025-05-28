@@ -84,8 +84,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Getting function");
     // retrieve the add kernel from the module so we can calculate the right launch config.
     let propag_c = module_c.get_function("propag")?;
-    let pre_burn = module.get_function("standard_simple_burn")?;
-    let find_boundary_changes = module.get_function("find_boundary_changes")?;
+    let pre_burn = module.get_function("cuda_standard_simple_burn")?;
 
     let block_size = BlockSize {
         x: THREAD_BLOCK_AXIS_LENGTH,
@@ -143,12 +142,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut refs_x: Vec<u16> = std::iter::repeat(Max::MAX).take(model.len()).collect();
     let mut refs_y: Vec<u16> = std::iter::repeat(Max::MAX).take(model.len()).collect();
     let mut boundary_change: Vec<u16> = std::iter::repeat(0).take(model.len()).collect();
-
-    let find_boundaries_grid_size = GridSize {
-        x: geo_ref.width.div_ceil(block_size.x),
-        y: geo_ref.height.div_ceil(block_size.y),
-        z: 1,
-    };
 
     timeit!({
         let speed_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();

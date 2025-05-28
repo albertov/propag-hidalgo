@@ -3,28 +3,28 @@ name = "firelib-rs"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 const_soft_float = { git = "https://github.com/albertov/const_soft_float.git", features= ["no_std"]}
 uom = { version = "0.36.0", default-features = false, features=["f64", "f32", "si", "serde"] }
 cust_core = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }
-
-[target.'cfg(target_os = "cuda")'.dependencies]
 cuda_std = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }
+geometry = { path = "../geometry" }
+glam = { version = "0.30.1", default-features = false, features = ["approx", "cuda"] }
+num-traits = { version = "0.2.19", default-features = false }
+min_max_traits = "0.1.0"
 
 [target.'cfg(not(target_os = "cuda"))'.dependencies]
 rand = "0.9.0"
 soa_derive = "0.14.0"
-cust = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }
 
 [dev-dependencies]
 quickcheck = "1.0.3"
 
 [target.'cfg(not(target_os = "cuda"))'.dev-dependencies]
 firelib-sys = { path = "../firelib-sys" }
-
-[features]
-default=["std"]
-std=[]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(test)'] }

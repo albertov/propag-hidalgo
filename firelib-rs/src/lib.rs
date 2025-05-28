@@ -1,17 +1,18 @@
 #![no_std]
 #![feature(test)]
 
-#[cfg(feature = "std")]
+#[cfg(not(target_os = "cuda"))]
 extern crate std;
 
 #[macro_use]
 extern crate uom;
 
-#[cfg(feature = "std")]
+#[cfg(not(target_os = "cuda"))]
 #[macro_use]
 extern crate soa_derive;
 
-mod firelib;
+pub mod cuda;
+pub mod firelib;
 
 mod f32;
 pub mod float {
@@ -22,6 +23,7 @@ pub mod float {
 #[macro_use]
 pub mod units;
 
+pub use crate::cuda::*;
 pub use crate::firelib::*;
 
 impl Catalog {
@@ -169,7 +171,6 @@ impl Catalog {
     ]);
 }
 
-#[cfg(feature = "std")]
 #[cfg(test)]
 mod tests {
     use super::float;

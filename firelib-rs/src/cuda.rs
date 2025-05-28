@@ -1,12 +1,12 @@
-use crate::propag::FireSimpleCuda;
+use crate::float;
+use crate::float::*;
+use crate::from_quantity;
+use crate::*;
 use cuda_std::prelude::*;
-use cuda_std::thread::sync_threads;
-use firelib_rs::float;
-use firelib_rs::*;
 
 #[kernel]
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
-pub unsafe fn standard_burn(
+pub unsafe fn cuda_standard_burn(
     model: &[usize],
     d1hr: &[float::T],
     d10hr: &[float::T],
@@ -55,7 +55,7 @@ pub unsafe fn standard_burn(
 
 #[kernel]
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
-pub unsafe fn standard_simple_burn(
+pub unsafe fn cuda_standard_simple_burn(
     len: usize,
     model: *const usize,
     d1hr: *const float::T,
@@ -85,10 +85,9 @@ pub unsafe fn standard_simple_burn(
             aspect: *aspect.add(i),
         };
         if let Some(fire) = Catalog::STANDARD.burn_simple(*model.add(i), &terrain.into()) {
-            let fire: FireSimpleCuda = fire.into();
-            *speed_max.add(i) = fire.speed_max;
-            *azimuth_max.add(i) = fire.azimuth_max;
-            *eccentricity.add(i) = fire.eccentricity;
+            *speed_max.add(i) = from_quantity!(Velocity, &fire.speed_max);
+            *azimuth_max.add(i) = from_quantity!(Angle, &fire.azimuth_max);
+            *eccentricity.add(i) = from_quantity!(Ratio, &fire.eccentricity);
         }
     }
 }

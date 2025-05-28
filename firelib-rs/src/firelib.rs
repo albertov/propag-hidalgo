@@ -342,6 +342,7 @@ pub struct Fuel {
     pub flux_ratio: f64,
     pub slope_k: f64,
     pub wind_b: f64,
+    pub wind_b_inv: f64,
     pub wind_e: f64,
     pub wind_k: f64,
     pub sigma: f64,
@@ -973,6 +974,7 @@ impl Fuel {
             inv_mext: 1.0 / mext,
             total_area,
             wind_b,
+            wind_b_inv: 1.0 / wind_b,
             wind_e,
             wind_k,
             particles: fuel.particles,
@@ -1102,7 +1104,7 @@ impl Fuel {
         let upslope = terrain.upslope();
         let wind_speed = terrain.wind_speed.get::<foot_per_minute>();
         let wind_az = terrain.wind_azimuth.get::<radian>();
-        let ew_from_phi_ew = |p: f64| (p * self.wind_e).powf(1.0 / self.wind_b);
+        let ew_from_phi_ew = |p: f64| (p * self.wind_e).powf(self.wind_b_inv);
         let max_wind = 0.9 * rx_int;
         let check_wind_limit = |pew: f64, ew: f64, s: f64, a: f64| {
             if ew > max_wind {

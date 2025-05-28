@@ -19,7 +19,7 @@ pub mod linear_power_density {
         system: uom::si;
         quantity: uom::si::linear_power_density;
 
-        @btu_foot_sec: 1.054_350E3 / 3.048_E-1; "btu/ft/sec", "BTU per foot per sec", "BTU per foot per sec";
+        @btu_foot_sec: 1.054_35E3 / 3.048_E-1; "btu/ft/sec", "BTU per foot per sec", "BTU per foot per sec";
     }
 }
 
@@ -27,7 +27,7 @@ use crate::float;
 use crate::float::*;
 pub const FOOT_TO_M: float::T = 3.048_E-1;
 pub const POUND_TO_KG: float::T = 4.535_924_E-1;
-pub const BTU: float::T = 1.054_350_E3;
+pub const BTU: float::T = 1.054_35_E3;
 use uom::lib::marker::PhantomData;
 
 pub const fn load_to_imperial(x: &ArealMassDensity) -> float::T {
@@ -123,7 +123,7 @@ pub mod radiant_exposure {
         system: uom::si;
         quantity: uom::si::radiant_exposure;
 
-        @btu_sq_foot: 1.054_350E3 / (3.048_E-1 * 3.048_E-1); "btu/ft²", "BTU per square foot", "BTU per square foot";
+        @btu_sq_foot: 1.054_35E3 / (3.048_E-1 * 3.048_E-1); "btu/ft²", "BTU per square foot", "BTU per square foot";
     }
 }
 
@@ -133,7 +133,7 @@ pub mod heat_flux_density {
         system: uom::si;
         quantity: uom::si::heat_flux_density;
 
-        @btu_sq_foot_min: 1.054_350E3 / (3.048_E-1 * 3.048_E-1) / 60.0; "btu/ft²/min", "BTU per square foot per minute", "BTU per square foot per minute";
+        @btu_sq_foot_min: 1.054_35E3 / (3.048_E-1 * 3.048_E-1) / 60.0; "btu/ft²/min", "BTU per square foot per minute", "BTU per square foot per minute";
     }
 }
 pub mod reciprocal_length {

@@ -1,5 +1,5 @@
 pub type T = f32;
-pub const PI: T = 3.141592653589793;
+pub use core::f32::consts::PI;
 pub(crate) const SMIDGEN: T = 1e-6;
 // These are used in fuzzy_cmp for tests
 pub(crate) const CMP_SMIDGEN: T = 1e-2;

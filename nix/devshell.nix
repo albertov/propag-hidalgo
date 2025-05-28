@@ -36,5 +36,6 @@ pkgs.mkShell {
     python3.pkgs.numpy
     maturin
     gdal
+    #clippy
   ];
 }

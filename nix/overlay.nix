@@ -134,12 +134,16 @@ in
     cargo = final.myRustToolchain;
     rustc = final.myRustToolchain;
   };
+  clippy = final.myRustPlatform.rust.rustc.availableComponents.clippy;
 
   pre-commit = inputs.pre-commit-nix.lib.${system}.run rec {
     src = self;
     hooks = {
       treefmt-nix.enable = true;
       treefmt-nix.entry = "${final.nix}/bin/nix fmt";
+      clippy.enable = false; # FIXME
+      clippy.packageOverrides.clippy = final.clippy;
+      clippy.packageOverrides.cargo = final.myRustToolchain;
     };
   };
 

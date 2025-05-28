@@ -91,8 +91,10 @@
                 ;
             };
             packages = with pkgs; [
+              linuxPackages.nvidia_x11
+              linuxPackages.nvidia_x11.bin
               git
-              cudaPackages.cuda_cudart
+              cudaPackages.cuda_gdb
               cargo-watch
               cargo-valgrind
               valgrind

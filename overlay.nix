@@ -36,6 +36,8 @@ let
   };
 in
 {
+  gdal = final.callPackage ./gdal.nix { };
+
   firelib = final.myRustPlatform.buildRustPackage (
     workspaceArgs
     // {
@@ -57,7 +59,7 @@ in
       cudaPackages.cuda_cccl.dev
       cudaPackages.cuda_nvcc
       cudaPackages.cuda_profiler_api.dev
-      cudaPackages.cuda_cupti
+      #cudaPackages.cuda_cupti
     ];
   };
 
@@ -70,16 +72,14 @@ in
         with final;
         with final.myRustToolchain.availableComponents;
         [
-          cudaCombined
+          cudaPackages.cuda_cudart.stubs.static
           openssl
           gdal
         ];
       LLVM_LINK_SHARED = 1;
       nativeBuildInputs = with final; [
-        makeWrapper
+        removeReferencesTo
         cudaCombined
-        #linuxPackages.nvidia_x11
-        #linuxPackages.nvidia_x11.bin
         pkg-config
         myRustToolchain
         llvmPackages_7.llvm
@@ -87,9 +87,17 @@ in
         which
       ];
 
-      postInstall = with final; ''
-        wrapProgram $out/bin/propag \
-          --prefix LD_LIBRARY_PATH : ${linuxPackages.nvidia_x11}/lib
+      /*
+        postInstall = with final; ''
+          wrapProgram $out/bin/propag \
+            --prefix LD_LIBRARY_PATH : ${linuxPackages.nvidia_x11}/lib
+        '';
+      */
+      fixupPhase = ''
+        remove-references-to \
+          -t ${final.myRustToolchain} \
+          -t ${final.cudaPackages.backendStdenv.cc} \
+          $out/bin/propag
       '';
 
     }

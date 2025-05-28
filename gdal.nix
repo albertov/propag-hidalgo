@@ -1,0 +1,172 @@
+{
+  lib,
+  stdenv,
+  callPackage,
+  fetchFromGitHub,
+  fetchpatch,
+
+  useMinimalFeatures ? true,
+  useArmadillo ? (!useMinimalFeatures),
+  useArrow ? (!useMinimalFeatures),
+  useHDF ? (!useMinimalFeatures),
+  useJava ? (!useMinimalFeatures),
+  useLibHEIF ? (!useMinimalFeatures),
+  useLibJXL ? (!useMinimalFeatures),
+  useMysql ? (!useMinimalFeatures),
+  useNetCDF ? (!useMinimalFeatures),
+  usePoppler ? (!useMinimalFeatures),
+  usePostgres ? (!useMinimalFeatures),
+  useTiledb ?
+    (!useMinimalFeatures) && !(stdenv.hostPlatform.isDarwin && stdenv.hostPlatform.isx86_64),
+
+  ant,
+  armadillo,
+  arrow-cpp,
+  bison,
+  brunsli,
+  c-blosc,
+  cfitsio,
+  cmake,
+  crunch,
+  cryptopp,
+  curl,
+  dav1d,
+  doxygen,
+  expat,
+  geos,
+  giflib,
+  graphviz,
+  gtest,
+  hdf4,
+  hdf5-cpp,
+  jdk,
+  json_c,
+  lerc,
+  libaom,
+  libde265,
+  libdeflate,
+  libgeotiff,
+  libheif,
+  libhwy,
+  libiconv,
+  libjpeg,
+  libjxl,
+  libmysqlclient,
+  libpng,
+  libspatialite,
+  libtiff,
+  libwebp,
+  libxml2,
+  lz4,
+  netcdf,
+  openexr_3,
+  openjpeg,
+  openssl,
+  pcre2,
+  pkg-config,
+  poppler,
+  postgresql,
+  proj,
+  python3,
+  qhull,
+  rav1e,
+  sqlite,
+  swig,
+  tiledb,
+  x265,
+  xercesc,
+  xz,
+  zlib,
+  zstd,
+}:
+
+stdenv.mkDerivation (finalAttrs: {
+  pname = "gdal" + lib.optionalString useMinimalFeatures "-minimal";
+  version = "3.9.3";
+
+  src = fetchFromGitHub {
+    owner = "OSGeo";
+    repo = "gdal";
+    rev = "v${finalAttrs.version}";
+    hash = "sha256-8LY63s5vOVK0V37jQ60qFsaW/2D/13Xuy9/2OPLyTso=";
+  };
+
+  patches = [
+    (fetchpatch {
+      url = "https://github.com/OSGeo/gdal/commit/40c3212fe4ba93e5176df4cd8ae5e29e06bb6027.patch";
+      sha256 = "sha256-D55iT6E/YdpSyfN7KUDTh1gdmIDLHXW4VC5d6D9B7ls=";
+    })
+    (fetchpatch {
+      name = "arrow-18.patch";
+      url = "https://github.com/OSGeo/gdal/commit/9a8c5c031404bbc81445291bad128bc13766cafa.patch";
+      sha256 = "sha256-tF46DmF7ZReqY8ACTTPXohWLsRn8lVxhKF1s+r254KM=";
+    })
+  ];
+
+  nativeBuildInputs = [
+    bison
+    cmake
+    doxygen
+    graphviz
+    pkg-config
+  ];
+
+  cmakeFlags = [
+    "-DGDAL_USE_INTERNAL_LIBS=ON"
+  ];
+
+  buildInputs = [
+    c-blosc
+    #brunsli
+    #cfitsio
+    #crunch
+    #curl
+    #cryptopp
+    libdeflate
+    #expat
+    #libgeotiff
+    geos
+    #giflib
+    #libjpeg
+    #json_c
+    lerc
+    xz
+    #(libxml2.override { enableHttp = true; })
+    lz4
+    #openjpeg
+    #openssl
+    #pcre2
+    #libpng
+    proj
+    #qhull
+    #libspatialite
+    sqlite
+    #libtiff
+    #gtest
+    #libwebp
+    zlib
+    zstd
+    #python3
+    #python3.pkgs.numpy
+  ];
+  enableParallelBuilding = true;
+
+  doInstallCheck = false;
+
+  __darwinAllowLocalNetworking = true;
+
+  meta = with lib; {
+    changelog = "https://github.com/OSGeo/gdal/blob/v${finalAttrs.version}/NEWS.md";
+    description = "Translator library for raster geospatial data formats";
+    homepage = "https://www.gdal.org/";
+    license = licenses.mit;
+    maintainers =
+      with maintainers;
+      teams.geospatial.members
+      ++ [
+        marcweber
+        dotlambda
+      ];
+    platforms = platforms.unix;
+  };
+})

@@ -39,22 +39,13 @@ static PTX_C: &str = include_str!("../../target/cuda/propag_c.ptx");
 pub struct Settings {
     pub geo_ref: GeoReference,
     pub max_time: f32,
-    pub find_ref_change: bool,
 }
 
 impl Settings {
     #[unsafe(no_mangle)]
     // This one is so cbindgen export FireSimpleCuda
-    pub extern "C" fn create_settings(
-        geo_ref: GeoReference,
-        max_time: f32,
-        find_ref_change: bool,
-    ) -> Self {
-        Self {
-            geo_ref,
-            max_time,
-            find_ref_change,
-        }
+    pub extern "C" fn create_settings(geo_ref: GeoReference, max_time: f32) -> Self {
+        Self { geo_ref, max_time }
     }
 }
 
@@ -415,7 +406,7 @@ pub fn propagate(propag: &Propagation) -> Result<PropagResults, PropagError> {
         let mut refs_x: Vec<u16> = std::iter::repeat_n(Max::MAX, len).collect();
         let mut refs_y: Vec<u16> = std::iter::repeat_n(Max::MAX, len).collect();
         let mut refs_time: Vec<f32> = std::iter::repeat_n(Max::MAX, len).collect();
-        let mut boundary_change: Vec<u8> = std::iter::repeat_n(0, len.div_ceil(8)).collect();
+        let mut boundary_change: Vec<u8> = std::iter::repeat_n(0, len).collect();
 
         let speed_max: Vec<float::T> = std::iter::repeat_n(0.0, len).collect();
         let azimuth_max: Vec<float::T> = std::iter::repeat_n(0.0, len).collect();
@@ -685,6 +676,7 @@ fn write_boundaries(
 fn write_refs(
     PropagResults {
         boundary_change,
+        time,
         refs_x,
         refs_y,
         geo_ref,
@@ -705,7 +697,7 @@ fn write_refs(
         for i in 0..geo_ref.width {
             for j in 0..geo_ref.height {
                 let ix = (i + j * geo_ref.width) as usize;
-                if boundary_change[ix] == 1 {
+                if time[ix] < Max::MAX && boundary_change[ix] == 1 {
                     let dst = geo_ref.backward(USizeVec2 {
                         x: i as usize,
                         y: j as usize,

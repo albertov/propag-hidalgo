@@ -359,9 +359,6 @@ private:
   __device__ inline void fill_boundaries(unsigned char *boundaries) {
     if (in_bounds_) {
       const Point me = shared_[local_ix_];
-      if (me.is_null()) {
-        return;
-      }
       unsigned short changed = 0;
 #pragma unroll
       for (int i = -1; i < 2; i++) {
@@ -380,9 +377,6 @@ private:
 
           const Point neighbor =
               shared_[(local_x_ + i) + (local_y_ + j) * shared_width_];
-
-          if (neighbor.is_null())
-            continue;
 
           changed |= !similar_fires(neighbor.fire, me.fire) &&
                      me.fire.speed_max < neighbor.fire.speed_max;

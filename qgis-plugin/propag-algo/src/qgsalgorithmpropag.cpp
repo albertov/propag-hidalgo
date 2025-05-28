@@ -170,7 +170,7 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
                     "CELL_SIZE_? and EXTENT"));
   }
 
-  Settings settings(geo_ref, max_time, find_ref_change);
+  Settings settings(geo_ref, max_time);
 
   int fuelIdx = fuelCodes->fields().indexOf(fuel_code_field);
   if (fuelIdx == -1) {

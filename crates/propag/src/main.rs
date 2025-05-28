@@ -26,11 +26,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "+proj=utm +zone=30 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs +type=crs",
     )
     .unwrap();
-    let settings = Settings {
-        geo_ref,
-        max_time,
-        find_ref_change: false,
-    };
+    let settings = Settings { geo_ref, max_time };
     let fire_pos = USizeVec2 {
         x: geo_ref.width as usize / 2 - 24_usize / 2,
         y: geo_ref.height as usize / 2 - 24_usize / 2,

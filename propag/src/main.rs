@@ -20,16 +20,10 @@ static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("Calculating with GPU Propag");
-    let geo_ref = GeoReference::<f64>::south_up(
-        Rect::new(
-            Coord { x: 0.0, y: 0.0 },
-            Coord {
-                x: 1000.0,
-                y: 1000.0,
-            },
-        ),
-        Coord { x: 1.0, y: 1.0 },
-        Crs::Epsg(25830),
+    let geo_ref : GeoReference = GeoReference::south_up(
+        (Vec2{x:0.0,y:0.0},Vec2{x:25000.0,y:25000.0}),
+        Vec2 { x: 25.0, y: 25.0 },
+        25830,
     )
     .unwrap();
     let len = geo_ref.len();
@@ -43,17 +37,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let terrain: TerrainCudaVec = (0..len)
         .map(|_n| {
             let wind_speed =
-                Velocity::new::<meter_per_second>(rng.random_range(0..10000) as float::T / 1000.0);
+                Velocity::new::<meter_per_second>(1.0);
             From::from(Terrain {
-                d1hr: Ratio::new::<ratio>(0.0),
-                d10hr: Ratio::new::<ratio>(0.0),
-                d100hr: Ratio::new::<ratio>(0.0),
-                herb: Ratio::new::<ratio>(0.0),
-                wood: Ratio::new::<ratio>(0.0),
+                d1hr: Ratio::new::<ratio>(0.1),
+                d10hr: Ratio::new::<ratio>(0.1),
+                d100hr: Ratio::new::<ratio>(0.1),
+                herb: Ratio::new::<ratio>(0.1),
+                wood: Ratio::new::<ratio>(0.1),
                 wind_speed,
-                wind_azimuth: azimuth(),
-                slope: mkratio(),
-                aspect: azimuth(),
+                wind_azimuth: Angle::new::<degree>(0.0),
+                slope: Ratio::new::<ratio>(0.0),
+                aspect: Angle::new::<degree>(180.0),
             })
         })
         .collect();
@@ -76,11 +70,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let func = module.get_function("propag")?;
 
     let grid_size = GridSize {
-        x: geo_ref.size[0].div_ceil(THREAD_BLOCK_AXIS_LENGTH),
-        y: geo_ref.size[1].div_ceil(THREAD_BLOCK_AXIS_LENGTH),
+        x: geo_ref.size[0] / THREAD_BLOCK_AXIS_LENGTH + 1,
+        y: geo_ref.size[1] / THREAD_BLOCK_AXIS_LENGTH + 1,
         z: 1,
     };
-    let linear_grid_size = grid_size.x * grid_size.y * grid_size.z;
+    let linear_grid_size : u32 = grid_size.x * grid_size.y * grid_size.z;
 
     let block_size = BlockSize {
         x: THREAD_BLOCK_AXIS_LENGTH,
@@ -109,42 +103,61 @@ fn main() -> Result<(), Box<dyn Error>> {
     let aspect_gpu = terrain.aspect.as_slice().as_dbuf()?;
 
     // input/output vectors
-    let mut time: Vec<Option<f32>> = std::iter::repeat(None)
+    let mut time: Vec<Option<float::T>> = std::iter::repeat(None)
         .take(model.len())
         .collect();
-    time[model.len().div_ceil(2) + 200] = Some(0.0);
-    let mut speed_max: Vec<Option<f32>> = std::iter::repeat(None)
+    let mut speed_max: Vec<Option<float::T>> = std::iter::repeat(None)
         .take(model.len())
         .collect();
-    let mut azimuth_max: Vec<Option<f32>> = std::iter::repeat(None)
+    let mut azimuth_max: Vec<Option<float::T>> = std::iter::repeat(None)
         .take(model.len())
         .collect();
-    let mut eccentricity: Vec<Option<f32>> = std::iter::repeat(None)
+    let mut eccentricity: Vec<Option<float::T>> = std::iter::repeat(None)
         .take(model.len())
         .collect();
     let mut refs_x: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
     let mut refs_y: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
-    let mut block_progress: Vec<f32> = std::iter::repeat(0.0)
+    let mut block_progress: Vec<float::T> = std::iter::repeat(0.0)
         .take(linear_grid_size as usize)
         .collect();
 
-    let max_time = (60.0*60.0*5.0 as float::T);
-    unsafe {
-        let speed_max_buf = speed_max.as_slice().as_dbuf()?;
-        let azimuth_max_buf = azimuth_max.as_slice().as_dbuf()?;
-        let eccentricity_buf = eccentricity.as_slice().as_dbuf()?;
-        let refs_x_buf = refs_x.as_slice().as_dbuf()?;
-        let refs_y_buf = refs_y.as_slice().as_dbuf()?;
-        let time_buf = time.as_slice().as_dbuf()?;
-        let block_progress_buf = block_progress.as_slice().as_dbuf()?;
+    let max_time = (60.0*60.0*500.0 as float::T);
+    time[(500 + 200 * geo_ref.size[0]) as usize] = Some(0.0);
+    refs_x[(500 + 200 * geo_ref.size[0]) as usize] = Some(500);
+    refs_y[(500 + 200 * geo_ref.size[0]) as usize] = Some(200);
 
-        timeit!({
+    let mut speed_max_buf = speed_max.as_slice().as_unified_buf()?;
+    let mut azimuth_max_buf = azimuth_max.as_slice().as_unified_buf()?;
+    let mut eccentricity_buf = eccentricity.as_slice().as_unified_buf()?;
+    let mut refs_x_buf = refs_x.as_slice().as_unified_buf()?;
+    let mut refs_y_buf = refs_y.as_slice().as_unified_buf()?;
+    let mut time_buf = time.as_slice().as_unified_buf()?;
+    let mut block_progress_buf = block_progress.as_slice().as_unified_buf()?;
+
+    unsafe {
+        ({
+            loop {
+                let num_times = time_buf
+                    .as_slice()
+                    .iter()
+                    .filter(|t|t.is_some())
+                    .count();
+                println!("num_times={}", num_times);
+                let num_fires = speed_max_buf
+                    .as_slice()
+                    .iter()
+                    .filter(|t|t.is_some())
+                    .count();
+                println!("num_fires={}", num_fires);
+                let num_refs = refs_x_buf
+                    .as_slice()
+                    .iter()
+                    .filter(|t|t.is_some())
+                    .count();
+                println!("num_refs={}", num_refs);
             launch!(
                 // slices are passed as two parameters, the pointer and the length.
                 func<<<grid_size, block_size, 0, stream>>>(
-                    geo_ref,
-                    linear_grid_size,
-                    max_time,
                     model_gpu.as_device_ptr(),
                     model_gpu.len(),
                     d1hr_gpu.as_device_ptr(),
@@ -165,28 +178,35 @@ fn main() -> Result<(), Box<dyn Error>> {
                     slope_gpu.len(),
                     aspect_gpu.as_device_ptr(),
                     aspect_gpu.len(),
-                    speed_max_buf.as_device_ptr(),
-                    azimuth_max_buf.as_device_ptr(),
-                    eccentricity_buf.as_device_ptr(),
-                    time_buf.as_device_ptr(),
-                    refs_x_buf.as_device_ptr(),
-                    refs_y_buf.as_device_ptr(),
-                    block_progress_buf.as_device_ptr(),
+                    speed_max_buf.as_unified_ptr(),
+                    azimuth_max_buf.as_unified_ptr(),
+                    eccentricity_buf.as_unified_ptr(),
+                    time_buf.as_unified_ptr(),
+                    refs_x_buf.as_unified_ptr(),
+                    refs_y_buf.as_unified_ptr(),
+                    block_progress_buf.as_unified_ptr(),
+                    geo_ref,
+                    linear_grid_size,
+                    max_time,
                 )
             )?;
             stream.synchronize()?;
+            let num_times_after = time_buf
+                .as_slice()
+                .iter()
+                .filter(|t|t.is_some())
+                .count();
+            if num_times_after == num_times {
+                break
+            }
+
+            }
         });
 
-        // copy back the data from the GPU.
-        time_buf.copy_to(&mut time)?;
-        refs_x_buf.copy_to(&mut refs_x)?;
-        refs_y_buf.copy_to(&mut refs_y)?;
-        block_progress_buf.copy_to(&mut block_progress)?;
     }
-    assert_eq!(block_progress, (0..linear_grid_size)
-        .map(|_| 0.0)
-        .collect::<Vec<f32>>());
-
-    assert!(time.iter().filter(|t| t.is_some()).count() > 1);
+    assert!(time_buf.as_slice().iter().filter(|t| t.is_some()).count() > 1);
+    let time : Vec<f32> =
+        time_buf.as_slice().iter().filter_map(|t| *t).collect();
+    println!("{:?}", time);
     Ok(())
 }

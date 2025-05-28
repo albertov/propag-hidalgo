@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 const_soft_float = { git = "https://github.com/albertov/const_soft_float.git", features= ["no_std"]}
 uom = { version = "0.36.0", default-features = false, features=["f64", "f32", "si", "serde"] }
+cust_core = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }
 
 [target.'cfg(target_os = "cuda")'.dependencies]
 cuda_std = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }

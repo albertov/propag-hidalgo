@@ -3,172 +3,191 @@
 #[cfg(test)]
 extern crate std;
 
-use approx::abs_diff_ne;
+use approx::{abs_diff_ne,abs_diff_eq};
 
-use approx::AbsDiffEq;
+pub use approx::AbsDiffEq;
 
-pub use vek::*;
-use num_traits::{Float, NumCast};
+pub use glam::*;
+pub use num_traits::{NumCast};
 
 #[cfg(target_os = "cuda")]
 extern crate cuda_std;
 
-#[cfg(not(target_os = "cuda"))]
-extern crate cust;
+extern crate cust_core;
 
 #[cfg(target_os = "cuda")]
 use cuda_std::GpuFloat;
 
-#[cfg_attr(not(target_os = "cuda"), derive(cust::DeviceCopy))]
-#[derive(Copy, Clone, Debug)]
-#[repr(C)]
-pub enum Crs {
-    Epsg(u32),
-    Wkt([u8; 8]), //FIXME
-    Proj4([u8; 8]), //FIXME
+#[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
+#[repr(C, align(16))]
+pub struct GT {
+    pub x0: f32,
+    dx: f32,
+    rx: f32,
+    y0: f32,
+    ry: f32,
+    dy: f32,
 }
 
-#[cfg_attr(not(target_os = "cuda"), derive(cust::DeviceCopy))]
-#[derive(Copy, Clone, Debug)]
-#[repr(C)]
-pub struct GeoTransform<T>([T; 6], [T; 6]);
-
-impl<T> GeoTransform<T>
-where
-    T: AbsDiffEq + Copy + Float + NumCast
+impl GT
 {
-    pub fn new(xs: [T; 6]) -> Option<Self> {
-        Some(Self(xs, Self::invert(xs)?))
-    }
-    pub fn is_north_up(&self) -> bool {
-        self.dy() < T::zero()
-    }
-    pub fn origin(&self) -> Vec2<T> {
-        Vec2 {
-            x: self.0[0],
-            y: self.0[3],
+    pub fn new(xs: [f32; 6]) -> Self {
+        Self {
+            x0: xs[0],
+            dx: xs[1],
+            rx: xs[2],
+            y0: xs[3],
+            ry: xs[4],
+            dy: xs[5],
         }
     }
-    pub fn dy(&self) -> T {
-        self.0[5]
+    pub fn as_array_64(&self) -> [f64; 6] {
+        let GT {x0,dx,rx,y0,ry,dy} = *self;
+        [x0.into(),dx.into(),rx.into(),y0.into(),ry.into(),dy.into()]
     }
-    pub fn dx(&self) -> T {
-        self.0[0]
+    pub fn as_array(&self) -> [f32; 6] {
+        let GT {x0,dx,rx,y0,ry,dy} = *self;
+        [x0,dx,rx,y0,ry,dy]
     }
-    pub fn as_mut_ref<'a>(&'a mut self) -> &'a mut [T; 6] {
-        &mut self.0
+}
+
+#[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
+#[repr(C, align(16))]
+pub struct GeoTransform {
+    pub gt: GT,
+    pub inv: GT
+}
+
+impl GeoTransform
+{
+    pub fn new(xs: [f32; 6]) -> Option<Self> {
+        Some(Self {gt: GT::new(xs), inv:Self::invert(xs)?})
     }
-    pub fn as_ref<'a>(&'a self) -> &'a [T; 6] {
-        &self.0
+    pub fn is_north_up(&self) -> bool {
+        self.dy() < 0.0
     }
-    pub fn forward(&self, p: Vec2<T>) -> Vec2<usize> {
+    pub fn origin(&self) -> Vec2 {
+        Vec2 {
+            x: self.gt.x0,
+            y: self.gt.y0,
+        }
+    }
+    pub fn dx(&self) -> f32 {
+        self.gt.dx
+    }
+    pub fn dy(&self) -> f32 {
+        self.gt.dy
+    }
+    pub fn as_array_64(&self) -> [f64; 6] {
+        self.gt.as_array_64()
+    }
+    pub fn as_array(&self) -> [f32; 6] {
+        self.gt.as_array()
+    }
+    pub fn forward(&self, p: Vec2) -> USizeVec2 {
         let Vec2 { x, y } = p - self.origin();
-        let [_, dx, rx, _, ry, dy] = self.1;
+        let GT{dx, rx, ry, dy, ..} = self.inv;
         let p = Vec2 {
             x: x * dx + y * rx,
             y: x * ry + y * dy,
         };
-        Vec2 {
+        USizeVec2 {
             x: NumCast::from(p.x.trunc()).expect("T to usize failed"),
             y: NumCast::from(p.y.trunc()).expect("T to usize failed"),
         }
     }
-    pub fn backward(&self, p: Vec2<usize>) -> Vec2<T> {
+    pub fn backward(&self, p: USizeVec2) -> Vec2 {
         let p = Vec2 {
-            x: <T as NumCast>::from(p.x).expect("T from usize failed"),
-            y: <T as NumCast>::from(p.y).expect("T to from failed"),
+            x: <f32 as NumCast>::from(p.x).expect("T from usize failed"),
+            y: <f32 as NumCast>::from(p.y).expect("T to from failed"),
         };
         let Vec2 { x, y } = p + self.origin();
-        let [_, dx, rx, _, ry, dy] = self.0;
+        let GT{dx, rx, ry, dy, ..} = self.gt;
         Vec2 {
             x: x * dx + y * rx,
             y: x * ry + y * dy,
         }
     }
-    fn invert(gt: [T; 6]) -> Option<[T; 6]> {
+    fn invert(gt: [f32; 6]) -> Option<GT> {
         let [x0, a, c, y0, b, d] = gt;
         let det = a * d - b * c;
-        if abs_diff_ne!(det.abs(), T::zero()) {
-            let f = T::one() / det;
+        if abs_diff_ne!(det.abs(), 0.0) {
+            let f = det.recip();
             let a2 = d * f;
             let b2 = -b * f;
             let c2 = -c * f;
             let d2 = a * f;
-            Some([x0, a2, c2, y0, b2, d2])
+            Some(GT::new([x0, a2, c2, y0, b2, d2]))
         } else {
             None
         }
     }
 }
 
-#[cfg_attr(not(target_os = "cuda"), derive(cust::DeviceCopy))]
-#[derive(Copy, Clone, Debug)]
-#[repr(C)]
-pub struct GeoReference<T>
+#[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
+#[repr(C, align(16))]
+pub struct GeoReference
 {
-    pub transform: GeoTransform<T>,
-    pub size: Extent2<u32>,
-    pub crs: Crs,
+    pub size: [u32;2],
+    pub epsg: u32,
+    pub transform: GeoTransform,
 }
 
-impl<T> GeoReference<T>
-where
-    T: Clone + From<u32> + AbsDiffEq + Float
+impl GeoReference
 {
     pub fn len(&self) -> u32 {
-        self.size.w * self.size.h
+        self.size[0] * self.size[1]
     }
 
-    pub fn forward(&self, p: Vec2<T>) -> Vec2<usize> {
+    pub fn forward(&self, p: Vec2) -> USizeVec2 {
         self.transform.forward(p)
     }
-    pub fn backward(&self, p: Vec2<usize>) -> Vec2<T> {
+    pub fn backward(&self, p: USizeVec2) -> Vec2 {
         self.transform.backward(p)
     }
-    pub fn south_up(bbox: Rect<T,T>, pixel_size: Extent2<T>, crs: Crs) -> Option<GeoReference<T>> {
-        let Extent2 { w: dx, h: dy } = pixel_size;
-        let Rect { x: x0, y: y0, w, h } = bbox;
-        let transform = GeoTransform::new([x0, dx, T::zero(), y0, T::zero(), dy])?;
-        let size = Extent2 {
-            w: NumCast::from(w / dx)?,
-            h: NumCast::from(h / dy)?,
-        };
+    pub fn south_up(bbox: (Vec2,Vec2), pixel_size: Vec2, epsg: u32) -> Option<GeoReference> {
+        let Vec2 { x: dx, y: dy } = pixel_size;
+        let (Vec2 { x: x0, y: y0}, Vec2 { x:x1, y:y1 }) = bbox;
+        let transform = GeoTransform::new([x0, dx, 0.0, y0, 0.0, dy])?;
+        let size = [
+            NumCast::from((x1-x0) / dx)?,
+            NumCast::from((y1-y0) / dy)?,
+        ];
         Some(GeoReference {
             transform,
             size,
-            crs,
+            epsg,
         })
     }
-    pub fn north_up(bbox: Rect<T,T>, pixel_size: Extent2<T>, crs: Crs) -> Option<GeoReference<T>> {
-        let Extent2 { w: dx, h: dy } = pixel_size;
-        let Rect { x: x0, y: y0, w, h } = bbox;
-        let y1 = y0 + h;
-        let transform = GeoTransform::new([x0, dx, T::zero(), y1, T::zero(), -dy])?;
-        let size = Extent2 {
-            w: NumCast::from(w / dx)?,
-            h: NumCast::from(h / dy)?,
-        };
+    pub fn north_up(bbox: (Vec2,Vec2), pixel_size: Vec2, epsg: u32) -> Option<GeoReference> {
+        let Vec2 { x: dx, y: dy } = pixel_size;
+        let (Vec2 { x: x0, y: y0}, Vec2 { x:x1, y:y1 }) = bbox;
+        let transform = GeoTransform::new([x0, dx, 0.0, y1, 0.0, -dy])?;
+        let size = [
+            NumCast::from((x1-x0) / dx)?,
+            NumCast::from((y1-y0) / dy)?,
+        ];
         Some(GeoReference {
             transform,
             size,
-            crs,
+            epsg,
         })
     }
-    pub fn bbox(&self) -> Rect<T,T> {
+    pub fn bbox(&self) -> (Vec2, Vec2) {
         let Self {
             transform, size, ..
         } = self;
-        let size = Vec2 {
-            x: size[0].into(),
-            y: size[1].into(),
-        };
-        //assert!(dx > T::zero() && dy > T::zero() && rx == T::zero() && ry == T::zero());
+        let size = [
+            <f32 as NumCast>::from(size[0]).expect("T from u32 failed"),
+            <f32 as NumCast>::from(size[1]).expect("T from u32 failed"),
+        ];
+        //assert!(dx > 0.0 && dy > 0.0 && rx == 0.0 && ry == 0.0);
         let origin = transform.origin();
-        Rect::new(
-            origin.x,
-            origin.y,
-            transform.dx() * size.x,
-            transform.dy() * size.y,
+        (origin,
+            Vec2 {
+                x: transform.dx() * size[0],
+                y: transform.dy() * size[1],
+            }
         )
     }
     pub fn is_north_up(&self) -> bool {
@@ -176,18 +195,18 @@ where
     }
 
     // Azimuth (radian)
-    pub fn bearing(&self, a: Vec2<T>, b: Vec2<T>) -> T {
+    pub fn bearing(&self, a: Vec2, b: Vec2) -> f32 {
         if self.is_north_up() {
-            Float::atan2(b.x - a.x, a.y - b.y)
+            (b.x - a.x).atan2(a.y - b.y)
         } else {
-            Float::atan2(b.x - a.x, b.y - a.y)
+            (b.x - a.x).atan2(b.y - a.y)
         }
     }
-    pub fn distance(&self, a: Vec2<T>, b: Vec2<T>) -> T {
-        Float::sqrt(
+    pub fn distance(&self, a: Vec2, b: Vec2) -> f32 {
+        (
             ((a.x - b.x) * self.transform.dx()).powi(2)
-                + ((a.y - b.y) * self.transform.dy()).powi(2),
-        )
+                + ((a.y - b.y) * self.transform.dy()).powi(2)
+        ).sqrt()
     }
 }
 
@@ -198,56 +217,22 @@ pub struct Raster<'a, T> {
 }
 */
 
-struct DDA<T>
+struct DDA
 {
-    dest: Vec2<T>,
-    step: Vec2<T>,
-    cur: Option<Vec2<T>>,
-    t_max: Vec2<T>,
-    delta: Vec2<T>,
+    dest: Vec2,
+    step: Vec2,
+    cur: Option<Vec2>,
+    t_max: Vec2,
+    delta: Vec2,
 }
 
-fn abs<T>(coord: Vec2<T>) -> Vec2<T>
-where
-    T: Float
-{
-    let Vec2 { x, y } = coord;
-    Vec2 {
-        x: x.abs(),
-        y: y.abs(),
-    }
-}
 
-fn recip<T>(coord: Vec2<T>) -> Vec2<T>
-where
-    T: Float
+impl DDA
 {
-    let Vec2 { x, y } = coord;
-    Vec2 {
-        x: T::one() / x,
-        y: T::one() / y,
-    }
-}
-
-fn signum<T>(coord: Vec2<T>) -> Vec2<T>
-where
-    T: Float,
-{
-    let Vec2 { x, y } = coord;
-    Vec2 {
-        x: x.signum(),
-        y: y.signum(),
-    }
-}
-
-impl<T> DDA<T>
-where
-    T: Float,
-{
-    fn new(origin: Vec2<T>, dest: Vec2<T>) -> Self {
-        let t_max = recip(abs(dest - origin));
-        let step = signum(dest - origin);
-        let cur = if step.x == T::zero() && step.y == T::zero() {
+    fn new(origin: Vec2, dest: Vec2) -> Self {
+        let t_max = (dest - origin).abs().recip();
+        let step = (dest - origin).signum();
+        let cur = if step.x == 0.0 && step.y == 0.0 {
             None
         } else {
             Some(origin)
@@ -262,22 +247,20 @@ where
     }
 }
 
-impl<T> Iterator for DDA<T>
-where
-    T: Float + AbsDiffEq<Epsilon = T>,
+impl Iterator for DDA
 {
-    type Item = Vec2<T>;
+    type Item = Vec2;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let valid_x = |x: T| {
-            if self.step.x > T::zero() {
+        let valid_x = |x: f32| {
+            if self.step.x > 0.0 {
                 x <= self.dest.x
             } else {
                 x >= self.dest.x
             }
         };
-        let valid_y = |y: T| {
-            if self.step.y > T::zero() {
+        let valid_y = |y: f32| {
+            if self.step.y > 0.0 {
                 y <= self.dest.y
             } else {
                 y >= self.dest.y
@@ -289,7 +272,7 @@ where
                 self.cur = None;
                 None
             }
-            Some(Vec2 { x, y }) if (self.t_max.x - self.t_max.y).abs() < T::default_epsilon() => {
+            Some(Vec2 { x, y }) if abs_diff_eq!(self.t_max.x - self.t_max.y, 0.0) => {
                 let ret = self.cur;
                 self.cur = Some(Vec2 {
                     x: x + self.step.x,
@@ -326,9 +309,7 @@ where
     }
 }
 
-pub fn line_to<T>(from: Vec2<T>, to: Vec2<T>) -> impl Iterator<Item = Vec2<T>>
-where
-    T: Float + AbsDiffEq<Epsilon = T>,
+pub fn line_to(from: Vec2, to: Vec2) -> impl Iterator<Item = Vec2>
 {
     DDA::new(from, to)
 }
@@ -337,19 +318,19 @@ where
 mod test {
     use super::*;
 
-    use std::f64::consts::PI;
+    use std::f32::consts::PI;
     use std::vec::*;
     use std::*;
 
     #[test]
     fn can_line_to_self() {
-        let points: Vec<Vec2<f64>> =
+        let points: Vec<Vec2> =
             line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: 0.0 }).collect();
         assert_eq!(points, vec![(Vec2 { x: 0.0, y: 0.0 })]);
     }
     #[test]
     fn can_line_to_north() {
-        let points: Vec<Vec2<f64>> =
+        let points: Vec<Vec2> =
             line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: 2.0 }).collect();
         assert_eq!(
             points,
@@ -362,7 +343,7 @@ mod test {
     }
     #[test]
     fn can_line_to_south() {
-        let points: Vec<Vec2<f64>> =
+        let points: Vec<Vec2> =
             line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: -2.0 }).collect();
         assert_eq!(
             points,
@@ -375,7 +356,7 @@ mod test {
     }
     #[test]
     fn can_line_to_east() {
-        let points: Vec<Vec2<f64>> =
+        let points: Vec<Vec2> =
             line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 2.0, y: 0.0 }).collect();
         assert_eq!(
             points,
@@ -388,7 +369,7 @@ mod test {
     }
     #[test]
     fn can_line_to_west() {
-        let points: Vec<Vec2<f64>> =
+        let points: Vec<Vec2> =
             line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: -2.0, y: 0.0 }).collect();
         assert_eq!(
             points,
@@ -401,7 +382,7 @@ mod test {
     }
     #[test]
     fn can_line_to_north_west() {
-        let points: Vec<Vec2<f64>> =
+        let points: Vec<Vec2> =
             line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: -2.0, y: -2.0 }).collect();
         assert_eq!(
             points,
@@ -414,7 +395,7 @@ mod test {
     }
     #[test]
     fn can_line_to_north_east() {
-        let points: Vec<Vec2<f64>> =
+        let points: Vec<Vec2> =
             line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: -2.0, y: 2.0 }).collect();
         assert_eq!(
             points,
@@ -427,7 +408,7 @@ mod test {
     }
     #[test]
     fn can_line_to_south_west() {
-        let points: Vec<Vec2<f64>> =
+        let points: Vec<Vec2> =
             line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 2.0, y: -2.0 }).collect();
         assert_eq!(
             points,
@@ -440,7 +421,7 @@ mod test {
     }
     #[test]
     fn can_line_to_south_east() {
-        let points: Vec<Vec2<f64>> =
+        let points: Vec<Vec2> =
             line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 2.0, y: 2.0 }).collect();
         assert_eq!(
             points,
@@ -456,9 +437,10 @@ mod test {
     #[test]
     fn south_up_bearing() -> Result<()> {
         let geo_ref = GeoReference::south_up(
-            Rect::new(-180.0,-90.0,360.0, 180.0),
-            Extent2 { w: 0.1, h: 0.1 },
-            Crs::Epsg(4326),
+            (Vec2 {x:-180.0,y:-90.0},
+             Vec2 {x:180.0, y:90.0}),
+            Vec2 { x: 0.1, y: 0.1 },
+            4326,
         )
         .ok_or("should not happen")?;
         assert_eq!(
@@ -513,9 +495,10 @@ mod test {
     #[test]
     fn north_up_bearing() -> Result<()> {
         let geo_ref = GeoReference::north_up(
-            Rect::new(-180.0,-90.0,360.0, 180.0),
-            Extent2 { w: 0.1, h: 0.1 },
-            Crs::Epsg(4326),
+            (Vec2 {x:-180.0,y:-90.0},
+             Vec2 {x:180.0, y:90.0}),
+            Vec2 { x: 0.1, y: 0.1 },
+            4326,
         )
         .ok_or("should not happen")?;
         assert_eq!(

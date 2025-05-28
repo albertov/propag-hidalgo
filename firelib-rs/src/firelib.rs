@@ -31,12 +31,14 @@ const MAX_PARTICLES: usize = 5;
 const MAX_FUELS: usize = 20;
 
 #[derive(Clone, Copy, PartialEq)]
+#[repr(C, align(16))]
 pub enum Life {
     Dead,
     Alive,
 }
 
 #[derive(Clone, Copy)]
+#[repr(C, align(16))]
 pub enum ParticleType {
     Dead,       // Dead fuel particle
     Herb,       // Herbaceous live particle
@@ -45,6 +47,7 @@ pub enum ParticleType {
 }
 
 #[derive(Clone, Copy)]
+#[repr(C, align(16))]
 pub struct ParticleDef {
     pub type_: ParticleType,
     pub load: ArealMassDensity, // fuel loading
@@ -56,6 +59,7 @@ pub struct ParticleDef {
 }
 
 #[derive(Clone, Copy)]
+#[repr(C, align(16))]
 pub struct Particle {
     pub type_: ParticleType,
     pub load: float::T,
@@ -74,6 +78,7 @@ pub struct Particle {
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "std", derive(StructOfArray), soa_derive(Debug))]
+#[repr(C, align(16))]
 pub struct Terrain {
     pub d1hr: Ratio,
     pub d10hr: Ratio,
@@ -91,6 +96,7 @@ pub struct Terrain {
     derive(Copy, Clone, Debug, cust::DeviceCopy, StructOfArray),
     soa_derive(Debug)
 )]
+#[repr(C, align(16))]
 pub struct TerrainCuda {
     pub d1hr: float::T,
     pub d10hr: float::T,
@@ -157,6 +163,7 @@ impl From<TerrainCudaRef<'_>> for Terrain {
 }
 
 #[derive(Debug, Clone)]
+#[repr(C, align(16))]
 pub struct Fire {
     pub rx_int: HeatFluxDensity,
     pub speed0: Velocity,
@@ -172,6 +179,7 @@ pub struct Fire {
     derive(Copy, Clone, Debug, cust::DeviceCopy, StructOfArray),
     soa_derive(Debug)
 )]
+#[repr(C, align(16))]
 pub struct FireCuda {
     pub rx_int: float::T,
     pub speed0: float::T,
@@ -225,6 +233,7 @@ impl From<FireCudaRef<'_>> for Fire {
 }
 
 #[derive(Debug, Copy, Clone)]
+#[repr(C, align(16))]
 pub struct FireSimple {
     pub speed_max: Velocity,
     pub azimuth_max: Angle,
@@ -233,9 +242,11 @@ pub struct FireSimple {
 
 #[cfg_attr(
     not(target_os = "cuda"),
-    derive(Copy, Clone, Debug, cust::DeviceCopy, StructOfArray),
+    derive(StructOfArray),
     soa_derive(Debug)
 )]
+#[derive(Copy, Clone, Debug, PartialEq, cust_core::DeviceCopy)]
+#[repr(C, align(16))]
 pub struct FireSimpleCuda {
     pub speed_max: float::T,
     pub azimuth_max: float::T,
@@ -274,9 +285,10 @@ impl From<FireSimpleCudaRef<'_>> for FireSimple {
 }
 
 #[derive(Debug)]
+#[repr(C, align(16))]
 pub struct Spread<'a, T> {
     fire: &'a T,
-    factor: Ratio,
+    factor: float::T,
 }
 
 pub trait CanSpread<'a> {
@@ -294,7 +306,7 @@ pub trait CanSpread<'a> {
         let factor = (1.0 - ecc) / (1.0 - ecc * angle.cos());
         Spread {
             fire: self,
-            factor: Ratio::new::<ratio>(factor),
+            factor,
         }
     }
 }
@@ -309,6 +321,7 @@ pub enum SizeClass {
     SC5,
 }
 
+#[repr(C, align(16))]
 pub struct FuelDef {
     pub name: [u8; 16],
     pub desc: [u8; 64],
@@ -321,6 +334,7 @@ pub struct FuelDef {
 pub type ParticleDefs = [ParticleDef; MAX_PARTICLES];
 
 #[derive(Clone, Copy)]
+#[repr(C, align(16))]
 pub struct Fuel {
     pub name: [u8; 16],
     pub desc: [u8; 64],
@@ -353,6 +367,7 @@ pub struct Fuel {
 
 pub type Particles = [Particle; MAX_PARTICLES];
 
+#[repr(C, align(16))]
 pub struct Catalog([Fuel; MAX_FUELS]);
 
 macro_rules! accum_particles {
@@ -548,18 +563,32 @@ impl CanSpread<'_> for FireSimple {
     }
 }
 
+impl CanSpread<'_> for FireSimpleCuda {
+    fn azimuth_max(&self) -> Angle {
+        to_quantity!(Angle, self.azimuth_max)
+    }
+    fn eccentricity(&self) -> Ratio {
+        to_quantity!(Ratio, self.eccentricity)
+    }
+}
 impl<'a> Spread<'a, FireSimple> {
     pub fn speed(&self) -> Velocity {
-        self.fire.speed_max * self.factor
+        self.fire.speed_max * to_quantity!(Ratio, self.factor)
+    }
+}
+
+impl<'a> Spread<'a, FireSimpleCuda> {
+    pub fn speed(&self) -> Velocity {
+        to_quantity!(Velocity, self.fire.speed_max * self.factor)
     }
 }
 
 impl<'a> Spread<'a, Fire> {
     pub fn speed(&self) -> Velocity {
-        self.fire.speed_max * self.factor
+        self.fire.speed_max * to_quantity!(Ratio, self.factor)
     }
     pub fn byrams(&self) -> LinearPowerDensity {
-        self.fire.byrams_max() * self.factor
+        self.fire.byrams_max() * to_quantity!(Ratio, self.factor)
     }
     pub fn flame(&self) -> Length {
         Length::new::<foot>(Fire::flame_length(self.byrams().get::<btu_foot_sec>()))

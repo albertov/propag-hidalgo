@@ -15,14 +15,15 @@ impl WarpedDataset {
         &self.0
     }
 
-    pub fn new(src: Dataset, dt: GdalDataType, geo_ref: GeoReference<f64>) -> Result<Self> {
-        let spatial_ref = to_spatial_ref(geo_ref.crs)?;
+    pub fn new(src: Dataset, dt: GdalDataType, geo_ref: GeoReference) -> Result<Self> {
+        let spatial_ref = to_spatial_ref(geo_ref.epsg)?;
+        let dst_gt = geo_ref.transform.as_array_64();
         unsafe {
             let trans = GDALCreateGenImgProjTransformer3(
                 std::ffi::CString::new(src.projection())?.as_ptr() as *const i8,
                 src.geo_transform()?.as_ptr(),
                 std::ffi::CString::new(spatial_ref.to_wkt()?.as_str())?.as_ptr() as *const i8,
-                geo_ref.transform.as_ref().as_ptr(),
+                dst_gt.as_ptr(),
             );
             let n_bands = src.raster_count();
             let opts = GDALCreateWarpOptions();
@@ -39,8 +40,7 @@ impl WarpedDataset {
             (*opts).panSrcBands = src_bands;
             (*opts).panDstBands = dst_bands;
             (*opts).eWorkingDataType = dt as _;
-            let mut gt = geo_ref.transform.clone();
-            let gt = gt.as_mut_ref();
+            let mut gt = geo_ref.transform.as_array_64();
             let dst_ds = GDALCreateWarpedVRT(
                 src.c_dataset(),
                 geo_ref.size[0] as i32,
@@ -54,13 +54,8 @@ impl WarpedDataset {
     }
 }
 
-fn to_spatial_ref(crs: Crs) -> Result<SpatialRef> {
-    use Crs::*;
-    match crs {
-        Epsg(x) => SpatialRef::from_epsg(x),
-        Wkt(x) => SpatialRef::from_wkt(str::from_utf8(&x)?),
-        Proj4(x) => SpatialRef::from_proj4(str::from_utf8(&x)?),
-    }
+fn to_spatial_ref(epsg: u32) -> Result<SpatialRef> {
+    SpatialRef::from_epsg(epsg)
 }
 
 #[cfg(test)]
@@ -89,8 +84,8 @@ mod tests {
             .unwrap();
             let d = DriverManager::get_driver_by_name("MEM")?;
             let mut ds = d.create("in-memory", geo_ref.size[0] as _, geo_ref.size[1] as _, 3)?;
-            ds.set_spatial_ref(&to_spatial_ref(geo_ref.crs.clone())?)?;
-            ds.set_geo_transform(&geo_ref.transform.as_ref())?;
+            ds.set_spatial_ref(&to_spatial_ref(geo_ref.epsg.clone())?)?;
+            ds.set_geo_transform(&geo_ref.transform.as_array_64())?;
             assert_eq!(ds.raster_count(), 3);
             assert_eq!(ds.raster_size(), (3600, 1800));
             assert_eq!(ds.rasterband(1)?.band_type(), GdalDataType::UInt8);
@@ -104,8 +99,8 @@ mod tests {
             let ext = Rect::new(Coord { x: 4.8e5, y: 4.6e6 }, Coord { x: 5.2e5, y: 4.7e6 });
 
             let px_size = Coord { x: 50.0, y: 500.0 };
-            let crs = Crs::Epsg(25830);
-            let geo_ref = GeoReference::south_up(ext, px_size, crs).unwrap();
+            let epsg = 25830;
+            let geo_ref = GeoReference::south_up(ext, px_size, epsg).unwrap();
             let wrapped = WarpedDataset::new(ds, <f64>::datatype(), geo_ref)?;
             let ds2 = wrapped.get();
             assert_eq!(ds2.raster_count(), 3);

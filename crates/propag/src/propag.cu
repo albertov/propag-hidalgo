@@ -74,12 +74,11 @@ public:
       load_points_into_shared_memory(first_iteration);
       first_iteration = false;
 
-      Point best;
       // Sync here to wait for the shared Point data to have been
       // updated by other threads
       __syncthreads();
       // Begin neighbor analysys
-      find_neighbor_with_least_access_time(&best);
+      Point best = find_neighbor_with_least_access_time();
       // Sync here because it's faster to do so
       __syncthreads();
       // End of neighbor analysys, update point in global and shared memory
@@ -117,7 +116,7 @@ public:
   }
 
 private:
-  __device__ inline void find_neighbor_with_least_access_time(Point *result) {
+  __device__ inline Point find_neighbor_with_least_access_time() {
     const Point me = shared_[local_ix_];
     const FireSimpleCuda fire = me.fire;
     bool is_new = !(me.time < FLT_MAX);
@@ -207,20 +206,19 @@ private:
           // Calculate time from refeence to us if reference is valid
           if (reference.is_valid(settings_.geo_ref)) {
             float t = time_from_ref(reference);
-            if (t < settings_.max_time && t < best.time &&
-                (is_new || t < me.time)) {
+            if (t < best.time) {
               best = Point(t, fire, reference);
             }
           }
         };
       };
     };
-    *result = best;
+    return best;
   }
 
   __device__ inline bool update_point(Point p) {
     Point &me = shared_[local_ix_];
-    if (in_bounds_ && p.time < me.time && p.time < settings_.max_time) {
+    if (p.time < me.time && p.time < settings_.max_time) {
       // printf("best time %f\n", best.time);
       refs_x_[global_ix_] = p.reference.pos.x;
       refs_y_[global_ix_] = p.reference.pos.y;

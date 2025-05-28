@@ -226,14 +226,11 @@ impl TryFrom<FFIPropagation> for Propagation {
             };
         let initial_ignited_elements_crs =
             unsafe { spatial_ref_from_buf(p.initial_ignited_elements_crs) }?;
-        let output_path = some_path(p.output_path).map_or(
-            Err(CplError {
-                class: 1,
-                number: -1,
-                msg: "invalid output_path".to_string(),
-            }),
-            Ok,
-        )?;
+        let output_path = some_path(p.output_path).ok_or(CplError {
+            class: 1,
+            number: -1,
+            msg: "invalid output_path".to_string(),
+        })?;
         let refs_output_path = some_path(p.refs_output_path);
         let block_boundaries_out_path = some_path(p.block_boundaries_out_path);
         let grid_boundaries_out_path = some_path(p.grid_boundaries_out_path);

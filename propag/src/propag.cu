@@ -387,7 +387,6 @@ __global__ void propag(const Settings &settings, const float *speed_max,
   bool improved = false;
   if (in_bounds && best.time < MAX_TIME) {
     // printf("best time %f\n", best.time);
-    //shared[local_x + local_y * shared_width] = best;
     assert(global_ix < settings.geo_ref.width * settings.geo_ref.height);
     time[global_ix] = best.time;
     refs_x[global_ix] = best.reference.pos.x;
@@ -400,7 +399,13 @@ __global__ void propag(const Settings &settings, const float *speed_max,
   // check if any has improved. Then if we're the first
   // thread of the block mark progress
   ///////////////////////////////////////////////////
-  if (__syncthreads_count(improved) && threadIdx.x == 0 && threadIdx.y == 0) {
+  bool any_improved = __syncthreads_count(improved);
+  if (improved) {
+    shared[local_x + local_y * shared_width] = best;
+  }
+  __syncthreads();
+
+  if (any_improved && threadIdx.x == 0 && threadIdx.y == 0) {
     size_t block_ix = blockIdx.x + blockIdx.y * gridDim.x;
     progress[block_ix] = 1;
   };

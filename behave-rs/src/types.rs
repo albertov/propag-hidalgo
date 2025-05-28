@@ -37,6 +37,12 @@ pub struct Particle {
     pub heat: f64,
     pub si_total: f64,
     pub si_effective: f64,
+    pub area_weight: f64,
+    pub surface_area: f64,
+    pub sigma_factor: f64,
+    pub size_class_weight: f64,
+    pub size_class: SizeClass,
+    pub life: Life,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -66,7 +72,7 @@ pub struct Spread {
 
 #[derive(Clone)]
 pub struct Combustion {
-    pub fuel: Fuel,
+    pub name: String<16>,
     pub live_area_weight: f64,
     pub live_rx_factor: f64,
     pub dead_area_weight: f64,
@@ -82,11 +88,15 @@ pub struct Combustion {
     pub wind_k: f64,
     pub sigma: f64,
     pub beta: f64,
+    pub mext: f64,
     pub life_rx_factor_alive: f64,
     pub life_rx_factor_dead: f64,
+    pub total_area: f64,
+    pub alive_particles: Particles,
+    pub dead_particles: Particles,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 pub enum SizeClass {
     SC0,
     SC1,
@@ -102,19 +112,22 @@ pub struct FuelDef {
     pub depth: Length,
     pub mext: Ratio,
     pub adjust: Ratio,
-    pub particles: Vec<ParticleDef, 20>,
+    pub particles: ParticleDefs,
 }
 
-#[derive(Clone)]
+pub type ParticleDefs = Vec<ParticleDef, 20>;
+
 pub struct Fuel {
     pub name: String<16>,
     pub desc: String<64>,
     pub depth: f64,
     pub mext: f64,
     pub adjust: f64,
-    pub alive_particles: Vec<Particle, 20>,
-    pub dead_particles: Vec<Particle, 20>,
+    pub alive_particles: Particles,
+    pub dead_particles: Particles,
 }
+
+pub type Particles = Vec<Particle, 20>;
 
 pub type Catalog = Vec<Combustion, 20>;
 

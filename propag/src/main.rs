@@ -82,6 +82,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         z: 1,
     };
     let linear_block_size = block_size.x * block_size.y * block_size.z;
+    let radius = HALO_RADIUS as u32;
+    let shmem_size = ((block_size.x + radius * 2)
+                   * (block_size.y + radius * 2));
+    let shmem_bytes = shmem_size * std::mem::size_of::<Point>() as u32;
 
     println!(
         "using grid_size={:?} blocks_size={:?} linear_grid_size={} for {} elems",
@@ -109,7 +113,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let max_time: f32 = 60.0 * 60.0 * 50.0;
     let fire_pos = USizeVec2 { x: 500, y: 100 };
 
-    timeit!({
+    ({
         let mut speed_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
         let mut azimuth_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
         let mut eccentricity: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
@@ -162,6 +166,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let width = geo_ref.size[0];
             stream.synchronize()?;
             //println!("loop");
+            let mut no_progress_iters = 0;
             loop {
                 /*
                 let num_times = time.iter().filter(|t| t.is_some()).count();
@@ -173,9 +178,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 assert!(speed_max.iter().all(|t| t.is_some()));
                 */
                 //println!("propag");
-                let radius = HALO_RADIUS as u32;
-                let shmem_size = ((block_size.x + radius * 2) * (block_size.y + radius * 2));
-                let shmem_bytes = shmem_size * std::mem::size_of::<Point>() as u32;
                 launch!(
                     // slices are passed as two parameters, the pointer and the length.
                     propag<<<grid_size, block_size, shmem_bytes, stream>>>(
@@ -197,7 +199,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 )?;
                 stream.synchronize()?;
                 //time_buf.copy_to(&mut time)?;
-                /*
                 refs_x_buf.copy_to(&mut refs_x)?;
                 refs_y_buf.copy_to(&mut refs_y)?;
                 assert!(refs_x.iter().all(|x| *x == Max::MAX || *x == fire_pos.x),);
@@ -206,7 +207,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                     refs_x.iter().filter(|x| *x < &Max::MAX).count(),
                     refs_y.iter().filter(|x| *x < &Max::MAX).count(),
                 );
-                */
                 /*
                 let num_times_after = time.iter().filter(|t| t.is_some()).count();
                 assert_eq!(

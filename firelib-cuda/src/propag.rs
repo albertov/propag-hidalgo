@@ -17,7 +17,7 @@ use uom::si::angle::{degree, radian};
 use uom::si::ratio::ratio;
 use uom::si::velocity::meter_per_second;
 
-pub const HALO_RADIUS: usize = 1;
+pub const HALO_RADIUS: usize = 2;
 
 #[kernel]
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
@@ -64,12 +64,12 @@ pub unsafe fn propag(
             y: pos.y as _,
         };
         let pos = pos + IVec2 { x, y };
-        if pos.x >= 0 && pos.y >= 0 {
+        if pos.x >= 0 && pos.y >= 0 && pos.x < width as i32  && pos.y < height as i32 {
             let pos = USizeVec2 {
                 x: pos.x as _,
                 y: pos.y as _,
             };
-            compute_shared_ix(&pos)
+            Some(compute_shared_ix(&pos))
         } else {
             None
         }
@@ -167,17 +167,21 @@ pub unsafe fn propag(
                     x: pos.x as _,
                     y: pos.y as _,
                 };
+                let npos = IVec2 {
+                    x: neighbor.pos.x as _,
+                    y: neighbor.pos.y as _,
+                };
                 let candidate_pos = IVec2 {
                     x: candidate.pos().x as _,
                     y: candidate.pos().y as _,
                 };
                 let possible_blockage_pos = neighbor_in_direction(pos, candidate_pos);
-                if possible_blockage_pos != pos {
+                if possible_blockage_pos != pos  {
                     let possible_blockage_pos = USizeVec2 {
                         x: possible_blockage_pos.x as _,
                         y: possible_blockage_pos.y as _,
                     };
-                    let shared_blockage_ix = compute_shared_ix(&possible_blockage_pos)?;
+                    let shared_blockage_ix = compute_shared_ix(&possible_blockage_pos);
                     let possible_blockage = *shared.add(shared_blockage_ix);
                     if possible_blockage != Point::NULL
                         && possible_blockage.fire != FireSimpleCuda::NULL
@@ -290,23 +294,16 @@ fn similar_fires(a: FireSimpleCuda, b: FireSimpleCuda) -> bool {
         && (a.eccentricity - b.eccentricity).abs() < 0.1
 }
 
-fn compute_shared_ix(pos: &USizeVec2) -> Option<usize> {
+fn compute_shared_ix(pos: &USizeVec2) -> usize {
     let shared_x = (pos.x % (thread::block_dim_x() as usize)) + HALO_RADIUS;
     let shared_y = (pos.y % (thread::block_dim_y() as usize)) + HALO_RADIUS;
-    if shared_x < (thread::block_dim_x() as usize) + HALO_RADIUS * 2
-        && shared_y < (thread::block_dim_y() as usize) + HALO_RADIUS * 2
-    {
-        let ix = shared_x + shared_y * ((thread::block_dim_x() as usize) + HALO_RADIUS * 2);
-        /*
-        if !ix < SHARED_SIZE {
-            println!("caca ix shared: {:?}", ix);
-            //panic!("jhjklh");
-        };
-        */
-        Some(ix)
-    } else {
-        None
-    }
+    let ix = shared_x + shared_y * ((thread::block_dim_x() as usize) + HALO_RADIUS * 2);
+    /*
+    assert!(ix < ((16+HALO_RADIUS*2)*(16+HALO_RADIUS*2)));
+    assert!(shared_x < (thread::block_dim_x() as usize) + HALO_RADIUS * 2
+        && shared_y < (thread::block_dim_y() as usize) + HALO_RADIUS * 2);
+    */
+    ix
 }
 
 impl PointRef {
@@ -488,8 +485,7 @@ unsafe fn iter_neighbors(
     // Index of this thread into total area
     let idx_2d = thread::index_2d();
     (-1..2)
-        .map(|dj| (-1..2).map(move |di| (di, dj)))
-        .flatten()
+        .flat_map(|dj| (-1..2).map(move |di| (di, dj)))
         .filter(|(di, dj)| !(*di == 0 && *dj == 0))
         .filter_map(move |(di, dj)| {
             // Neighbor position in global pixel coords
@@ -505,7 +501,7 @@ unsafe fn iter_neighbors(
                     x: pos.x as usize,
                     y: pos.y as usize,
                 };
-                let shared_mem_ix = compute_shared_ix(&pos)?;
+                let shared_mem_ix = compute_shared_ix(&pos);
                 let point = *shared.add(shared_mem_ix);
                 Some(Neighbor { pos, point })
             }

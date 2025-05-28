@@ -84,9 +84,11 @@ public:
 
 #define Point_NULL Point()
 
-__device__ inline uint2 index_2d() {
-  return make_uint2(threadIdx.x + blockIdx.x * blockDim.x,
-                    threadIdx.y + blockIdx.y * blockDim.y);
+__device__ inline uint2 index_2d(uint2 gridIx) {
+  return make_uint2(threadIdx.x + blockIdx.x * blockDim.x +
+                        gridIx.x * gridDim.x * blockDim.x,
+                    threadIdx.y + blockIdx.y * blockDim.y +
+                        gridIx.y * gridDim.y * blockDim.y);
 }
 
 __device__ inline FireSimpleCuda load_fire(size_t idx, const float *speed_max,

@@ -2,6 +2,7 @@
 use ::geometry::*;
 use cust::device::DeviceAttribute;
 use cust::function::{BlockSize, GridSize};
+use cust::memory::UnifiedBox;
 use cust::prelude::*;
 use firelib_cuda::{Point, Settings, HALO_RADIUS};
 use firelib_rs::float;
@@ -28,6 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "Calculating with GPU Propag {}",
         std::mem::size_of::<Point>()
     );
+    let max_time: f32 = 60.0 * 60.0 * 5.0;
     let geo_ref: GeoReference = GeoReference::south_up(
         (
             Vec2 { x: 0.0, y: 0.0 },
@@ -36,7 +38,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 y: 25000.0,
             },
         ),
-        Vec2 { x: 75.0, y: 75.0 },
+        Vec2 { x: 5.0, y: 5.0 },
         25830,
     )
     .unwrap();
@@ -51,8 +53,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let herb: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
     let wood: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
     let wind_speed: Vec<float::T> = (0..len).map(|_n| 5.0).collect();
-    let wind_azimuth: Vec<float::T> = (0..len).map(|_n| 0.0).collect();
-    let aspect: Vec<float::T> = (0..len).map(|_n| PI).collect();
+    let wind_azimuth: Vec<float::T> = (0..len).map(|_n| PI).collect();
+    let aspect: Vec<float::T> = (0..len).map(|_n| 0.0).collect();
     let slope: Vec<float::T> = (0..len).map(|_n| 0.0).collect();
 
     // initialize CUDA, this will pick the first available device and will
@@ -103,16 +105,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     let max_total_blocks = mp_count as u32 * max_active_blocks;
     println!("max_total_blocks={}", max_total_blocks);
 
+    // Assumes square block size
+    assert_eq!(block_size.x, block_size.y);
     let grid_w = (max_total_blocks as f64).sqrt().trunc() as u32;
-    let grid_size = (grid_w, grid_w);
+    let grid_size: GridSize = (grid_w, grid_w).into();
+
+    let super_grid_size: (u32, u32) = (
+        geo_ref.width.div_ceil(grid_size.x * block_size.x),
+        geo_ref.height.div_ceil(grid_size.y * block_size.y),
+    );
 
     let fire_pos = USizeVec2 {
         x: geo_ref.width as usize / 2,
-        y: 10,
+        y: geo_ref.height as usize / 2,
     };
     println!(
-        "using geo_ref={:?} grid_size={:?} blocks_size={:?} linear_grid_size={} for {} elems",
-        geo_ref, grid_size, block_size, linear_grid_size, len
+        "using geo_ref={:?}\ngrid_size={:?}\nblocks_size={:?}\nlinear_grid_size={}\nsuper_grid_size={:?}\nfor {} elems",
+        geo_ref, grid_size, block_size, linear_grid_size, super_grid_size, len
     );
     model[fire_pos.x + (fire_pos.y - 2) * geo_ref.width as usize] = 0;
     // allocate the GPU memory needed to house our numbers and copy them over.
@@ -131,13 +140,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut time: Vec<f32> = std::iter::repeat(Max::MAX).take(model.len()).collect();
     let mut refs_x: Vec<usize> = std::iter::repeat(Max::MAX).take(model.len()).collect();
     let mut refs_y: Vec<usize> = std::iter::repeat(Max::MAX).take(model.len()).collect();
-    let max_time: f32 = 60.0 * 60.0 * 50.0;
 
     timeit!({
         let mut speed_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
         let mut azimuth_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
         let mut eccentricity: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
-        let mut progress: Vec<u32> = std::iter::repeat(0).take(linear_grid_size).collect();
 
         time.fill(Max::MAX);
         refs_x.fill(Max::MAX);
@@ -152,12 +159,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut refs_x_buf = refs_x.as_slice().as_dbuf()?;
         let mut refs_y_buf = refs_y.as_slice().as_dbuf()?;
         let mut time_buf = time.as_slice().as_dbuf()?;
-        let mut progress_buf = progress.as_slice().as_dbuf()?;
+        let (_, pre_burn_block_size) = pre_burn.suggested_launch_configuration(0, 0.into())?;
+        let pre_burn_grid_size = geo_ref.len().div_ceil(pre_burn_block_size);
         unsafe {
             //println!("pre burn");
             launch!(
                 // slices are passed as two parameters, the pointer and the length.
-                pre_burn<<<grid_size, block_size, 0, stream>>>(
+                pre_burn<<<pre_burn_grid_size, pre_burn_block_size, 0, stream>>>(
                     model.len(),
                     model_gpu.as_device_ptr(),
                     d1hr_gpu.as_device_ptr(),
@@ -175,42 +183,44 @@ fn main() -> Result<(), Box<dyn Error>> {
                 )
             )?;
             stream.synchronize()?;
-            /*
-            azimuth_max_buf.copy_to(&mut azimuth_max)?;
-            assert!(azimuth_max.iter().all(|t| *t != 0.0));
-            eccentricity_buf.copy_to(&mut eccentricity)?;
-            assert!(eccentricity.iter().all(|t| *t != 0.0));
-            speed_max_buf.copy_to(&mut speed_max)?;
-            assert!(speed_max.iter().all(|t| *t != 0.0));
-            */
-            //println!("loop");
-            /*
-            let num_times = time.iter().filter(|t| t.is_some()).count();
-            azimuth_max_buf.copy_to(&mut azimuth_max)?;
-            assert!(azimuth_max.iter().all(|t| t.is_some()));
-            eccentricity_buf.copy_to(&mut eccentricity)?;
-            assert!(eccentricity.iter().all(|t| t.is_some()));
-            speed_max_buf.copy_to(&mut speed_max)?;
-            assert!(speed_max.iter().all(|t| t.is_some()));
-            */
             //println!("propag");
-            cust::launch_cooperative!(
-                // slices are passed as two parameters, the pointer and the length.
-                propag_c<<<grid_size, block_size, shmem_bytes, stream>>>(
-                    (DeviceVariable::new(Settings {
-                        geo_ref,
-                        max_time,
-                    })?.as_device_ptr()),
-                    speed_max_buf.as_device_ptr(),
-                    azimuth_max_buf.as_device_ptr(),
-                    eccentricity_buf.as_device_ptr(),
-                    time_buf.as_device_ptr(),
-                    refs_x_buf.as_device_ptr(),
-                    refs_y_buf.as_device_ptr(),
-                    progress_buf.as_device_ptr(),
-                )
-            )?;
-            stream.synchronize()?;
+            loop {
+                let mut worked: Vec<UnifiedBox<u32>> =
+                    Vec::with_capacity((super_grid_size.0 * super_grid_size.1) as usize);
+                for grid_x in (0..super_grid_size.0) {
+                    for grid_y in (0..super_grid_size.1) {
+                        let mut progress: Vec<u32> =
+                            std::iter::repeat(0).take(linear_grid_size).collect();
+                        let mut progress_buf = progress.as_slice().as_dbuf()?;
+                        let this_worked = UnifiedBox::new(0)?;
+                        cust::launch_cooperative!(
+                            // slices are passed as two parameters, the pointer and the length.
+                            propag_c<<<grid_size, block_size, shmem_bytes, stream>>>(
+                                (DeviceVariable::new(Settings {
+                                    geo_ref,
+                                    max_time,
+                                })?.as_device_ptr()),
+                                grid_x,
+                                grid_y,
+                                this_worked.as_unified_ptr(),
+                                speed_max_buf.as_device_ptr(),
+                                azimuth_max_buf.as_device_ptr(),
+                                eccentricity_buf.as_device_ptr(),
+                                time_buf.as_device_ptr(),
+                                refs_x_buf.as_device_ptr(),
+                                refs_y_buf.as_device_ptr(),
+                                progress_buf.as_device_ptr(),
+                            )
+                        )?;
+                        worked.push(this_worked);
+                    }
+                }
+                stream.synchronize()?;
+                if worked.iter().all(|x| **x == 0) {
+                    break;
+                }
+            }
+            /*
             refs_x_buf.copy_to(&mut refs_x)?;
             refs_y_buf.copy_to(&mut refs_y)?;
             assert!(refs_x.iter().all(|x| *x == Max::MAX || *x == fire_pos.x),);
@@ -219,6 +229,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 refs_x.iter().filter(|x| *x < &Max::MAX).count(),
                 refs_y.iter().filter(|x| *x < &Max::MAX).count(),
             );
+            */
         };
         time_buf.copy_to(&mut time)?;
     });

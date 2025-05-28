@@ -8,19 +8,31 @@
 extern "C" {
 #endif
 
-__global__ void propag(const Settings &settings, const float *speed_max,
-                       const float *azimuth_max, const float *eccentricity,
-                       float volatile *time, size_t volatile *refs_x,
-                       size_t volatile *refs_y, unsigned volatile *progress) {
+__global__ void propag(const Settings &settings, unsigned grid_x,
+                       unsigned grid_y, unsigned *worked,
+                       const float *speed_max, const float *azimuth_max,
+                       const float *eccentricity, float volatile *time,
+                       size_t volatile *refs_x, size_t volatile *refs_y,
+                       unsigned volatile *progress) {
   extern __shared__ Point shared[];
   __shared__ bool grid_improved;
 
   unsigned width = settings.geo_ref.width;
   unsigned height = settings.geo_ref.height;
 
-  uint2 idx_2d = index_2d();
+  uint2 gridIx = make_uint2(grid_x, grid_y);
+
+  // grid dimension in threads
+  uint2 gridThreadsDim =
+      make_uint2(gridDim.x * blockDim.x, gridDim.y * blockDim.y);
+
+  uint2 superGridDim = make_uint2(ceil((float)width / gridThreadsDim.x),
+                                  ceil((float)height / gridThreadsDim.y));
+
+  uint2 idx_2d = index_2d(gridIx);
 
   size_t global_ix = idx_2d.x + idx_2d.y * width;
+
   bool in_bounds = idx_2d.x < width && idx_2d.y < height;
 
   size_t block_ix = blockIdx.x + blockIdx.y * gridDim.x;
@@ -224,6 +236,9 @@ __global__ void propag(const Settings &settings, const float *speed_max,
       grid_improved = false;
       for (int i = 0; i < gridDim.x * gridDim.y; i++) {
         grid_improved |= progress[i];
+      }
+      if (grid_improved && blockIdx.x == 0 && blockIdx.y == 0) {
+        *worked = 1;
       }
     }
     grid.sync();

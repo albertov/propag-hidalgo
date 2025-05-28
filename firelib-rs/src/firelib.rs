@@ -539,6 +539,15 @@ impl CanSpread<'_> for Fire {
     }
 }
 
+impl CanSpread<'_> for FireSimple {
+    fn azimuth_max(&self) -> Angle {
+        self.azimuth_max
+    }
+    fn eccentricity(&self) -> Ratio {
+        self.eccentricity
+    }
+}
+
 impl<'a> Spread<'a, FireSimple> {
     pub fn speed(&self) -> Velocity {
         self.fire.speed_max * self.factor

@@ -126,7 +126,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         "using geo_ref={:?}\ngrid_size={:?}\nblocks_size={:?}\nlinear_grid_size={}\nsuper_grid_size={:?}\nfor {} elems",
         geo_ref, grid_size, block_size, linear_grid_size, super_grid_size, len
     );
-    model[fire_pos.x + (fire_pos.y - 2) * geo_ref.width as usize] = 0;
+    for i in (-10..10) {
+        model[fire_pos.x + (i as usize) + (fire_pos.y + 5) * geo_ref.width as usize] = 0;
+    }
     // allocate the GPU memory needed to house our numbers and copy them over.
     let model_gpu = model.as_slice().as_dbuf()?;
     let d1hr_gpu = d1hr.as_slice().as_dbuf()?;

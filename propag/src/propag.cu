@@ -255,39 +255,21 @@ private:
               reference = PointRef_NULL;
             } else {
               if (!similar_fires_(possible_blockage.fire, reference.fire)) {
-                reference = PointRef_NULL;
+                reference =
+                    PointRef(neighbor.time, neighbor_pos, neighbor.fire);
               };
             };
           };
 
+          Point candidate;
           // Look for a new candidate for best time
-          Point candidate = Point_NULL;
-          if (!is_fire_null(fire) && reference.time < MAX_TIME) {
+          if (reference.time < MAX_TIME) {
             // We are combustible
-            if (!similar_fires_(neighbor.fire, reference.fire)) {
-              // we can't reuse reference because fire is different than
-              // neighbor
-              // Try to use neighbor as reference
-              reference = PointRef(neighbor.time, neighbor_pos, neighbor.fire);
-            };
-            if (reference.time < MAX_TIME && !is_fire_null(reference.fire)) {
-              float t = time_to(settings_.geo_ref, reference, idx_2d_);
-              if (t < settings_.max_time) {
-                ASSERT(!(reference.pos.x == USHRT_MAX ||
-                         reference.pos.y == USHRT_MAX));
-                candidate.time = t;
-                candidate.fire = fire;
-                candidate.reference = reference;
-              }
-            };
-          } else if (reference.time < MAX_TIME) {
-            // We are not combustible but reference can be used.
-            // We assign an access time but a None fire
             float t = time_to(settings_.geo_ref, reference, idx_2d_);
             if (t < settings_.max_time) {
-              candidate.time = t;
-              candidate.fire = FireSimpleCuda_NULL;
-              candidate.reference = reference;
+              ASSERT(!(reference.pos.x == USHRT_MAX ||
+                       reference.pos.y == USHRT_MAX));
+              candidate = Point(t, fire, reference);
             }
           }
           // If no candidate or candidate improves use it as best

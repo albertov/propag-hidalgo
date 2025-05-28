@@ -54,11 +54,7 @@ in
 
   qgis-propag-algo = final.callPackage ./pkgs/qgis-propag-algo.nix { };
 
-  qgis-orig = prev.qgis;
-
-  qgis = final.callPackage ./pkgs/qgis.nix {
-    qgis = prev.qgis;
-    extraPlugins = [ (final.qgis-propag-algo.override { qgis = prev.qgis; }) ];
+  qgis-orig = prev.qgis.override {
     extraPythonPackages =
       ps: with ps; [
         ipython
@@ -67,7 +63,12 @@ in
       ];
   };
 
-  qgis-debug = prev.qgis.unwrapped.overrideAttrs (old: {
+  qgis = final.callPackage ./pkgs/qgis.nix {
+    qgis = final.qgis-orig;
+    extraPlugins = [ (final.qgis-propag-algo.override { qgis = prev.qgis; }) ];
+  };
+
+  qgis-debug = final.qgis-orig.unwrapped.overrideAttrs (old: {
     cmakeFlags = [ "-DCMAKE_BUILD_TYPE=Debug" ] ++ old.cmakeFlags;
     meta = old.meta // {
       mainProgram = "qgis";

@@ -39,15 +39,15 @@ public:
 class ALIGN PointRef {
 public:
   float time;
-  uint2 pos;
+  ushort2 pos;
   FireSimpleCuda fire;
 
   __device__ PointRef()
-      : time(MAX_TIME), pos(make_uint2(SIZE_MAX, SIZE_MAX)), fire() {};
-  __device__ PointRef(float time, uint2 pos, FireSimpleCuda fire)
+      : time(MAX_TIME), pos(make_ushort2(USHRT_MAX, USHRT_MAX)), fire() {};
+  __device__ PointRef(float time, ushort2 pos, FireSimpleCuda fire)
       : time(time), pos(pos), fire(fire) {};
   __device__ PointRef(float time, int2 pos, FireSimpleCuda fire)
-      : time(time), pos(make_uint2(pos.x, pos.y)), fire(fire) {};
+      : time(time), pos(make_ushort2(pos.x, pos.y)), fire(fire) {};
 
   __device__ volatile PointRef &operator=(const PointRef &other) volatile {
     time = other.time;
@@ -97,20 +97,19 @@ __device__ inline FireSimpleCuda load_fire(size_t idx, const float *speed_max,
   return FireSimpleCuda(speed_max[idx], azimuth_max[idx], eccentricity[idx]);
 }
 
-__device__ inline Point load_point(const GeoReference &geo_ref, uint2 pos,
-                                   size_t idx, const float *speed_max,
-                                   const float *azimuth_max,
-                                   const float *eccentricity,
-                                   volatile float *time, volatile size_t *ref_x,
-                                   volatile size_t *ref_y) {
+__device__ inline Point
+load_point(const GeoReference &geo_ref, uint2 pos, size_t idx,
+           const float *speed_max, const float *azimuth_max,
+           const float *eccentricity, volatile float *time,
+           volatile unsigned short *ref_x, volatile unsigned short *ref_y) {
   Point result =
       Point(time[idx], load_fire(idx, speed_max, azimuth_max, eccentricity),
             PointRef());
 
   if (result.time < MAX_TIME) {
-    result.reference.pos = make_uint2(ref_x[idx], ref_y[idx]);
-    ASSERT(!(result.reference.pos.x == SIZE_MAX ||
-             result.reference.pos.y == SIZE_MAX));
+    result.reference.pos = make_ushort2(ref_x[idx], ref_y[idx]);
+    ASSERT(!(result.reference.pos.x == USHRT_MAX ||
+             result.reference.pos.y == USHRT_MAX));
     ASSERT(result.reference.pos.x < geo_ref.width ||
            result.reference.pos.y < geo_ref.height);
     size_t ref_ix =
@@ -130,8 +129,7 @@ __device__ inline Point load_point(const GeoReference &geo_ref, uint2 pos,
 }
 
 #define LOAD(LOCAL_X, LOCAL_Y, GLOBAL_X, GLOBAL_Y)                             \
-  if ((GLOBAL_X) >= 0 && (GLOBAL_X) < width && (GLOBAL_Y) >= 0 &&              \
-      (GLOBAL_Y) < height) {                                                   \
+  if ((GLOBAL_X) < width && (GLOBAL_Y) < height) {                             \
     shared[(LOCAL_X) + (LOCAL_Y) * shared_width] =                             \
         load_point(settings.geo_ref, make_uint2(GLOBAL_X, GLOBAL_Y),           \
                    (GLOBAL_X) + (GLOBAL_Y) * width, speed_max, azimuth_max,    \

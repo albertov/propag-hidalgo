@@ -22,7 +22,7 @@ use uom::si::velocity::meter_per_second;
 extern crate timeit;
 
 mod loader;
-const THREAD_BLOCK_AXIS_LENGTH: u32 = 24;
+const THREAD_BLOCK_AXIS_LENGTH: u32 = 16;
 
 static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
 static PTX_C: &str = include_str!("../../target/cuda/propag_c.ptx");
@@ -126,7 +126,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "using geo_ref={:?}\ngrid_size={:?}\nblocks_size={:?}\nlinear_grid_size={}\nsuper_grid_size={:?}\nfor {} elems",
         geo_ref, grid_size, block_size, linear_grid_size, super_grid_size, len
     );
-    model[fire_pos.x + (fire_pos.y - 2) * geo_ref.width as usize] = 0;
+    //model[fire_pos.x + (fire_pos.y - 2) * geo_ref.width as usize] = 0;
     // allocate the GPU memory needed to house our numbers and copy them over.
     let model_gpu = model.as_slice().as_dbuf()?;
     let d1hr_gpu = d1hr.as_slice().as_dbuf()?;
@@ -141,8 +141,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // input/output vectors
     let mut time: Vec<f32> = std::iter::repeat(Max::MAX).take(model.len()).collect();
-    let mut refs_x: Vec<usize> = std::iter::repeat(Max::MAX).take(model.len()).collect();
-    let mut refs_y: Vec<usize> = std::iter::repeat(Max::MAX).take(model.len()).collect();
+    let mut refs_x: Vec<u16> = std::iter::repeat(Max::MAX).take(model.len()).collect();
+    let mut refs_y: Vec<u16> = std::iter::repeat(Max::MAX).take(model.len()).collect();
 
     timeit!({
         let mut speed_max: Vec<float::T> = std::iter::repeat(0.0).take(model.len()).collect();
@@ -153,8 +153,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         refs_x.fill(Max::MAX);
         refs_y.fill(Max::MAX);
         time[(fire_pos.x + fire_pos.y * geo_ref.width as usize)] = 0.0;
-        refs_x[(fire_pos.x + fire_pos.y * geo_ref.width as usize)] = fire_pos.x;
-        refs_y[(fire_pos.x + fire_pos.y * geo_ref.width as usize)] = fire_pos.y;
+        refs_x[(fire_pos.x + fire_pos.y * geo_ref.width as usize)] = fire_pos.x as u16;
+        refs_y[(fire_pos.x + fire_pos.y * geo_ref.width as usize)] = fire_pos.y as u16;
 
         let mut speed_max_buf = speed_max.as_slice().as_dbuf()?;
         let mut azimuth_max_buf = azimuth_max.as_slice().as_dbuf()?;

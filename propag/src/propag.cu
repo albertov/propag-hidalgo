@@ -12,7 +12,8 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
                        unsigned grid_y, unsigned *worked,
                        const float *speed_max, const float *azimuth_max,
                        const float *eccentricity, float volatile *time,
-                       size_t volatile *refs_x, size_t volatile *refs_y,
+                       unsigned short volatile *refs_x,
+                       unsigned short volatile *refs_y,
                        unsigned volatile *progress) {
   extern __shared__ Point shared[];
   __shared__ bool grid_improved;
@@ -64,7 +65,7 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
         // Load the central block data
         if (first_iteration) {
           LOAD(local_x, local_y, global_x, global_y);
-          // first_iteration = false;
+          first_iteration = false;
         }
 
         // Load the halo regions
@@ -117,6 +118,7 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
             // Skip self and out-of-bounds neighbors
             if (i == 0 && j == 0)
               continue;
+
             int2 neighbor_pos = make_int2((int)idx_2d.x + i, (int)idx_2d.y + j);
             if (!(neighbor_pos.x >= 0 && neighbor_pos.y >= 0 &&
                   neighbor_pos.x < width && neighbor_pos.y < height))
@@ -133,8 +135,8 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
             };
 
             PointRef reference = neighbor_point.reference;
-            ASSERT((reference.time < MAX_TIME && reference.pos.x != SIZE_MAX &&
-                    reference.pos.y != SIZE_MAX));
+            ASSERT((reference.time < MAX_TIME && reference.pos.x != USHRT_MAX &&
+                    reference.pos.y != USHRT_MAX));
             ASSERT(
                 !(reference.pos.x == idx_2d.x && reference.pos.y == idx_2d.y));
             ASSERT(!is_fire_null(reference.fire));
@@ -142,13 +144,15 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
             // Check if neighbor's reference is usable
             int2 dir = neighbor_direction(
                 idx_2d, make_uint2(reference.pos.x, reference.pos.y));
-            if (idx_2d.x + dir.x >= 0 && idx_2d.x + dir.x < width &&
-                idx_2d.y + dir.y >= 0 && idx_2d.y + dir.y < height) {
+            if ((int)idx_2d.x + dir.x >= 0 && (int)idx_2d.x + dir.x < width &&
+                (int)idx_2d.y + dir.y >= 0 && (int)idx_2d.y + dir.y < height) {
               Point possible_blockage =
                   shared[(local_x + dir.x) + (local_y + dir.y) * shared_width];
               if (is_point_null(possible_blockage)) {
                 // If we haven't analyzed the blockage point yet then we can't
                 // use the reference in this iteration
+                // printf("cant analyze %d %d\n", global_x+dir.x, global_y +
+                // dir.y);
                 reference = PointRef_NULL;
               } else {
                 if (!similar_fires_(possible_blockage.fire, reference.fire)) {

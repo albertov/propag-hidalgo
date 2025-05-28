@@ -56,15 +56,6 @@ impl Settings {
     }
 }
 
-pub struct Propagation {
-    pub settings: Settings,
-    pub output_path: String,
-    pub refs_output_path: Option<String>,
-    pub initial_ignited_elements: Vec<TimeFeature>,
-    pub initial_ignited_elements_crs: SpatialRef,
-    pub terrain_loader: Box<dyn TerrainLoader>,
-}
-
 #[cfg_attr(not(target_os = "cuda"), derive(StructOfArray), soa_derive(Debug))]
 #[derive(Copy, Clone, Debug, PartialEq, cust_core::DeviceCopy)]
 #[repr(C)]
@@ -170,11 +161,22 @@ impl TryFrom<&FFIFuelFeature> for FuelFeature {
     }
 }
 
+pub struct Propagation {
+    pub settings: Settings,
+    pub output_path: String,
+    pub refs_output_path: Option<String>,
+    pub grid_output_path: Option<String>,
+    pub initial_ignited_elements: Vec<TimeFeature>,
+    pub initial_ignited_elements_crs: SpatialRef,
+    pub terrain_loader: Box<dyn TerrainLoader>,
+}
+
 #[repr(C)]
 pub struct FFIPropagation {
     settings: Settings,
     output_path: *const c_char,
     refs_output_path: *const c_char,
+    grid_output_path: *const c_char,
     initial_ignited_elements: *const FFITimeFeature,
     initial_ignited_elements_len: usize,
     initial_ignited_elements_crs: *const c_char,
@@ -203,13 +205,26 @@ impl TryFrom<FFIPropagation> for Propagation {
         let output_path = String::from_utf8_lossy(output_path.to_bytes()).to_string();
         let refs_output_path = if !p.refs_output_path.is_null() {
             let refs_output_path = unsafe { CStr::from_ptr(p.refs_output_path) };
-            Some(String::from_utf8_lossy(refs_output_path.to_bytes()).to_string())
+            match String::from_utf8_lossy(refs_output_path.to_bytes()).to_string() {
+                x if x.is_empty() => None,
+                x => Some(x),
+            }
+        } else {
+            None
+        };
+        let grid_output_path = if !p.grid_output_path.is_null() {
+            let grid_output_path = unsafe { CStr::from_ptr(p.grid_output_path) };
+            match String::from_utf8_lossy(grid_output_path.to_bytes()).to_string() {
+                x if x.is_empty() => None,
+                x => Some(x),
+            }
         } else {
             None
         };
         Ok(Propagation {
             settings: p.settings,
             output_path,
+            grid_output_path,
             refs_output_path,
             initial_ignited_elements,
             initial_ignited_elements_crs,
@@ -254,6 +269,7 @@ pub unsafe extern "C" fn FFIPropagation_run(
     use self::PropagError::*;
     match std::panic::catch_unwind(|| {
         let propag: Propagation = propag.try_into().map_err(PropagGdalError)?;
+        println!("generate_block_boundaries={:?}", propag.grid_output_path);
         let geo_ref = propag.settings.geo_ref;
         let mut time = rasterize_times(
             &propag.initial_ignited_elements,

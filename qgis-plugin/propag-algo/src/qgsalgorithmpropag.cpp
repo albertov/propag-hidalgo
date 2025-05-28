@@ -86,6 +86,15 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
         parameters, QStringLiteral("REFERENCES"), context);
   };
 
+  bool generate_block_boundaries =
+      parameters.value(QStringLiteral("BLOCK_BOUNDARIES")).isValid();
+
+  QString blockBoundariesOutputFile;
+  if (generate_block_boundaries) {
+    blockBoundariesOutputFile = parameterAsOutputLayer(
+        parameters, QStringLiteral("BLOCK_BOUNDARIES"), context);
+  };
+
   QgsFeatureSource *ignitedElements =
       parameterAsSource(parameters, "IGNITED_ELEMENTS", context);
   if (!ignitedElements) {
@@ -219,9 +228,13 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
   QByteArray refsOutputFile_ba = refsOutputFile.toUtf8();
   const char *refs_output_path = refsOutputFile_ba.data();
 
-  FFIPropagation propagation(settings, output_path, refs_output_path,
-                             features.data(), features.size(),
-                             ie_proj_ba.data(), terrain_loader);
+  QByteArray blockBoundariesOutputFile_ba = blockBoundariesOutputFile.toUtf8();
+  const char *block_boundaries_output_path =
+      blockBoundariesOutputFile_ba.data();
+
+  FFIPropagation propagation(
+      settings, output_path, refs_output_path, block_boundaries_output_path,
+      features.data(), features.size(), ie_proj_ba.data(), terrain_loader);
 
   char err_c[1024];
   memset(&err_c, 0, 1024);

@@ -327,6 +327,7 @@ pub struct Fuel {
     pub desc: [u8; 64],
     pub depth: f64,
     pub mext: f64,
+    pub inv_mext: f64,
     pub adjust: f64,
     pub n_dead_particles: usize,
     pub particles: Particles,
@@ -969,6 +970,7 @@ impl Fuel {
             flux_ratio: fuel.flux_ratio(sigma, beta),
             slope_k: fuel.slope_k(beta),
             mext,
+            inv_mext: 1.0 / mext,
             total_area,
             wind_b,
             wind_e,
@@ -1076,7 +1078,7 @@ impl Fuel {
             (_, Life::Dead) => self.mext,
             (true, Life::Alive) => {
                 let fdmois = wfmd * self.fine_dead_factor;
-                let live_mext = self.live_ext_factor * (1.0 - fdmois / self.mext) - 0.226;
+                let live_mext = self.live_ext_factor * (1.0 - fdmois * self.inv_mext) - 0.226;
                 live_mext.max(self.mext)
             }
             (false, Life::Alive) => 0.0,

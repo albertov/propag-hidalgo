@@ -133,3 +133,10 @@ Generating times geotiff
 (compute)$ apptainer pull docker://$IMAGE
 (compute)$ mpirun -n 4 -bind-to none -map-by :OVERSUBSCRIBE -- apptainer run --nv propag_0.1.0.sif
 ```
+
+# Sponsors
+
+This application has been developed within the frame and for the purpose of the
+HiDALGO2 project, funded by the European Union. This work has received funding
+from the European High Performance Computing Joint Undertaking (JU) and Poland,
+Germany, Spain, Hungary, France, Greece under grant agreement number: 101093457.

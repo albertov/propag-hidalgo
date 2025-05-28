@@ -305,10 +305,12 @@ private:
     }
   }
 
-  __device__ inline float time_from_ref(const PointRef &from) {
+  __device__ inline float time_from_ref(const PointRef &from) const {
     int2 from_pos = make_int2(from.pos.x, from.pos.y);
     int2 to_pos = make_int2(idx_2d_.x, idx_2d_.y);
     float azimuth;
+    // TODO: This can be optimized by pre-calculating azimuth_cos and
+    //  azimuth_sin so we don't need atan2 or cos here
     if (settings_.geo_ref.transform.gt.dy < 0) {
       // north-up geotransform
       azimuth = atan2f(to_pos.x - from_pos.x, from_pos.y - to_pos.y);
@@ -316,18 +318,23 @@ private:
       azimuth = atan2f(to_pos.x - from_pos.x, to_pos.y - from_pos.y);
       // south-up geotransform
     };
+    // Uses CUDA intrinsics for performance:
+    // a * __frcp_rd(x) ~= a / x
+    // __fsqrt_rz(x) ~= sqrt(x)
+    // __cosf(x) ~= cos(x)
     float angle = abs(azimuth - from.fire.azimuth_max);
-    float denom = (1.0 - from.fire.eccentricity * cos(angle));
-    float factor = (1.0 - from.fire.eccentricity) / denom;
+    float denom = (1.0 - from.fire.eccentricity * __cosf(angle));
+    float factor = (1.0 - from.fire.eccentricity) * __frcp_rd(denom);
     float speed = from.fire.speed_max * factor;
     float dx = (from_pos.x - to_pos.x) * settings_.geo_ref.transform.gt.dx;
     float dy = (from_pos.y - to_pos.y) * settings_.geo_ref.transform.gt.dy;
-    float distance = sqrt(dx * dx + dy * dy);
-    return from.time + (distance / speed);
+    float distance = __fsqrt_rz(dx * dx + dy * dy);
+    return from.time + (distance * __frcp_rd(speed));
   }
 
   __device__ inline bool similar_fires(const volatile FireSimpleCuda &a,
                                        const volatile FireSimpleCuda &b) const {
+    // TODO: Make configurable
     return (abs(a.speed_max - b.speed_max) < 0.1 &&
             abs(a.azimuth_max - b.azimuth_max) < (5.0 * (2 * PI) / 360.0) &&
             abs(a.eccentricity - b.eccentricity) < 0.05);

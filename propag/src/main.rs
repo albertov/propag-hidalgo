@@ -166,15 +166,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             .collect()
     });
     println!("Verifying results");
-    if fire
+    assert!(fire
         .iter()
         .zip(fire_rs.iter())
-        .all(|(f_gpu, f_cpu)| Into::<Fire>::into(f_gpu).almost_eq(f_cpu))
-    {
-        println!("All equal");
-    } else {
-        println!("NOT equal");
-    }
+        .all(|(f_gpu, f_cpu)| Into::<Fire>::into(f_gpu).almost_eq(f_cpu)));
+    println!("All equal");
 
     println!("Calculating with GPU Simple");
     // output vectors
@@ -240,15 +236,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             .collect()
     });
     println!("Verifying results");
-    if fire_simple
+    assert!(fire_simple
         .iter()
         .zip(fire_simple_rs.iter())
-        .all(|(f_gpu, f_cpu)| Into::<FireSimple>::into(f_gpu).almost_eq(f_cpu))
-    {
-        println!("All equal");
-    } else {
-        println!("NOT equal");
-    }
-
+        .all(|(f_gpu, f_cpu)| Into::<FireSimple>::into(f_gpu).almost_eq(f_cpu)));
+    println!("All equal");
     Ok(())
 }

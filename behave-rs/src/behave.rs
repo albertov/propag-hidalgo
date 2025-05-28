@@ -460,7 +460,7 @@ mod tests {
             let f = *fuel;
             let spread = Spread {
                 rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(f.rxInt),
-                speed: Velocity::new::<foot_per_minute>(f.spread0),
+                speed0: Velocity::new::<foot_per_minute>(f.spread0),
                 hpua: RadiantExposure::new::<btu_sq_foot>(f.hpua),
                 phi_eff_wind: Ratio::new::<ratio>(f.phiEw),
                 speed_max: Velocity::new::<foot_per_minute>(f.spreadMax),
@@ -503,6 +503,6 @@ mod tests {
                 aspect: zero,
             },
         );
-        assert_eq!(spread.speed.get::<foot_per_minute>(), 0.0);
+        assert_eq!(spread.speed0.get::<foot_per_minute>(), 0.0);
     }
 }

@@ -26,6 +26,7 @@ pub struct Particle {
     pub si_effective: Ratio, // effective silica content
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Terrain {
     pub d1hr: Ratio,
     pub d10hr: Ratio,
@@ -35,7 +36,7 @@ pub struct Terrain {
     pub wind_speed: Velocity,
     pub wind_azimuth: Angle,
     pub slope: Ratio,
-    pub aspect: Ratio,
+    pub aspect: Angle,
 }
 
 pub struct Spread {
@@ -105,7 +106,8 @@ pub struct Fuel {
 
 pub type Catalog = Vec<Fuel>;
 
-pub fn standard_catalog() -> Catalog {
+lazy_static::lazy_static! {
+    pub static ref STANDARD_CATALOG : Catalog = {
     vec![
         Fuel::make(FuelDef {
             name: String::from("NoFuel"),
@@ -182,4 +184,5 @@ pub fn standard_catalog() -> Catalog {
             ],
         }),
     ]
+    };
 }

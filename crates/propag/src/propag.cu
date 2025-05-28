@@ -81,13 +81,12 @@ public:
       // updated by other threads
       __syncthreads();
       // Begin neighbor analysys
-      Point best;
-      bool retry = find_neighbor_with_least_access_time(boundaries, best);
+      Point best = find_neighbor_which_reaches_first(boundaries);
 
       cooperative_groups::this_grid().sync();
       // End of neighbor analysys, update point in global and shared memory
       // if it improves
-      bool improved = retry || update_point(best);
+      bool improved = update_point(best);
       // Sync to wait for other threads to end their analysis and
       // check if any has improved. Then if we're the first
       // thread of the block mark progress
@@ -117,11 +116,7 @@ public:
   }
   __device__ void post_propagate(const unsigned int *__restrict__ boundaries) {
     if (in_bounds_) {
-      load_points_into_shared_memory(true);
-    }
-    __syncthreads();
-    if (in_bounds_) {
-      Point me = shared_[local_ix_];
+      Point me = load_point(make_int2(idx_2d_.x, idx_2d_.y));
       if (fire_is_null(me.fire) || me.time > settings_.max_time) {
         time_[global_ix_] = FLT_MAX;
       };
@@ -136,8 +131,8 @@ public:
   }
 
 private:
-  __device__ inline bool find_neighbor_with_least_access_time(
-      const unsigned int *__restrict__ boundaries, Point &result) {
+  __device__ inline Point find_neighbor_which_reaches_first(
+      const unsigned int *__restrict__ boundaries) const {
     if (in_bounds_) {
       Point best = shared_[local_ix_];
 #pragma unroll
@@ -148,13 +143,14 @@ private:
           if (i == 0 && j == 0)
             continue;
 
-          int2 neighbor_pos = make_int2((int)idx_2d_.x + i, (int)idx_2d_.y + j);
+          const int2 neighbor_pos =
+              make_int2((int)idx_2d_.x + i, (int)idx_2d_.y + j);
 
           // skip out-of-bounds neighbors
           if (!pos_in_bounds(neighbor_pos))
             continue;
 
-          Point neighbor =
+          const Point neighbor =
               shared_[(local_x_ + i) + (local_y_ + j) * shared_width_];
 
           // not burning, skip it
@@ -169,65 +165,38 @@ private:
           if ((reference.pos.x == idx_2d_.x && reference.pos.y == idx_2d_.y)) {
             continue;
           }
-          PointRef neighbor_as_ref(neighbor.time, neighbor_pos);
-          float neighbor_time = time_from(neighbor_as_ref, neighbor.fire);
+          const PointRef neighbor_as_ref(neighbor.time, neighbor_pos);
+          const float neighbor_time = time_from(neighbor_as_ref, neighbor.fire);
           float candidate_time = time_from(reference, neighbor.fire);
-          if (neighbor_time < candidate_time && neighbor_time < best.time) {
-            best.time = neighbor_time;
-            best.reference = neighbor_as_ref;
-          } else if (candidate_time < best.time) {
+          if (candidate_time < neighbor_time && candidate_time < best.time) {
             // Check if the path to neighbor's reference is not blocked by a
-            // point with a different reference or fire
-            if (neighbor_pos.x != reference.pos.x &&
-                neighbor_pos.y != reference.pos.y) {
-              int2 prev_pos = neighbor_pos;
-              int2 possible_blockage_pos;
-              DDA iter(neighbor_pos, reference.pos);
-              while (iter.next(possible_blockage_pos)) {
-                ASSERT(pos_in_bounds(possible_blockage_pos));
-                if (possible_blockage_pos.x == idx_2d_.x &&
-                    possible_blockage_pos.y == idx_2d_.y) {
-                  continue;
-                }
-                size_t blockage_idx =
-                    possible_blockage_pos.x +
-                    possible_blockage_pos.y * settings_.geo_ref.width;
-                if (is_boundary(boundaries, blockage_idx)) {
-                  Point ref_p = load_point(prev_pos);
-                  if (ref_p.time < FLT_MAX) {
-                    /*
-                    if (idx_2d_.x==182 &&
-                    idx_2d_.y==settings_.geo_ref.height-57) { printf("%d %d\n",
-                    prev_pos.x, prev_pos.y);
-                    }
-                    */
-                    reference = PointRef(ref_p.time, prev_pos);
-                    candidate_time = time_from(reference, neighbor.fire);
-                    break;
-                  } else {
-                    /*
-                    if (idx_2d_.x==182 &&
-                    idx_2d_.y==settings_.geo_ref.height-57) { printf("retry %d
-                    %d\n", possible_blockage_pos.x, possible_blockage_pos.y);
-                    }
-                    */
-                    return true;
-                  }
-                };
-                prev_pos = possible_blockage_pos;
-              }
+            // point with a different fire
+            int2 possible_blockage_pos;
+            DDA iter(neighbor_pos, reference.pos);
+            while (iter.next(possible_blockage_pos)) {
+              ASSERT(pos_in_bounds(possible_blockage_pos));
+              size_t blockage_idx =
+                  possible_blockage_pos.x +
+                  possible_blockage_pos.y * settings_.geo_ref.width;
+              if (is_boundary(boundaries, blockage_idx)) {
+                reference = neighbor_as_ref;
+                candidate_time = neighbor_time;
+                break;
+              };
             }
             if (candidate_time < best.time) {
               best.time = candidate_time;
               best.reference = reference;
             }
+          } else if (neighbor_time < best.time) {
+            best.time = neighbor_time;
+            best.reference = neighbor_as_ref;
           };
         };
       };
-      result = best;
-      return false;
+      return best;
     };
-    return false;
+    return Point_NULL;
   }
 
   __device__ inline bool update_point(Point p) {

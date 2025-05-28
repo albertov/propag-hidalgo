@@ -15,6 +15,7 @@ pub enum ParticleType {
     Dead, // Dead fuel particle
     Herb, // Herbaceous live particle
     Wood, // Woody live particle
+    NoParticle // Sentinel for no particle
 }
 
 #[derive(Clone, Copy)]
@@ -70,7 +71,7 @@ pub struct Spread {
     pub residence_time: Time,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Combustion {
     pub name: [u8; 16],
     pub live_area_weight: f64,
@@ -118,7 +119,7 @@ pub struct FuelDef {
 pub const MAX_PARTICLES : usize = 20;
 pub const MAX_FUELS : usize = 20;
 
-pub type ParticleDefs = [Option<ParticleDef>; MAX_PARTICLES];
+pub type ParticleDefs = [ParticleDef; MAX_PARTICLES];
 
 #[inline]
 pub fn iter_arr<const N: usize, T>(particles: &[Option<T>; N]) -> impl Iterator<Item=&T> {
@@ -127,6 +128,16 @@ pub fn iter_arr<const N: usize, T>(particles: &[Option<T>; N]) -> impl Iterator<
         .map(|p| p.as_ref().unwrap())
 }
 
+#[inline]
+pub fn iter_particles<const N: usize>(particles: &[Particle; N]) -> impl Iterator<Item=&Particle> {
+    particles.iter() .take_while(|p| !p.is_sentinel())
+}
+#[inline]
+pub fn iter_particle_defs<const N: usize>(particles: &[ParticleDef; N]) -> impl Iterator<Item=&ParticleDef> {
+    particles.iter() .take_while(|p| !p.is_sentinel())
+}
+
+#[derive(Clone, Copy)]
 pub struct Fuel {
     pub name: [u8; 16],
     pub desc: [u8; 64],
@@ -137,183 +148,188 @@ pub struct Fuel {
     pub dead_particles: Particles,
 }
 
-pub type Particles = [Option<Particle>; MAX_PARTICLES];
+pub type Particles = [Particle; MAX_PARTICLES];
 
-pub type Catalog = [Option<Combustion>; MAX_FUELS];
+pub type Catalog = [Combustion; MAX_FUELS];
 
 
 #[inline]
 pub fn get_fuel(catalog: &Catalog, idx: usize) -> Option<&Combustion> {
     match catalog.get(idx).as_ref() {
-        Some(Some(x)) => Some(x),
+        Some(x) if x.has_particles() => Some(x),
         _ => None
     }
 }
 
+pub const fn init_arr<T: Copy, const N: usize, const M: usize>(def: T, src: [T; M]) -> [T; N] {
+    let mut dst = [def; N];
+    let mut i = 0;
+    while i < M {
+        dst[i] = src[i];
+        i += 1;
+    }
+    dst
+}
+
 lazy_static::lazy_static! {
-pub static ref STANDARD_CATALOG : Catalog = {
-    [
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NoFuel").unwrap(),
-            desc: String::try_from("No Combustible Fuel").unwrap(),
-            depth: Length::new::<foot>(0.1),
-            mext: Ratio::new::<ratio>(0.01),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: Vec::new(),
-        })),
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NFFL01").unwrap(),
-            desc: String::try_from("Short Grass (1 ft)").unwrap(),
-            depth: Length::new::<foot>(1.0),
-            mext: Ratio::new::<ratio>(0.12),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: [ParticleDef::standard(ParticleType::Dead, 0.0340, 3500.0)],
-        })),
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NFFL02").unwrap(),
-            desc: String::try_from("Timber (grass & understory)").unwrap(),
-            depth: Length::new::<foot>(1.0),
-            mext: Ratio::new::<ratio>(0.15),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: [
+    pub static ref STANDARD_CATALOG : Catalog = {
+        let mut dst = [Combustion::make(Fuel::SENTINEL); MAX_FUELS];
+        let mut i = 0;
+        while i < MAX_FUELS {
+            dst[i] = Combustion::make(STANDARD_FUELS[i]);
+            i += 1;
+        }
+        dst
+    };
+}
+
+pub const STANDARD_FUELS : [Fuel; MAX_FUELS] = {
+    init_arr(Fuel::SENTINEL, [
+        Fuel::make(FuelDef::standard(
+            *b"NoFuel",
+            *b"No Combustible Fuel",
+            0.1,
+            0.01,
+            [],
+        )),
+        Fuel::make(FuelDef::standard(
+            *b"NFFL01",
+            *b"Short Grass (1 ft)",
+            1.0,
+            0.12,
+            [ParticleDef::standard(ParticleType::Dead, 0.0340, 3500.0)],
+        )),
+        Fuel::make(FuelDef::standard(
+            *b"NFFL02",
+            *b"Timber (grass & understory)",
+            1.0,
+            0.15,
+            [
                 ParticleDef::standard(ParticleType::Dead, 0.0920, 3000.0),
                 ParticleDef::standard(ParticleType::Dead, 0.0460, 109.0),
                 ParticleDef::standard(ParticleType::Dead, 0.0230, 30.0),
                 ParticleDef::standard(ParticleType::Herb, 0.0230, 1500.0),
             ],
-        })),
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NFFL03").unwrap(),
-            desc: String::try_from("Tall Grass (2.5 ft)").unwrap(),
-            depth: Length::new::<foot>(2.5),
-            mext: Ratio::new::<ratio>(0.25),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: [ParticleDef::standard(ParticleType::Dead, 0.1380, 1500.0)],
-        })),
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NFFL04").unwrap(),
-            desc: String::try_from("Chaparral (6 ft)").unwrap(),
-            depth: Length::new::<foot>(6.0),
-            mext: Ratio::new::<ratio>(0.2),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: [
+        )),
+        Fuel::make(FuelDef::standard(
+            *b"NFFL03",
+            *b"Tall Grass (2.5 ft)",
+            2.5,
+            0.25,
+            [ParticleDef::standard(ParticleType::Dead, 0.1380, 1500.0)],
+        )),
+        Fuel::make(FuelDef::standard(
+            *b"NFFL04",
+            *b"Chaparral (6 ft)",
+            6.0,
+            0.2,
+            [
                 ParticleDef::standard(ParticleType::Dead, 0.2300, 2000.0),
                 ParticleDef::standard(ParticleType::Dead, 0.1840, 109.0),
                 ParticleDef::standard(ParticleType::Dead, 0.0920, 30.0),
                 ParticleDef::standard(ParticleType::Wood, 0.2300, 1500.0),
             ],
-        })),
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NFFL05").unwrap(),
-            desc: String::try_from("Brush (2 ft)").unwrap(),
-            depth: Length::new::<foot>(2.0),
-            mext: Ratio::new::<ratio>(0.2),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: [
+        )),
+        Fuel::make(FuelDef::standard(
+            *b"NFFL05",
+            *b"Brush (2 ft)",
+            2.0,
+            0.2,
+            [
                 ParticleDef::standard(ParticleType::Dead, 0.0460, 2000.0),
                 ParticleDef::standard(ParticleType::Dead, 0.0230, 109.0),
                 ParticleDef::standard(ParticleType::Wood, 0.0920, 1500.0),
             ],
-        })),
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NFFL06").unwrap(),
-            desc: String::try_from("Dormant Brush & Hardwood Slash").unwrap(),
-            depth: Length::new::<foot>(2.5),
-            mext: Ratio::new::<ratio>(0.25),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: [
+        )),
+        Fuel::make(FuelDef::standard(
+            *b"NFFL06",
+            *b"Dormant Brush & Hardwood Slash",
+            2.5,
+            0.25,
+            [
                 ParticleDef::standard(ParticleType::Dead, 0.0690, 1750.0),
                 ParticleDef::standard(ParticleType::Dead, 0.1150, 109.0),
                 ParticleDef::standard(ParticleType::Dead, 0.0920, 30.0),
             ],
-        })),
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NFFL07").unwrap(),
-            desc: String::try_from("Southern Rough").unwrap(),
-            depth: Length::new::<foot>(2.5),
-            mext: Ratio::new::<ratio>(0.40),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: [
+        )),
+        Fuel::make(FuelDef::standard(
+            *b"NFFL07",
+            *b"Southern Rough",
+            2.5,
+            0.40,
+            [
                 ParticleDef::standard(ParticleType::Dead, 0.0520, 1750.0),
                 ParticleDef::standard(ParticleType::Dead, 0.0860, 109.0),
                 ParticleDef::standard(ParticleType::Dead, 0.0690, 30.0),
                 ParticleDef::standard(ParticleType::Wood, 0.0170, 1550.0),
             ],
-        })),
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NFFL08").unwrap(),
-            desc: String::try_from("Closed Timber Litter").unwrap(),
-            depth: Length::new::<foot>(0.2),
-            mext: Ratio::new::<ratio>(0.30),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: [
+        )),
+        Fuel::make(FuelDef::standard(
+            *b"NFFL08",
+            *b"Closed Timber Litter",
+            0.2,
+            0.30,
+            [
                 ParticleDef::standard(ParticleType::Dead, 0.0690, 2000.0),
                 ParticleDef::standard(ParticleType::Dead, 0.0460, 109.0),
                 ParticleDef::standard(ParticleType::Dead, 0.1150, 30.0),
             ],
-        })),
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NFFL09").unwrap(),
-            desc: String::try_from("Hardwood Litter").unwrap(),
-            depth: Length::new::<foot>(0.2),
-            mext: Ratio::new::<ratio>(0.25),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: [
+        )),
+        Fuel::make(FuelDef::standard(
+            *b"NFFL09",
+            *b"Hardwood Litter",
+            0.2,
+            0.25,
+            [
                 ParticleDef::standard(ParticleType::Dead, 0.1340, 2500.0),
                 ParticleDef::standard(ParticleType::Dead, 0.0190, 109.0),
                 ParticleDef::standard(ParticleType::Dead, 0.0070, 30.0),
             ],
-        })),
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NFFL10").unwrap(),
-            desc: String::try_from("Timber (litter & understory)").unwrap(),
-            depth: Length::new::<foot>(1.0),
-            mext: Ratio::new::<ratio>(0.25),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: [
+        )),
+        Fuel::make(FuelDef::standard(
+            *b"NFFL10",
+            *b"Timber (litter & understory)",
+            1.0,
+            0.25,
+            [
                 ParticleDef::standard(ParticleType::Dead, 0.1380, 2000.0),
                 ParticleDef::standard(ParticleType::Dead, 0.0920, 109.0),
                 ParticleDef::standard(ParticleType::Dead, 0.2300, 30.0),
                 ParticleDef::standard(ParticleType::Wood, 0.0920, 1500.0),
             ],
-        })),
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NFFL11").unwrap(),
-            desc: String::try_from("Light Logging Slash").unwrap(),
-            depth: Length::new::<foot>(1.0),
-            mext: Ratio::new::<ratio>(0.15),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: [
+        )),
+        Fuel::make(FuelDef::standard(
+            *b"NFFL11",
+            *b"Light Logging Slash",
+            1.0,
+            0.15,
+            [
                 ParticleDef::standard(ParticleType::Dead, 0.0690, 1500.0),
                 ParticleDef::standard(ParticleType::Dead, 0.2070, 109.0),
                 ParticleDef::standard(ParticleType::Dead, 0.2530, 30.0),
             ],
-        })),
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NFFL12").unwrap(),
-            desc: String::try_from("Medium Logging Slash").unwrap(),
-            depth: Length::new::<foot>(2.3),
-            mext: Ratio::new::<ratio>(0.20),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: [
+        )),
+        Fuel::make(FuelDef::standard(
+            *b"NFFL12",
+            *b"Medium Logging Slash",
+            2.3,
+            0.20,
+            [
                 ParticleDef::standard(ParticleType::Dead, 0.1840, 1500.0),
                 ParticleDef::standard(ParticleType::Dead, 0.6440, 109.0),
                 ParticleDef::standard(ParticleType::Dead, 0.7590, 30.0),
             ],
-        })),
-        Some(Combustion::make(&FuelDef {
-            name: String::try_from("NFFL13").unwrap(),
-            desc: String::try_from("Heavy Logging Slash").unwrap(),
-            depth: Length::new::<foot>(3.0),
-            mext: Ratio::new::<ratio>(0.25),
-            adjust: Ratio::new::<ratio>(1.0),
-            particles: [
+        )),
+        Fuel::make(FuelDef::standard(
+            *b"NFFL13",
+            *b"Heavy Logging Slash",
+            3.0,
+            0.25,
+            [
                 ParticleDef::standard(ParticleType::Dead, 0.3220, 1500.0),
                 ParticleDef::standard(ParticleType::Dead, 0.0580, 109.0),
                 ParticleDef::standard(ParticleType::Dead, 1.2880, 30.0),
             ]
-        })),
-        None,None,None,None,None,None
-    ]
-    };
-}
+        )),
+    ])
+};

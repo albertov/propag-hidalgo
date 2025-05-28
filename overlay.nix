@@ -12,8 +12,8 @@ let
     ${builtins.readFile "${stdenv.cc}/nix-support/libcxx-cxxflags"}
   '';
   LIBCLANG_PATH = "${libclang}/lib";
-  CUDA_ROOT = final.cudatoolkit;
-  CUDA_PATH = final.cudatoolkit;
+  CUDA_ROOT = final.cudaCombined;
+  CUDA_PATH = final.cudaCombined;
   LLVM_CONFIG = "${final.llvmPackages_7.llvm.dev}/bin/llvm-config";
   LLVM_LINK_SHARED = "1";
 
@@ -46,6 +46,20 @@ in
 
   cudaPackages = prev.cudaPackages_12;
 
+  cudaCombined = final.symlinkJoin {
+    name = "cuda-combined";
+    paths = with final; [
+      cudaPackages.cuda_cudart
+      cudaPackages.cuda_cudart.dev
+      cudaPackages.cuda_cudart.stubs
+      cudaPackages.cuda_nvprof
+      cudaPackages.cuda_cccl
+      cudaPackages.cuda_nvcc
+      cudaPackages.cuda_profiler_api.dev
+      cudaPackages.cuda_cupti
+    ];
+  };
+
   propag = final.myRustPlatform.buildRustPackage (
     workspaceArgs
     // {
@@ -55,15 +69,14 @@ in
         with final;
         with final.myRustToolchain.availableComponents;
         [
-          cudatoolkit
-          cudatoolkit.lib
+          cudaCombined
           openssl
           gdal
         ];
       LLVM_LINK_SHARED = 1;
       nativeBuildInputs = with final; [
         makeWrapper
-        cudatoolkit
+        cudaCombined
         #linuxPackages.nvidia_x11
         #linuxPackages.nvidia_x11.bin
         pkg-config
@@ -96,6 +109,7 @@ in
   myRustToolchain = final.buildPackages.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
   myRustPlatform = final.buildPackages.makeRustPlatform {
+    stdenv = final.cudaPackages.backendStdenv;
     cargo = final.myRustToolchain;
     rustc = final.myRustToolchain;
   };

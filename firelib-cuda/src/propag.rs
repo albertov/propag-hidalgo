@@ -19,7 +19,6 @@ const BLOCK_WIDTH: usize = 16;
 const BLOCK_HEIGHT: usize = 16;
 const BUFFER_RADIUS: usize = 1;
 const SHARED_SIZE: usize = (BLOCK_WIDTH + BUFFER_RADIUS * 2) * (BLOCK_HEIGHT + BUFFER_RADIUS * 2);
-const TIME_EPSILON: f32 = 0.0;
 
 unsafe fn read_volatile<T: Copy>(p: *const T) -> T {
     *p
@@ -34,12 +33,12 @@ unsafe fn write_volatile<T: Copy>(p: *mut T, v: T) {
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
 pub unsafe fn propag(
     geo_ref: GeoReference,
-    max_time: float::T,
+    max_time: u32,
     num_blocks: usize,
     speed_max: &[Option<float::T>],
     azimuth_max: &[Option<float::T>],
     eccentricity: &[Option<float::T>],
-    time: *mut Option<float::T>,
+    time: *mut Option<u32>,
     refs_x: *mut Option<usize>,
     refs_y: *mut Option<usize>,
     progress: *mut u32,
@@ -116,13 +115,12 @@ pub unsafe fn propag(
                     refs_y,
                 );
             }
-            (Some(shared_off), None) =>
-                *shared.add(shared_off) = None,
+            (Some(shared_off), None) => *shared.add(shared_off) = None,
             (None, Some(_)) => {
                 println!("{:?} {:?} {:?} {:?}", x, y, shared_off, global_off);
                 panic!("should not happen");
-            },
-            (None,None) => ()
+            }
+            (None, None) => (),
         }
     };
     // are we in-bounds of the target raster?
@@ -145,15 +143,13 @@ pub unsafe fn propag(
 
     thread::sync_threads();
 
-    let me = *shared.add(shared_ix);
-    let mut best_fire: Option<Point> = None;
-
-    let mut improved = 0;
 
     ////////////////////////////////////////////////////////////////////////
     // Begin neighbor analysys
     ////////////////////////////////////////////////////////////////////////
-    if me.is_none() && in_bounds {
+    let me = *shared.add(shared_ix);
+    let mut best_fire: Option<Point> = None;
+    let improved = if me.is_none() && in_bounds {
         for neighbor in iter_neighbors(&geo_ref, shared) {
             let reference = (|| {
                 let neigh_ref = neighbor.reference();
@@ -198,7 +194,10 @@ pub unsafe fn propag(
                         //self::println!("case 1.2");
                         // Reference is not valid, use the neighbor
                         match neighbor.as_reference() {
-                            Some(reference) if reference.pos() != pos  && similar_fires(fire, reference.fire)=> {
+                            Some(reference)
+                                if reference.pos() != pos
+                                    && similar_fires(fire, reference.fire) =>
+                            {
                                 //self::println!("case 1.2.1");
                                 let time = reference.time_to(&geo_ref, pos)?;
                                 when_lt_max_time(Point {
@@ -224,26 +223,27 @@ pub unsafe fn propag(
                 }
                 // We are combustible but reference is not valid, we try
                 // our neighbor or else we use ourselves as ref
-                (Some(fire), None) =>
-                    match neighbor.as_reference() {
-                        Some(reference)  => {
-                            //self::println!("case 4");
-                            let time = reference.time_to(&geo_ref, pos)?;
-                            when_lt_max_time(Point {
-                                time,
-                                fire: Some(fire),
-                                reference
-                            })
-                        }
-                        _ => panic!("should not happen"),
+                (Some(fire), None) => match neighbor.as_reference() {
+                    Some(reference) => {
+                        //self::println!("case 4");
+                        let time = reference.time_to(&geo_ref, pos)?;
+                        when_lt_max_time(Point {
+                            time,
+                            fire: Some(fire),
+                            reference,
+                        })
                     }
+                    _ => panic!("should not happen"),
+                },
                 // Not combustible and invalid reference
                 (None, None) => None,
             })();
             // Update the best_fire with the one with lowest access time
             //self::println!("lelo: {:?}, {:?}", point, point);
             best_fire = match (point, best_fire) {
-                (Some(point), Some(best_fire)) if point.time + TIME_EPSILON < best_fire.time => Some(point),
+                (Some(point), Some(best_fire)) if point.time < best_fire.time => {
+                    Some(point)
+                }
                 (Some(point), None) => Some(point),
                 _ => best_fire,
             };
@@ -251,9 +251,9 @@ pub unsafe fn propag(
         ///////////////////////////////////////////////////
         // End of neighbor analysys, save point if improves
         ///////////////////////////////////////////////////
-        improved = match (me, best_fire) {
+        match best_fire {
             /*
-            (Some(me), Some(best_fire)) if best_fire.time + TIME_EPSILON < me.time => {
+            (Some(me), Some(best_fire)) if best_fire.time < me.time => {
                 best_fire.save(global_ix, time, refs_x, refs_y);
                 1
             }
@@ -262,23 +262,24 @@ pub unsafe fn propag(
                 1
             },
             */
-            (None, Some(best_fire)) => {
+            Some(best_fire) => {
                 best_fire.save(global_ix, time, refs_x, refs_y);
                 1
             }
             _ => 0,
-        };
-    } // in_bounds
-      //thread::grid_fence();
-      let any_improved = thread::sync_threads_count(improved) > 0;
-      if any_improved
-          && thread::thread_idx_x() == 0
-          && thread::thread_idx_y() == 0
-      {
-          let block_ix = (thread::block_idx_x() + thread::block_idx_y() * thread::grid_dim_x()) as usize;
-          assert!(block_ix < num_blocks);
-          write_volatile(progress.add(block_ix), 1);
-      }
+        }
+    } else {
+        0
+    }; // in_bounds
+    let any_improved = thread::sync_threads_or(improved) > 0;
+    thread::grid_fence();
+    if any_improved && thread::thread_idx_x() == 0 && thread::thread_idx_y() == 0 {
+        let block_ix =
+            (thread::block_idx_x() + thread::block_idx_y() * thread::grid_dim_x()) as usize;
+        assert!(block_ix < num_blocks);
+        //println!("progress {} {}", thread::block_idx_x(), thread::block_idx_y());
+        write_volatile(progress.add(block_ix), 1);
+    }
 }
 
 // TODO: Fine-tune these constants and make them configurable
@@ -291,10 +292,9 @@ fn similar_fires(a: FireSimpleCuda, b: FireSimpleCuda) -> bool {
 fn compute_shared_ix(pos: &USizeVec2) -> Option<usize> {
     let shared_x = (pos.x % BLOCK_WIDTH) + BUFFER_RADIUS;
     let shared_y = (pos.y % BLOCK_HEIGHT) + BUFFER_RADIUS;
-    if shared_x < BLOCK_WIDTH + BUFFER_RADIUS * 2
-        && shared_y < BLOCK_HEIGHT + BUFFER_RADIUS * 2 {
+    if shared_x < BLOCK_WIDTH + BUFFER_RADIUS * 2 && shared_y < BLOCK_HEIGHT + BUFFER_RADIUS * 2 {
         let ix = shared_x + shared_y * (BLOCK_WIDTH + BUFFER_RADIUS * 2);
-        assert!(ix<SHARED_SIZE);
+        assert!(ix < SHARED_SIZE);
         Some(ix)
     } else {
         None
@@ -302,7 +302,7 @@ fn compute_shared_ix(pos: &USizeVec2) -> Option<usize> {
 }
 
 impl PointRef {
-    fn time_to(&self, geo_ref: &GeoReference, to: USizeVec2) -> Option<f32> {
+    fn time_to(&self, geo_ref: &GeoReference, to: USizeVec2) -> Option<u32> {
         let from_pos = Vec2 {
             x: self.pos().x as _,
             y: self.pos().y as _,
@@ -316,7 +316,7 @@ impl PointRef {
         let distance = geo_ref.distance(from_pos, to);
         let time = self.time;
         if speed > 1e-6 {
-            Some(time + (distance / speed))
+            Some((time as f32 + (distance / speed)) as u32)
         } else {
             None
         }
@@ -326,7 +326,7 @@ impl PointRef {
 #[derive(Copy, Clone, PartialEq, Debug, cust_core::DeviceCopy)]
 #[repr(C)]
 struct PointRef {
-    time: f32,
+    time: u32,
     pos_x: usize,
     pos_y: usize,
     fire: FireSimpleCuda,
@@ -344,7 +344,7 @@ impl PointRef {
 #[derive(Copy, Clone, Debug, PartialEq, cust_core::DeviceCopy)]
 #[repr(C)]
 struct Point {
-    time: f32,
+    time: u32,
     fire: Option<FireSimpleCuda>,
     reference: PointRef,
 }
@@ -357,7 +357,7 @@ impl Point {
         speed_max: &[Option<float::T>],
         azimuth_max: &[Option<float::T>],
         eccentricity: &[Option<float::T>],
-        time: *const Option<float::T>,
+        time: *const Option<u32>,
         ref_x: *const Option<usize>,
         ref_y: *const Option<usize>,
     ) -> Option<Self> {
@@ -397,7 +397,7 @@ impl Point {
     unsafe fn save(
         &self,
         idx: usize,
-        time: *mut Option<float::T>,
+        time: *mut Option<u32>,
         ref_x: *mut Option<usize>,
         ref_y: *mut Option<usize>,
     ) {

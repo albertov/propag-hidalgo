@@ -98,10 +98,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let grid_size2 = (model.len() as u32).div_ceil(block_size2) + 1;
 
     // input/output vectors
-    let mut time: Vec<Option<float::T>> = std::iter::repeat(None).take(model.len()).collect();
+    let mut time: Vec<Option<u32>> = std::iter::repeat(None).take(model.len()).collect();
     let mut refs_x: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
     let mut refs_y: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
-    let max_time: float::T = 60.0 * 60.0 * 50.0;
+    let max_time: u32 = 60 * 60 * 50;
 
     ({
         let mut speed_max: Vec<Option<float::T>> =
@@ -115,7 +115,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         time.fill(None);
         refs_x.fill(None);
         refs_y.fill(None);
-        time[(500 + 100 * geo_ref.size[0]) as usize] = Some(0.0);
+        time[(500 + 100 * geo_ref.size[0]) as usize] = Some(0);
         refs_x[(500 + 100 * geo_ref.size[0]) as usize] = Some(500);
         refs_y[(500 + 100 * geo_ref.size[0]) as usize] = Some(100);
 
@@ -156,7 +156,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 )
             )?;
             let width = geo_ref.size[0];
-            let times: Vec<(u32, u32, f32)> = (0..len)
+            let times: Vec<(u32, u32, u32)> = (0..len)
                 .zip(time.iter())
                 .filter_map(|(i, t)| Some((i % width, i.div_floor(width), (*t)?)))
                 .collect();
@@ -184,35 +184,46 @@ fn main() -> Result<(), Box<dyn Error>> {
                 )?;
                 stream.synchronize()?;
                 time_buf.copy_to(&mut time)?;
+                refs_x_buf.copy_to(&mut refs_x)?;
+                refs_y_buf.copy_to(&mut refs_y)?;
+                assert_eq!(
+                    refs_x.iter().filter(|x|x.is_some()).count(),
+                    refs_y.iter().filter(|x|x.is_some()).count(),
+                );
                 let num_times_after = time.iter().filter(|t| t.is_some()).count();
+                assert_eq!(
+                    num_times_after,
+                    refs_x.iter().filter(|x|x.is_some()).count(),
+                );
                 /*
                 if num_times_after == num_times {
                     break;
                 };
                 */
                 progress_buf.copy_to(&mut progress)?;
-                println!("progress={:?}, {}", progress.as_slice().iter().filter(|p|**p>0).count(),
-                    num_times_after);
-                if progress.iter().all(|x|*x==0) {
-                    break
+                println!(
+                    "progress={:?}, {}",
+                    progress.as_slice().iter().filter(|p| **p > 0).count(),
+                    num_times_after
+                );
+                if progress.iter().all(|x| *x == 0) {
+                    break;
                 }
             }
         };
     });
     println!("config_max_time={}", max_time);
     println!(
-        "max_time={}",
+        "max_time={:?}",
         time.iter()
             .filter_map(|x| *x)
-            .max_by(|x, y| x.partial_cmp(y).unwrap())
-            .unwrap()
+            .max()
     );
     println!(
-        "min_time={}",
+        "min_time={:?}",
         time.iter()
             .filter_map(|x| *x)
-            .min_by(|x, y| x.partial_cmp(y).unwrap())
-            .unwrap()
+            .min()
     );
     let num_times_after = time.iter().filter(|t| t.is_some()).count();
     println!("num_times_after={}", num_times_after);

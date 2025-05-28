@@ -72,7 +72,7 @@ pub struct Spread {
 
 #[derive(Clone)]
 pub struct Combustion {
-    pub name: String<16>,
+    pub name: [u8; 16],
     pub live_area_weight: f64,
     pub live_rx_factor: f64,
     pub dead_area_weight: f64,
@@ -107,19 +107,29 @@ pub enum SizeClass {
 }
 
 pub struct FuelDef {
-    pub name: String<16>,
-    pub desc: String<64>,
+    pub name: [u8; 16],
+    pub desc: [u8; 64],
     pub depth: Length,
     pub mext: Ratio,
     pub adjust: Ratio,
     pub particles: ParticleDefs,
 }
 
-pub type ParticleDefs = Vec<ParticleDef, 20>;
+pub const MAX_PARTICLES : usize = 20;
+pub const MAX_FUELS : usize = 20;
+
+pub type ParticleDefs = [Option<ParticleDef>; MAX_PARTICLES];
+
+#[inline]
+pub fn iter_arr<const N: usize, T>(particles: &[Option<T>; N]) -> impl Iterator<Item=&T> {
+    particles.iter()
+        .take_while(|p| p.is_some())
+        .map(|p| p.as_ref().unwrap())
+}
 
 pub struct Fuel {
-    pub name: String<16>,
-    pub desc: String<64>,
+    pub name: [u8; 16],
+    pub desc: [u8; 64],
     pub depth: f64,
     pub mext: f64,
     pub adjust: f64,
@@ -127,10 +137,37 @@ pub struct Fuel {
     pub dead_particles: Particles,
 }
 
-pub type Particles = Vec<Particle, 20>;
+pub type Particles = [Option<Particle>; MAX_PARTICLES];
 
-pub type Catalog = Vec<Combustion, 20>;
+pub type Catalog = [Option<Combustion>; MAX_FUELS];
 
+
+#[inline]
+pub fn get_fuel(catalog: &Catalog, idx: usize) -> Option<&Combustion> {
+    match catalog.get(idx).as_ref() {
+        Some(Some(x)) => Some(x),
+        _ => None
+    }
+}
+
+pub static STANDARD_CATALOG : Catalog = {
+    let mut ret = [const {None}; MAX_FUELS];
+    ret
+};
+
+/*
+const fn init_arr<const N: usize, const M: usize>(src: [u8; M]) -> [u8; N] {
+    let mut dst = [0; N];
+    let mut i = 0;
+    while i < M {
+        dst[i] = src[i];
+        i += 1;
+    }
+    dst
+}
+*/
+
+/*
 lazy_static::lazy_static! {
 pub static ref STANDARD_CATALOG : Catalog = {
     Vec::from_slice(&[
@@ -297,3 +334,4 @@ pub static ref STANDARD_CATALOG : Catalog = {
     ]).unwrap()
     };
 }
+*/

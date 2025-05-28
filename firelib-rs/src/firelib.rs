@@ -22,6 +22,7 @@ use crate::types::*;
 const SMIDGEN: f64 = 1e-6;
 const PI: f64 = 3.141592653589793;
 
+
 impl Terrain {
     fn upslope(&self) -> f64 {
         let aspect = self.aspect.get::<radian>();
@@ -162,8 +163,11 @@ impl ParticleDef {
             si_effective: Ratio::new::<ratio>(0.01),
         }
     }
-    fn size_class(&self) -> SizeClass {
-        let savr = self.savr.get::<reciprocal_foot>();
+    const fn size_class(&self) -> SizeClass {
+        let savr = {
+            let ReciprocalLength {value, ..} = self.savr;
+            value // FIXME reciprocal_foot
+        };
         if savr > 1200.0 {
             SizeClass::SC0
         } else if savr > 192.0 {
@@ -184,33 +188,72 @@ impl ParticleDef {
             _ => Life::Alive,
         }
     }
-    fn area_weight<'a>(&self, particles: &ParticleDefs) -> f64 {
-        safe_div(
-            self.surface_area(),
-            particles
-                .iter()
-                .filter(|p| p.life() == self.life())
-                .map(|p| p.surface_area())
-                .sum(),
-        )
+    const fn area_weight<'a>(&self, particles: &ParticleDefs) -> f64 {
+        let mut total = 0.0;
+        let mut i = 0;
+        while i < MAX_PARTICLES {
+            if let Some(p) = particles[i] {
+                match (p.life(), self.life()) {
+                    (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead) => {
+                        total += p.surface_area()
+                    },
+                    _ => ()
+                }
+                i += 1;
+            } else {
+                break
+            }
+        };
+        safe_div(self.surface_area(), total)
     }
-    fn size_class_weight(&self, particles: &ParticleDefs) -> f64 {
-        particles
-            .iter()
-            .filter(|p| p.life() == self.life())
-            .filter(|p| p.size_class() == self.size_class())
-            .map(|p| p.area_weight(particles))
-            .sum()
+    const fn size_class_weight(&self, particles: &ParticleDefs) -> f64 {
+        let mut total = 0.0;
+        let mut i = 0;
+        while i < MAX_PARTICLES {
+            if let Some(p) = particles[i] {
+                match (p.life(), self.life()) {
+                    (Life::Alive, Life::Alive) | (Life::Dead, Life::Dead) =>
+                        match (p.size_class(), self.size_class()) {
+                            (SizeClass::SC0, SizeClass::SC0) |
+                            (SizeClass::SC1, SizeClass::SC1) |
+                            (SizeClass::SC2, SizeClass::SC2) |
+                            (SizeClass::SC3, SizeClass::SC3) |
+                            (SizeClass::SC3, SizeClass::SC4) |
+                            (SizeClass::SC5, SizeClass::SC5) => {
+                        total += p.area_weight(particles)
+                    },
+                    _ => ()
+                },
+                _ => ()
+                }
+                i += 1;
+            } else {
+                break
+            }
+        };
+        total
     }
-    fn surface_area(&self) -> f64 {
-        let load = self.load.get::<pound_per_square_foot>();
-        let savr = self.savr.get::<reciprocal_foot>();
-        let density = self.density.get::<pound_per_cubic_foot>();
+    const fn surface_area(&self) -> f64 {
+        let load = {
+            let ArealMassDensity { value, ..} = self.load;
+            value // FIXME: pound_per_square_foot
+        };
+        let savr = {
+            let ReciprocalLength { value, ..} = self.savr;
+            value // FIXME: reciprocal_foot
+        };
+        let density = {
+            let MassDensity { value, ..} = self.density;
+            value // FIXME: pound_per_cubic_foot
+        };
         safe_div(load * savr, density)
     }
-    fn sigma_factor(&self) -> f64 {
-        let savr = self.savr.get::<reciprocal_foot>();
-        safe_div(-138.0, savr).exp()
+    const fn sigma_factor(&self) -> f64 {
+        let savr = {
+            let ReciprocalLength { value, ..} = self.savr;
+            value // FIXME: reciprocal_foot
+        };
+        safe_div(-138.0, savr)
     }
 }
 const fn safe_div(a: f64, b: f64) -> f64 {
@@ -222,7 +265,7 @@ const fn safe_div(a: f64, b: f64) -> f64 {
 }
 
 impl Particle {
-    pub fn make(def: &ParticleDef, particles: &ParticleDefs) -> Particle {
+    pub const fn make(def: &ParticleDef, particles: &ParticleDefs) -> Particle {
         let ParticleDef {
             type_,
             load,
@@ -232,15 +275,33 @@ impl Particle {
             si_total,
             si_effective,
         } = def;
+        let load = {
+            let ArealMassDensity { value, ..} = load;
+            value //FIXME
+        };
+        let savr = {
+            let ReciprocalLength { value, ..} = savr;
+            value //FIXME
+        };
+        let density = {
+            let MassDensity { value, ..} = density;
+            value //FIXME
+        };
+        let heat = {
+            let AvailableEnergy { value, ..} = heat;
+            value //FIXME
+        };
+        let si_total = { let Ratio { value, ..} = si_total; value };
+        let si_effective = { let Ratio { value, ..} = si_effective; value };
         Particle {
             type_: *type_,
             life: def.life(),
-            load: load.get::<pound_per_square_foot>(),
-            savr: savr.get::<reciprocal_foot>(),
-            density: density.get::<pound_per_cubic_foot>(),
-            heat: heat.get::<btu_per_pound>(),
-            si_total: si_total.get::<ratio>(),
-            si_effective: si_effective.get::<ratio>(),
+            load: *load,
+            savr: *savr,
+            density: *density,
+            heat: *heat,
+            si_total: *si_total,
+            si_effective: *si_effective,
             area_weight: def.area_weight(particles),
             size_class_weight: def.size_class_weight(particles),
             size_class: def.size_class(),
@@ -248,8 +309,8 @@ impl Particle {
             sigma_factor: def.sigma_factor(),
         }
     }
-    fn moisture(&self, terrain: &Terrain) -> f64 {
-        (match self.type_ {
+    const fn moisture(&self, terrain: &Terrain) -> f64 {
+        let Ratio { value, ..} = (match self.type_ {
             ParticleType::Herb => terrain.herb,
             ParticleType::Wood => terrain.wood,
             ParticleType::Dead => match self.size_class {
@@ -257,32 +318,56 @@ impl Particle {
                 SizeClass::SC2 | SizeClass::SC3 => terrain.d10hr,
                 SizeClass::SC4 | SizeClass::SC5 => terrain.d100hr,
             },
-        })
-        .get::<ratio>()
+        });
+        value
     }
 }
 
 impl Fuel {
-    pub fn make(def: FuelDef) -> Fuel {
-        let (alive_particles, dead_particles) = def
-            .particles
-            .iter()
-            .map(|p| Particle::make(p, &def.particles))
-            .partition(move |p| p.life == Life::Alive);
+    pub const fn make(def: &FuelDef) -> Fuel {
+        let mut alive_particles = [None; MAX_PARTICLES];
+        let mut dead_particles = [None; MAX_PARTICLES];
+        let mut i = 0;
+        let mut i_a = 0;
+        let mut i_d = 0;
+        while i < MAX_PARTICLES {
+            match def.particles[i].as_ref() {
+                Some(p) => {
+                    let p2 = Some(Particle::make(p, &def.particles));
+                    match p.life() {
+                        Life::Alive =>  {
+                            alive_particles[i_a] = p2;
+                            i_a += 1;
+                        },
+                        Life::Dead =>{
+                            dead_particles[i_d] = p2;
+                            i_d += 1;
+                        }
+                    };
+                    i += 1
+                },
+                None => break
+            };
+        };
+        let depth = {
+            let Length { value, ..} = def.depth;
+            value // FIXME foot
+        };
+        let mext = { let Ratio { value, ..} = def.mext; value };
+        let adjust = { let Ratio { value, ..} = def.adjust; value };
         Fuel {
             name: def.name,
             desc: def.desc,
-            depth: def.depth.get::<foot>(),
-            mext: def.mext.get::<ratio>(),
-            adjust: def.adjust.get::<ratio>(),
+            depth,
+            mext,
+            adjust,
             alive_particles,
             dead_particles,
         }
     }
     fn particles(&self) -> impl Iterator<Item = &Particle> {
-        self.dead_particles
-            .iter()
-            .chain(self.alive_particles.iter())
+        iter_arr(&self.dead_particles)
+            .chain(iter_arr(&self.alive_particles))
     }
     const fn life_particles(&self, life: Life) -> &Particles {
         match life {
@@ -294,46 +379,37 @@ impl Fuel {
         self.particles().map(|p| p.surface_area).sum()
     }
     fn life_area_weight(&self, life: Life) -> f64 {
-        self.life_particles(life)
-            .iter()
+        iter_arr(self.life_particles(life))
             .map(|p| p.surface_area / self.total_area())
             .sum()
     }
     fn life_fine_load(&self, life: Life) -> f64 {
         match life {
-            Life::Alive => self
-                .life_particles(life)
-                .iter()
+            Life::Alive => iter_arr(self.life_particles(life))
                 .map(|p| p.load * (-500.0 / p.savr).exp())
                 .sum(),
-            Life::Dead => self
-                .life_particles(life)
-                .iter()
-                .map(|p| p.load * p.sigma_factor)
+            Life::Dead => iter_arr(self.life_particles(life))
+                .map(|p| p.load * p.sigma_factor.exp())
                 .sum(),
         }
     }
     fn life_load(&self, life: Life) -> f64 {
-        self.life_particles(life)
-            .iter()
+        iter_arr(self.life_particles(life))
             .map(|p| p.size_class_weight * p.load * (1.0 - p.si_total))
             .sum()
     }
     fn life_savr(&self, life: Life) -> f64 {
-        self.life_particles(life)
-            .iter()
+        iter_arr(self.life_particles(life))
             .map(|p| p.area_weight * p.savr)
             .sum()
     }
     fn life_heat(&self, life: Life) -> f64 {
-        self.life_particles(life)
-            .iter()
+        iter_arr(self.life_particles(life))
             .map(|p| p.area_weight * p.heat)
             .sum()
     }
     fn life_seff(&self, life: Life) -> f64 {
-        self.life_particles(life)
-            .iter()
+        iter_arr(self.life_particles(life))
             .map(|p| p.area_weight * p.si_effective)
             .sum()
     }
@@ -412,7 +488,7 @@ impl Fuel {
 }
 
 impl Combustion {
-    pub fn make(def: FuelDef) -> Self {
+    pub fn make(def: &FuelDef) -> Self {
         let fuel = Fuel::make(def);
         let sigma = fuel.sigma();
         let beta = fuel.beta();
@@ -421,7 +497,7 @@ impl Combustion {
         let life_rx_factor_dead = fuel.life_rx_factor(Life::Dead, sigma, beta);
         let total_area = fuel.total_area();
         Combustion {
-            name: fuel.name.clone(),
+            name: fuel.name,
             live_area_weight: fuel.life_area_weight(Life::Alive),
             live_rx_factor: fuel.life_rx_factor(Life::Alive, sigma, beta),
             dead_area_weight: fuel.life_area_weight(Life::Dead),
@@ -466,9 +542,8 @@ impl Combustion {
         }
     }
     fn particles(&self) -> impl Iterator<Item = &Particle> {
-        self.dead_particles
-            .iter()
-            .chain(self.alive_particles.iter())
+        iter_arr(&self.dead_particles)
+            .chain(iter_arr(&self.alive_particles))
     }
     const fn life_particles(&self, life: Life) -> &Particles {
         match life {
@@ -591,7 +666,7 @@ impl Combustion {
                 (250.0 + 1116.0 * p.moisture(terrain))
                     * p.area_weight
                     * self.life_area_weight(p.life)
-                    * p.sigma_factor
+                    * p.sigma_factor.exp()
             })
             .sum();
         self.fuel_bed_bulk_dens * x
@@ -608,8 +683,7 @@ impl Combustion {
         }
     }
     fn life_moisture(&self, life: Life, terrain: &Terrain) -> f64 {
-        self.life_particles(life)
-            .iter()
+        iter_arr(self.life_particles(life))
             .map(|p| p.area_weight * p.moisture(terrain))
             .sum()
     }
@@ -647,9 +721,8 @@ impl Combustion {
     }
 
     fn wfmd(&self, terrain: &Terrain) -> f64 {
-        self.life_particles(Life::Dead)
-            .iter()
-            .map(|p| p.moisture(terrain) * p.sigma_factor * p.load)
+        iter_arr(self.life_particles(Life::Dead))
+            .map(|p| p.moisture(terrain) * p.sigma_factor.exp() * p.load)
             .sum()
     }
     const fn life_area_weight(&self, life: Life) -> f64 {
@@ -724,12 +797,12 @@ mod tests {
         azimuth: Angle,
     ) -> (Spread, SpreadAtAzimuth) {
         match STANDARD_CATALOG.get(model) {
-            Some(fuel) => {
+            Some(Some(fuel)) => {
                 let spread = fuel.spread(terrain);
                 let spread_az = SpreadAtAzimuth::from_spreader(&spread.at_azimuth(azimuth));
                 (spread, spread_az)
             }
-            None => (Spread::no_spread(), SpreadAtAzimuth::no_spread()),
+            _ => (Spread::no_spread(), SpreadAtAzimuth::no_spread()),
         }
     }
 

@@ -15,6 +15,9 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nix-utils = {
+      url = "github:albertov/nix-utils";
+    };
   };
 
   outputs =
@@ -24,9 +27,22 @@
       flake-parts,
       treefmt-nix,
       rust-overlay,
+      nix-utils,
+      nixpkgs,
       ...
     }:
-    flake-parts.lib.mkFlake { inherit inputs; } {
+    {
+      bundlers.x86_64-linux = {
+        toDEB =
+          drv:
+          nix-utils.bundlers.deb {
+            system = "x86_64-linux";
+            program = nixpkgs.lib.getExe drv;
+            inherit (drv) version;
+          };
+      };
+    }
+    // flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [
         # systems for which you want to build the `perSystem` attributes
         "x86_64-linux"
@@ -73,7 +89,7 @@
               name = "make_deb";
               runtimeInputs = [ pkgs.nix ];
               text = ''
-                nix bundle --bundler github:NixOS/bundlers#toDEB .# -o bundle
+                nix bundle --bundler .#toDEB .# -o bundle
               '';
             };
           };

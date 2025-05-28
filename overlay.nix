@@ -18,7 +18,6 @@ let
   LLVM_LINK_SHARED = "1";
 
   workspaceArgs = {
-    version = "git";
     src = final.lib.cleanSource ./.;
     cargoLock.lockFile = ./Cargo.lock;
     cargoLock.outputHashes = {
@@ -63,43 +62,49 @@ in
     ];
   };
 
-  propag = final.myRustPlatform.buildRustPackage (
-    workspaceArgs
-    // {
-      pname = "propag";
-      buildAndTestSubdir = "propag";
-      buildInputs =
-        with final;
-        with final.myRustToolchain.availableComponents;
-        [
-          cudaPackages.cuda_cudart.static
-          openssl
-          gdal
+  propag =
+    let
+      meta = builtins.fromTOML (builtins.readFile ./propag/Cargo.toml);
+    in
+    final.myRustPlatform.buildRustPackage (
+      workspaceArgs
+      // {
+        inherit (meta.package) version;
+        pname = "propag";
+        buildAndTestSubdir = "propag";
+        buildInputs =
+          with final;
+          with final.myRustToolchain.availableComponents;
+          [
+            cudaPackages.cuda_cudart.static
+            openssl
+            gdal
+          ];
+        LLVM_LINK_SHARED = 1;
+        nativeBuildInputs = with final; [
+          removeReferencesTo
+          cudaCombined
+          pkg-config
+          myRustToolchain
+          llvmPackages_7.llvm
+          ncurses # nvmm backend needs it
+          which
         ];
-      LLVM_LINK_SHARED = 1;
-      nativeBuildInputs = with final; [
-        removeReferencesTo
-        cudaCombined
-        pkg-config
-        myRustToolchain
-        llvmPackages_7.llvm
-        ncurses # nvmm backend needs it
-        which
-      ];
 
-      # Remove unneeded references (propably in the embedded PTX) to massively
-      # reduce closure size from ~7Gb to ~200M
-      fixupPhase = ''
-        remove-references-to \
-          -t ${final.myRustToolchain} \
-          -t ${final.cudaPackages.backendStdenv.cc} \
-          -t ${final.cudaPackages.cuda_nvcc} \
-          -t ${final.cudaCombined} \
-          $out/bin/propag
-      '';
+        # Remove unneeded references (propably in the embedded PTX) to massively
+        # reduce closure size from ~7Gb to ~200M
+        fixupPhase = ''
+          remove-references-to \
+            -t ${final.myRustToolchain} \
+            -t ${final.cudaPackages.backendStdenv.cc} \
+            -t ${final.cudaPackages.cuda_nvcc} \
+            -t ${final.cudaCombined} \
+            $out/bin/propag
+        '';
+        meta.mainProgram = "propag";
 
-    }
-  );
+      }
+    );
 
   llvmPackages_7 =
     with final;

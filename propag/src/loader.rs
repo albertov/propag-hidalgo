@@ -1,14 +1,14 @@
+use ::geometry::*;
 use gdal::errors::Result;
-use gdal::raster::{GdalDataType};
+use gdal::raster::GdalDataType;
+use gdal::spatial_ref::SpatialRef;
 use gdal::{Dataset, GeoTransform};
 use gdal_sys::*;
-use gdal::spatial_ref::SpatialRef;
-use ::geometry::*;
 
 // Takes ownership of the original dataset so no one uses it
 // after it is wrapped
 #[allow(dead_code)]
-pub struct WarpedDataset(Dataset, /* orig ds */Dataset);
+pub struct WarpedDataset(Dataset, /* orig ds */ Dataset);
 
 impl WarpedDataset {
     pub fn get<'a>(&'a self) -> &'a Dataset {
@@ -69,60 +69,57 @@ fn to_spatial_ref(crs: Crs) -> Result<SpatialRef> {
 #[cfg(test)]
 mod tests {
     use super::{to_geo_transform, to_spatial_ref, GeoReference, WarpedDataset};
-    use geometry::{Coord, Rect, Crs};
-    use gdal::raster::{Buffer,GdalType,GdalDataType};
+    use gdal::raster::{Buffer, GdalDataType, GdalType};
     use gdal::DriverManager;
+    use geometry::{Coord, Crs, Rect};
 
     type Result<A> = std::result::Result<A, Box<dyn std::error::Error>>;
 
     #[test]
     fn can_create_warped_ds() -> Result<()> {
-        let geo_ref = GeoReference::new_south_up(
-            Rect::new(
-                Coord {
-                    x: -180.0,
-                    y: -90.0,
-                },
-                Coord { x: 180.0, y: 90.0 },
-            ),
-            Coord { x: 0.1, y: 0.1 },
-            Crs::Epsg(4326),
-        )
-        .unwrap();
-        let d = DriverManager::get_driver_by_name("MEM")?;
-        let mut ds = d.create("in-memory", geo_ref.size.x as _, geo_ref.size.y as _, 3)?;
-        ds.set_spatial_ref(&to_spatial_ref(geo_ref.crs.clone())?)?;
-        ds.set_geo_transform(&to_geo_transform(geo_ref.transform))?;
-        assert_eq!(ds.raster_count(), 3);
-        assert_eq!(ds.raster_size(), (3600, 1800));
-        assert_eq!(ds.rasterband(1)?.band_type(), GdalDataType::UInt8);
-        let mut buf : Buffer<f64> = ds.rasterband(1)?.read_band_as()?;
-        let px = geo_ref.forward(Coord{x:-3.0,y:42.0});
-        // Buffer uses (row, col) indexing
-        buf[(px.y,px.x)] = 128.0;
-        ds.rasterband(1)?.write((0,0), ds.raster_size(), &mut buf)?;
-        ds.flush_cache()?;
-        let ext = Rect::new(
-            Coord { x: 4.8e5, y: 4.6e6},
-            Coord { x: 5.2e5, y: 4.7e6},
-        );
+        {
+            let geo_ref = GeoReference::new_south_up(
+                Rect::new(
+                    Coord {
+                        x: -180.0,
+                        y: -90.0,
+                    },
+                    Coord { x: 180.0, y: 90.0 },
+                ),
+                Coord { x: 0.1, y: 0.1 },
+                Crs::Epsg(4326),
+            )
+            .unwrap();
+            let d = DriverManager::get_driver_by_name("MEM")?;
+            let mut ds = d.create("in-memory", geo_ref.size.x as _, geo_ref.size.y as _, 3)?;
+            ds.set_spatial_ref(&to_spatial_ref(geo_ref.crs.clone())?)?;
+            ds.set_geo_transform(&to_geo_transform(geo_ref.transform))?;
+            assert_eq!(ds.raster_count(), 3);
+            assert_eq!(ds.raster_size(), (3600, 1800));
+            assert_eq!(ds.rasterband(1)?.band_type(), GdalDataType::UInt8);
+            let mut buf: Buffer<f64> = ds.rasterband(1)?.read_band_as()?;
+            let px = geo_ref.forward(Coord { x: -3.0, y: 42.0 });
+            // Buffer uses (row, col) indexing
+            buf[(px.y, px.x)] = 128.0;
+            ds.rasterband(1)?
+                .write((0, 0), ds.raster_size(), &mut buf)?;
+            ds.flush_cache()?;
+            let ext = Rect::new(Coord { x: 4.8e5, y: 4.6e6 }, Coord { x: 5.2e5, y: 4.7e6 });
 
-        let px_size = Coord { x: 50.0, y: 500.0 };
-        let crs = Crs::Epsg(25830);
-        let geo_ref = GeoReference::new_south_up(ext, px_size, crs).unwrap();
-        let wrapped = WarpedDataset::new(ds, <f64>::datatype(), geo_ref)?;
-        let ds2 = wrapped.get();
-        assert_eq!(ds2.raster_count(), 3);
-        assert_eq!(ds2.raster_size(), (800, 200));
-        assert_eq!(ds2.rasterband(1)?.band_type(), GdalDataType::Float64);
-        let s = ds2.raster_size();
-        let arr : Buffer<f64> = ds2.rasterband(1)?.read_as(
-            (0,0),
-            s,
-            s,
-            None
-        )?;
-        assert!(arr.into_iter().filter(|x| *x != 0.0).count() > 0);
+            let px_size = Coord { x: 50.0, y: 500.0 };
+            let crs = Crs::Epsg(25830);
+            let geo_ref = GeoReference::new_south_up(ext, px_size, crs).unwrap();
+            let wrapped = WarpedDataset::new(ds, <f64>::datatype(), geo_ref)?;
+            let ds2 = wrapped.get();
+            assert_eq!(ds2.raster_count(), 3);
+            assert_eq!(ds2.raster_size(), (800, 200));
+            assert_eq!(ds2.rasterband(1)?.band_type(), GdalDataType::Float64);
+            let s = ds2.raster_size();
+            let arr: Buffer<f64> = ds2.rasterband(1)?.read_as((0, 0), s, s, None)?;
+            assert!(arr.into_iter().filter(|x| *x != 0.0).count() > 0);
+        };
+        // Un-comment to make valgrind's output less noisy
+        //DriverManager::destroy();
         Ok(())
     }
 }

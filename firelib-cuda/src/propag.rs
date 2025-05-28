@@ -17,13 +17,13 @@ use uom::si::velocity::meter_per_second;
 
 const BLOCK_WIDTH: usize = 16;
 const BLOCK_HEIGHT: usize = 16;
-const SHARED_SIZE: usize = (BLOCK_WIDTH+2) * (BLOCK_HEIGHT+2);
+const SHARED_SIZE: usize = (BLOCK_WIDTH + 2) * (BLOCK_HEIGHT + 2);
 
 unsafe fn read_volatile<T: Copy>(p: *const T) -> T {
     core::intrinsics::volatile_load(p)
 }
 unsafe fn write_volatile<T: Copy>(p: *mut T, v: T) {
-    core::intrinsics::volatile_store(p,v)
+    core::intrinsics::volatile_store(p, v)
 }
 
 #[kernel]
@@ -57,16 +57,33 @@ pub unsafe fn propag(
         x: idx_2d.x as usize,
         y: idx_2d.y as usize,
     };
-    let ipos = IVec2 {
-        x: idx_2d.x as i32,
-        y: idx_2d.y as i32,
-    };
 
     // Our global index
     let global_ix = (idx_2d.x + idx_2d.y * width) as usize;
+    let to_global_off = |ox, oy| {
+        let x = idx_2d.x as i32 + ox;
+        let y = idx_2d.y as i32 + oy;
+        if x >= 0 && x < width as i32 && y >= 0 && y < height as i32 {
+            Some((x + y * width as i32) as usize)
+        } else {
+            None
+        }
+    };
 
     // Our index into the shared area
-    let shared_ix = compute_shared_ix(&ipos).expect("pos must have shared ix");
+    let shared_ix = compute_shared_ix(&pos).expect("pos must have shared ix");
+    let to_shared_off = |x, y| {
+        let pos = IVec2 {
+            x: pos.x as _,
+            y: pos.y as _,
+        };
+        let pos = pos + IVec2 { x, y };
+        let pos = USizeVec2 {
+            x: pos.x as _,
+            y: pos.y as _,
+        };
+        compute_shared_ix(&pos)
+    };
 
     ////////////////////////////////////////////////////////////////////////
     // First phase, load data from global to shared memory
@@ -94,6 +111,48 @@ pub unsafe fn propag(
     } else {
         (None, None)
     };
+
+    // Preload boundaries
+    let preload_point = |x, y| {
+        let shared_off = to_shared_off(x, y);
+        let global_off = to_global_off(x, y);
+        match (shared_off, global_off) {
+            (Some(shared_off), Some(global_off)) => {
+                *shared.add(shared_off) = Point::load(
+                    &geo_ref,
+                    pos,
+                    global_off,
+                    speed_max,
+                    azimuth_max,
+                    eccentricity,
+                    time,
+                    refs_x,
+                    refs_y,
+                );
+            }
+            (Some(shared_off), None) => *shared.add(shared_off) = None,
+            _ => (),
+        }
+    };
+    if thread::thread_idx_x() == 0 && thread::thread_idx_y() == 0 {
+        preload_point(-1, -1);
+    } else if thread::thread_idx_y() == 0 {
+        preload_point(0, -1);
+    } else if thread::thread_idx_x() as usize == BLOCK_WIDTH - 1 && thread::thread_idx_y() == 0 {
+        preload_point(1, -1);
+    } else if thread::thread_idx_x() as usize == BLOCK_WIDTH - 1 {
+        preload_point(1, 0);
+    } else if thread::thread_idx_x() as usize == BLOCK_WIDTH - 1
+        && thread::thread_idx_y() as usize == BLOCK_HEIGHT - 1
+    {
+        preload_point(1, 1);
+    } else if thread::thread_idx_y() as usize == BLOCK_HEIGHT - 1 {
+        preload_point(0, 1);
+    } else if thread::thread_idx_x() == 0 && thread::thread_idx_y() as usize == BLOCK_HEIGHT - 1 {
+        preload_point(-1, 1);
+    } else if thread::thread_idx_x() == 0 {
+        preload_point(-1, 0);
+    }
     *shared.add(shared_ix) = me;
     thread::sync_threads();
 
@@ -118,7 +177,7 @@ pub unsafe fn propag(
                     y: neigh_ref.pos().y as float::T,
                 };
                 let possible_blockage_pos = geometry::line_to(pos, other).nth(1)?;
-                let possible_blockage_pos = IVec2 {
+                let possible_blockage_pos = USizeVec2 {
                     x: possible_blockage_pos.x as _,
                     y: possible_blockage_pos.y as _,
                 };
@@ -205,20 +264,48 @@ fn similar_fires(a: FireSimpleCuda, b: FireSimpleCuda) -> bool {
         && (a.eccentricity - b.eccentricity).abs() < 0.1
 }
 
-fn compute_shared_ix(pos: &IVec2) -> Option<usize> {
-    let pos = pos;
-    let shared_x = pos.x%(BLOCK_WIDTH as i32);
-    let shared_y = pos.y%(BLOCK_HEIGHT as i32);
-    let shared_bx = pos.x/(BLOCK_WIDTH as i32);
-    let shared_by = pos.y/(BLOCK_HEIGHT as i32);
-    if shared_x >= 0
-       && shared_y >= 0
-       && shared_x < BLOCK_WIDTH as i32
-       && shared_y < BLOCK_HEIGHT as i32
-        && shared_bx == thread::block_idx_x() as i32
-        && shared_by == thread::block_idx_y() as i32
-    {
-        Some((shared_x+1 + (shared_y+1) * (BLOCK_WIDTH+2) as i32) as usize)
+fn compute_shared_ix(pos: &USizeVec2) -> Option<usize> {
+    let shared_x = pos.x % (BLOCK_WIDTH);
+    let shared_y = pos.y % (BLOCK_HEIGHT);
+    let shared_bx = pos.x / (BLOCK_WIDTH);
+    let shared_by = pos.y / (BLOCK_HEIGHT);
+    let my_bx = thread::block_idx_x() as usize;
+    let my_by = thread::block_idx_y() as usize;
+    let is_top_neighbor = shared_by == my_by - 1;
+    let is_bottom_neighbor = shared_by == my_by + 1;
+    let is_left_neighbor = shared_bx == my_bx - 1;
+    let is_right_neighbor = shared_bx == my_bx + 1;
+
+    if let Some((shared_x, shared_y)) = match (
+        is_top_neighbor,
+        is_bottom_neighbor,
+        is_left_neighbor,
+        is_right_neighbor,
+    ) {
+        //TL
+        (true, false, true, false) => Some((0, 0)),
+        // T
+        (true, false, false, false) => Some((shared_x + 1, 0)),
+        // TR
+        (true, false, false, true) => Some((BLOCK_WIDTH + 1, 0)),
+        // R
+        (false, false, false, true) => Some((BLOCK_WIDTH + 1, shared_y + 1)),
+        // BR
+        (false, true, false, true) => Some((BLOCK_WIDTH + 1, BLOCK_HEIGHT + 1)),
+        // B
+        (false, true, false, false) => Some((shared_x + 1, 0)),
+        // BL
+        (false, true, true, false) => Some((0, BLOCK_HEIGHT + 1)),
+        // L
+        (false, false, true, false) => Some((0, shared_y + 1)),
+        // This block
+        (false, false, false, false) if shared_bx == my_bx && shared_by == my_by => {
+            Some((shared_x + 1, shared_y + 1))
+        }
+
+        _ => None,
+    } {
+        Some((shared_x + (shared_y) * (BLOCK_WIDTH + 2)))
     } else {
         None
     }
@@ -355,7 +442,7 @@ impl Point {
         ref_x: *mut Option<usize>,
         ref_y: *mut Option<usize>,
     ) {
-        let pos = (idx%1000, idx/1000);
+        let pos = (idx % 1000, idx / 1000);
         write_volatile(time.add(idx), Some(self.time));
         write_volatile(ref_x.add(idx), Some(self.reference.pos_x));
         write_volatile(ref_y.add(idx), Some(self.reference.pos_y));
@@ -423,22 +510,14 @@ unsafe fn iter_neighbors(
             };
             // If this neighbor is outside this block or global area
             // continue
-            if pos.x < 0
-                || pos.x >= width as _
-                || pos.y < 0
-                || pos.y >= height as _
-            {
+            if pos.x < 0 || pos.x >= width as _ || pos.y < 0 || pos.y >= height as _ {
                 None
             } else {
-                let ipos = IVec2 {
-                    x: pos.x as _,
-                    y: pos.y as _,
-                };
                 let pos = USizeVec2 {
                     x: pos.x as usize,
                     y: pos.y as usize,
                 };
-                let shared_mem_ix = compute_shared_ix(&ipos)?;
+                let shared_mem_ix = compute_shared_ix(&pos)?;
                 let point = (*shared.add(shared_mem_ix))?;
                 Some(Neighbor { pos, point })
             }

@@ -104,7 +104,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (_, block_size2) = pre_burn.suggested_launch_configuration(0, 0.into())?;
     let grid_size2 = (model.len() as u32).div_ceil(block_size2) + 1;
 
-    ({
+    timeit!({
         // input/output vectors
         let mut time: Vec<Option<float::T>> = std::iter::repeat(None).take(model.len()).collect();
         let mut refs_x: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
@@ -126,7 +126,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .take(linear_grid_size as usize)
             .collect();
 
-        let max_time: float::T = 60.0 * 60.0 * 10.0;
+        let max_time: float::T = 60.0 * 60.0 * 20.0;
         time[(100 + 200 * geo_ref.size[0]) as usize] = Some(0.0);
         refs_x[(100 + 200 * geo_ref.size[0]) as usize] = Some(100);
         refs_y[(100 + 200 * geo_ref.size[0]) as usize] = Some(200);

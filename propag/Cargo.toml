@@ -5,3 +5,17 @@ edition = "2021"
 
 [build-dependencies]
 cuda_builder = { git = "https://github.com/albertov/Rust-CUDA" }
+
+# These are here to help rust-overlay properly generate a vendor dir for the nix
+# build
+[dev-dependencies]
+compiler_builtins = "=0.1.148"
+dlmalloc = "=0.2.7"
+libc = "=0.2.169"
+hermit-abi = "=0.4.0"
+r-efi = "=4.5.0"
+r-efi-alloc = "*"
+fortanix-sgx-abi = "=0.5.0"
+getopts="*"
+hashbrown = "^0.15"
+unwinding="*"

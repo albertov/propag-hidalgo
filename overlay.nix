@@ -22,8 +22,8 @@ let
     cargoLock.lockFile = ./Cargo.lock;
     cargoLock.outputHashes = {
       "const_soft_float-0.1.4" = "sha256-fm2e3np+q4yZjAafkwbxTqUZBgVDrQ/l4hxMD+l7kMA=";
-      "cuda_builder-0.3.0" = "sha256-YN8eA1CsMv/TuV4QfappxtX5PK1O4/zezpno4PhaFto=";
-      "cuda_std-0.2.2" = "sha256-YN8eA8CsMv/TuV4QfappxtX5PK1O4/zezpno4PhaFto=";
+      "cuda_builder-0.3.0" = "sha256-5LZiNLgGg5gweabC0cfJ9Hbxpu98JIIehjuoNUh4aLI=";
+      "cuda_std-0.2.2" = "sha256-5LZiNLgGg5gweabC0cfJ9Hbxpu98JIIehjuoNUh4aLI=";
     };
     inherit BINDGEN_EXTRA_CLANG_ARGS LIBCLANG_PATH CUDA_PATH LLVM_CONFIG
     CUDA_ROOT;
@@ -39,16 +39,17 @@ in
     pname = "propag";
     buildAndTestSubdir = "propag";
     buildInputs = with final; with final.myRustToolchain.availableComponents; [
-      cudatoolkit_11
       cudatoolkit_11.lib
       openssl
     ];
     LLVM_LINK_SHARED = 1;
     nativeBuildInputs = with final; [
+      cudatoolkit_11
       pkg-config
       myRustToolchain
       llvmPackages_7.llvm
       ncurses # nvmm backend needs it
+      which
     ];
 
   });

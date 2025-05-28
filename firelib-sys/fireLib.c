@@ -1233,15 +1233,11 @@ Fire_FlameLengthTable ( catalog, flameClasses, flameStep )
 
 FuelCatalogPtr
 Fire_FuelCatalogCreate ( name, maxModels )
-    char  *name;                /* FuelCatalogData instance name */
+    const char  *const name;    /* FuelCatalogData instance name */
     size_t maxModels;           /* maximum modelId allowed in this catalog */
 {
     FuelCatalogPtr catalog;
     static const char *blank = "";
-
-    /* Catch a NULL name. */
-    if ( name == NULL )
-        name = blank;
 
     /* Allocate the FireCatalogData structure. */
     if ( (catalog = (FuelCatalogPtr) malloc(sizeof(FuelCatalogData))) == NULL )
@@ -1327,7 +1323,7 @@ Fire_FuelCatalogCreate ( name, maxModels )
 
 FuelCatalogPtr
 Fire_FuelCatalogCreateStandard ( name, maxModels )
-    char  *name;                /* FuelCatalogData instance name */
+    const char  *const name;    /* FuelCatalogData instance name */
     size_t maxModels;           /* maximum modelId allowed in this catalog */
 {
     FuelCatalogPtr catalog;

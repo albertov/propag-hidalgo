@@ -39,20 +39,25 @@
         {
           devShells.default = pkgs.mkShell {
             shellHook = with pkgs; ''
-              export BINDGEN_EXTRA_CLANG_ARGS="$(< ${stdenv.cc}/nix-support/libc-crt1-cflags) \
-              $(< ${stdenv.cc}/nix-support/libc-cflags) \
-              $(< ${stdenv.cc}/nix-support/cc-cflags) \
-              $(< ${stdenv.cc}/nix-support/libcxx-cxxflags) \
-              ${lib.optionalString stdenv.cc.isClang "-idirafter ${stdenv.cc.cc}/lib/clang/${lib.getVersion stdenv.cc.cc}/include"} \
-              ${lib.optionalString stdenv.cc.isGNU "-isystem ${stdenv.cc.cc}/include/c++/${lib.getVersion stdenv.cc.cc} -isystem ${stdenv.cc.cc}/include/c++/${lib.getVersion stdenv.cc.cc}/${stdenv.hostPlatform.config}"}
-              "
+                export BINDGEN_EXTRA_CLANG_ARGS="$(< ${stdenv.cc}/nix-support/libc-crt1-cflags) \
+                $(< ${stdenv.cc}/nix-support/libc-cflags) \
+                $(< ${stdenv.cc}/nix-support/cc-cflags) \
+                $(< ${stdenv.cc}/nix-support/libcxx-cxxflags) \
+                ${lib.optionalString stdenv.cc.isClang "-idirafter ${stdenv.cc.cc}/lib/clang/${lib.getVersion stdenv.cc.cc}/include"} \
+                ${lib.optionalString stdenv.cc.isGNU "-isystem
+                ${stdenv.cc.cc}/include/c++/${lib.getVersion stdenv.cc.cc}
+                -isystem ${stdenv.cc.cc}/include/c++/${lib.getVersion stdenv.cc.cc}/${stdenv.hostPlatform.config} -isystem ${buildPackages.llvmPackages.libclang.lib}/lib/clang/${builtins.head (lib.splitString "." (lib.getVersion buildPackages.clang))}/include"}
+                "
+              export LIBCLANG_PATH="${buildPackages.llvmPackages.libclang.lib}/lib"
             '';
+            # ${lib.optionalString stdenv.cc.isGNU "-isystem ${stdenv.cc.cc}/include/c++/${lib.getVersion stdenv.cc.cc} -isystem ${stdenv.cc.cc}/include/c++/${lib.getVersion stdenv.cc.cc}/${stdenv.hostPlatform.config}"}
             packages = with pkgs; [
               git
               rustc
               cargo
               cargo-watch
               rust-bindgen
+              rustfmt
             ];
           };
           # for `nix fmt`

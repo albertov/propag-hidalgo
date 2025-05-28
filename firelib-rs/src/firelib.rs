@@ -335,8 +335,11 @@ impl FuelDef {
 }
 
 impl Fuel {
-    pub const SENTINEL: Self = Self::make(FuelDef::standard(*b"", *b"", 0.0, 0.0, []));
+    pub(crate) const SENTINEL: Self = Self::make(FuelDef::standard(*b"", *b"", 0.0, 0.0, []));
 
+    pub const fn make_combustion(def: FuelDef) -> Combustion {
+        Combustion::make(Fuel::make(def))
+    }
     pub const fn make(def: FuelDef) -> Fuel {
         let mut alive_particles = [Particle::SENTINEL; MAX_PARTICLES];
         let mut dead_particles = [Particle::SENTINEL; MAX_PARTICLES];

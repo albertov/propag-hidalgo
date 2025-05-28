@@ -67,32 +67,6 @@ pub struct Spread {
     pub residence_time: Time,
 }
 
-#[derive(Clone, Copy)]
-pub struct Combustion {
-    pub name: [u8; 16],
-    pub live_area_weight: f64,
-    pub live_rx_factor: f64,
-    pub dead_area_weight: f64,
-    pub dead_rx_factor: f64,
-    pub fine_dead_factor: f64,
-    pub live_ext_factor: f64,
-    pub fuel_bed_bulk_dens: f64,
-    pub residence_time: f64,
-    pub flux_ratio: f64,
-    pub slope_k: f64,
-    pub wind_b: f64,
-    pub wind_e: f64,
-    pub wind_k: f64,
-    pub sigma: f64,
-    pub beta: f64,
-    pub mext: f64,
-    pub life_rx_factor_alive: f64,
-    pub life_rx_factor_dead: f64,
-    pub total_area: f64,
-    pub alive_particles: Particles,
-    pub dead_particles: Particles,
-}
-
 #[derive(PartialEq, Copy, Clone)]
 pub enum SizeClass {
     SC0,
@@ -135,12 +109,40 @@ pub struct Fuel {
     pub alive_particles: Particles,
     pub dead_particles: Particles,
 }
+#[derive(Clone, Copy)]
+pub struct Combustion {
+    pub name: [u8; 16],
+    pub live_area_weight: f64,
+    pub live_rx_factor: f64,
+    pub dead_area_weight: f64,
+    pub dead_rx_factor: f64,
+    pub fine_dead_factor: f64,
+    pub live_ext_factor: f64,
+    pub fuel_bed_bulk_dens: f64,
+    pub residence_time: f64,
+    pub flux_ratio: f64,
+    pub slope_k: f64,
+    pub wind_b: f64,
+    pub wind_e: f64,
+    pub wind_k: f64,
+    pub sigma: f64,
+    pub beta: f64,
+    pub mext: f64,
+    pub life_rx_factor_alive: f64,
+    pub life_rx_factor_dead: f64,
+    pub total_area: f64,
+    pub alive_particles: Particles,
+    pub dead_particles: Particles,
+}
 
 pub type Particles = [Particle; MAX_PARTICLES];
 
 pub type Catalog = [Combustion; MAX_FUELS];
 
-pub const fn init_arr<T: Copy, const N: usize, const M: usize>(def: T, src: [T; M]) -> [T; N] {
+pub(crate) const fn init_arr<T: Copy, const N: usize, const M: usize>(
+    def: T,
+    src: [T; M],
+) -> [T; N] {
     let mut dst = [def; N];
     let mut i = 0;
     while i < M {
@@ -150,37 +152,25 @@ pub const fn init_arr<T: Copy, const N: usize, const M: usize>(def: T, src: [T; 
     dst
 }
 
-lazy_static::lazy_static! {
-    pub static ref STANDARD_CATALOG : Catalog = {
-        let mut dst = [Combustion::make(Fuel::SENTINEL); MAX_FUELS];
-        let mut i = 0;
-        while i < MAX_FUELS {
-            dst[i] = Combustion::make(STANDARD_FUELS[i]);
-            i += 1;
-        }
-        dst
-    };
-}
-
-pub const STANDARD_FUELS: [Fuel; MAX_FUELS] = {
+pub static STANDARD_CATALOG: [Combustion; MAX_FUELS] = {
     init_arr(
-        Fuel::SENTINEL,
+        Combustion::make(Fuel::SENTINEL),
         [
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NoFuel",
                 *b"No Combustible Fuel",
                 0.1,
                 0.01,
                 [],
             )),
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NFFL01",
                 *b"Short Grass (1 ft)",
                 1.0,
                 0.12,
                 [ParticleDef::standard(ParticleType::Dead, 0.0340, 3500.0)],
             )),
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NFFL02",
                 *b"Timber (grass & understory)",
                 1.0,
@@ -192,14 +182,14 @@ pub const STANDARD_FUELS: [Fuel; MAX_FUELS] = {
                     ParticleDef::standard(ParticleType::Herb, 0.0230, 1500.0),
                 ],
             )),
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NFFL03",
                 *b"Tall Grass (2.5 ft)",
                 2.5,
                 0.25,
                 [ParticleDef::standard(ParticleType::Dead, 0.1380, 1500.0)],
             )),
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NFFL04",
                 *b"Chaparral (6 ft)",
                 6.0,
@@ -211,7 +201,7 @@ pub const STANDARD_FUELS: [Fuel; MAX_FUELS] = {
                     ParticleDef::standard(ParticleType::Wood, 0.2300, 1500.0),
                 ],
             )),
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NFFL05",
                 *b"Brush (2 ft)",
                 2.0,
@@ -222,7 +212,7 @@ pub const STANDARD_FUELS: [Fuel; MAX_FUELS] = {
                     ParticleDef::standard(ParticleType::Wood, 0.0920, 1500.0),
                 ],
             )),
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NFFL06",
                 *b"Dormant Brush & Hardwood Slash",
                 2.5,
@@ -233,7 +223,7 @@ pub const STANDARD_FUELS: [Fuel; MAX_FUELS] = {
                     ParticleDef::standard(ParticleType::Dead, 0.0920, 30.0),
                 ],
             )),
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NFFL07",
                 *b"Southern Rough",
                 2.5,
@@ -245,7 +235,7 @@ pub const STANDARD_FUELS: [Fuel; MAX_FUELS] = {
                     ParticleDef::standard(ParticleType::Wood, 0.0170, 1550.0),
                 ],
             )),
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NFFL08",
                 *b"Closed Timber Litter",
                 0.2,
@@ -256,7 +246,7 @@ pub const STANDARD_FUELS: [Fuel; MAX_FUELS] = {
                     ParticleDef::standard(ParticleType::Dead, 0.1150, 30.0),
                 ],
             )),
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NFFL09",
                 *b"Hardwood Litter",
                 0.2,
@@ -267,7 +257,7 @@ pub const STANDARD_FUELS: [Fuel; MAX_FUELS] = {
                     ParticleDef::standard(ParticleType::Dead, 0.0070, 30.0),
                 ],
             )),
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NFFL10",
                 *b"Timber (litter & understory)",
                 1.0,
@@ -279,7 +269,7 @@ pub const STANDARD_FUELS: [Fuel; MAX_FUELS] = {
                     ParticleDef::standard(ParticleType::Wood, 0.0920, 1500.0),
                 ],
             )),
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NFFL11",
                 *b"Light Logging Slash",
                 1.0,
@@ -290,7 +280,7 @@ pub const STANDARD_FUELS: [Fuel; MAX_FUELS] = {
                     ParticleDef::standard(ParticleType::Dead, 0.2530, 30.0),
                 ],
             )),
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NFFL12",
                 *b"Medium Logging Slash",
                 2.3,
@@ -301,7 +291,7 @@ pub const STANDARD_FUELS: [Fuel; MAX_FUELS] = {
                     ParticleDef::standard(ParticleType::Dead, 0.7590, 30.0),
                 ],
             )),
-            Fuel::make(FuelDef::standard(
+            Fuel::make_combustion(FuelDef::standard(
                 *b"NFFL13",
                 *b"Heavy Logging Slash",
                 3.0,

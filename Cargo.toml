@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members=["firelib-rs", "firelib-sys", "firelib-cuda"]
+members=["firelib-rs", "firelib-sys"]
 
 
 [profile.release]

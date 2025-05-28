@@ -42,17 +42,13 @@
         let
           pkgs = import inputs.nixpkgs {
             inherit system;
-            config.allowUnfree = true;
-          };
-          treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
-          pkgs = import inputs.nixpkgs {
-            inherit system;
             overlays = [
               rust-overlay.overlays.default
               (import ./overlay.nix)
             ];
             config.allowUnfree = true;
           };
+          treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
         in
         {
           packages = {

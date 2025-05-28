@@ -102,6 +102,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut refs_x: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
     let mut refs_y: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
     let max_time: u32 = 60 * 60 * 50;
+    let fire_pos = USizeVec2 { x: 500, y: 100 };
 
     ({
         let mut speed_max: Vec<Option<float::T>> =
@@ -115,9 +116,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         time.fill(None);
         refs_x.fill(None);
         refs_y.fill(None);
-        time[(500 + 100 * geo_ref.size[0]) as usize] = Some(0);
-        refs_x[(500 + 100 * geo_ref.size[0]) as usize] = Some(500);
-        refs_y[(500 + 100 * geo_ref.size[0]) as usize] = Some(100);
+        time[(fire_pos.x + fire_pos.y * geo_ref.size[0] as usize)] = Some(0);
+        refs_x[(fire_pos.x + fire_pos.y * geo_ref.size[0] as usize)] = Some(fire_pos.x);
+        refs_y[(fire_pos.x + fire_pos.y * geo_ref.size[0] as usize)] = Some(fire_pos.y);
 
         let mut speed_max_buf = speed_max.as_slice().as_dbuf()?;
         let mut azimuth_max_buf = azimuth_max.as_slice().as_dbuf()?;
@@ -156,20 +157,20 @@ fn main() -> Result<(), Box<dyn Error>> {
                 )
             )?;
             let width = geo_ref.size[0];
-            let times: Vec<(u32, u32, u32)> = (0..len)
-                .zip(time.iter())
-                .filter_map(|(i, t)| Some((i % width, i.div_floor(width), (*t)?)))
-                .collect();
             stream.synchronize()?;
-            let mut no_progress_rounds = 0;
             loop {
+                /*
                 let num_times = time.iter().filter(|t| t.is_some()).count();
+                azimuth_max_buf.copy_to(&mut azimuth_max)?;
+                assert!(azimuth_max.iter().all(|t| t.is_some()));
+                eccentricity_buf.copy_to(&mut eccentricity)?;
+                assert!(eccentricity.iter().all(|t| t.is_some()));
+                speed_max_buf.copy_to(&mut speed_max)?;
+                assert!(speed_max.iter().all(|t| t.is_some()));
+                */
                 launch!(
                     // slices are passed as two parameters, the pointer and the length.
                     propag<<<grid_size, block_size, 0, stream>>>(
-                        geo_ref,
-                        max_time,
-                        linear_grid_size,
                         speed_max_buf.as_device_ptr(),
                         speed_max_buf.len(),
                         azimuth_max_buf.as_device_ptr(),
@@ -180,12 +181,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                         refs_x_buf.as_device_ptr(),
                         refs_y_buf.as_device_ptr(),
                         progress_buf.as_device_ptr(),
+                        geo_ref,
+                        max_time,
+                        linear_grid_size,
                     )
                 )?;
                 stream.synchronize()?;
+                /*
                 time_buf.copy_to(&mut time)?;
                 refs_x_buf.copy_to(&mut refs_x)?;
                 refs_y_buf.copy_to(&mut refs_y)?;
+                assert!(
+                    refs_x.iter().all(|x|x.map(|r|r==fire_pos.x).unwrap_or(true)),
+                );
+                assert!(
+                    refs_y.iter().all(|x|x.map(|r|r==fire_pos.y).unwrap_or(true)),
+                );
                 assert_eq!(
                     refs_x.iter().filter(|x|x.is_some()).count(),
                     refs_y.iter().filter(|x|x.is_some()).count(),
@@ -195,36 +206,32 @@ fn main() -> Result<(), Box<dyn Error>> {
                     num_times_after,
                     refs_x.iter().filter(|x|x.is_some()).count(),
                 );
-                /*
                 if num_times_after == num_times {
                     break;
                 };
+                println!("config_max_time={}", max_time);
+                println!(
+                    "max_time={:?}",
+                    time.iter()
+                        .filter_map(|x| *x)
+                        .max()
+                );
                 */
                 progress_buf.copy_to(&mut progress)?;
                 println!(
-                    "progress={:?}, {}",
+                    "progress={:?}",
                     progress.as_slice().iter().filter(|p| **p > 0).count(),
-                    num_times_after
                 );
                 if progress.iter().all(|x| *x == 0) {
                     break;
                 }
             }
+            time_buf.copy_to(&mut time)?;
         };
     });
     println!("config_max_time={}", max_time);
-    println!(
-        "max_time={:?}",
-        time.iter()
-            .filter_map(|x| *x)
-            .max()
-    );
-    println!(
-        "min_time={:?}",
-        time.iter()
-            .filter_map(|x| *x)
-            .min()
-    );
+    println!("max_time={:?}", time.iter().filter_map(|x| *x).max());
+    println!("min_time={:?}", time.iter().filter_map(|x| *x).min());
     let num_times_after = time.iter().filter(|t| t.is_some()).count();
     println!("num_times_after={}", num_times_after);
     //time_buf.copy_to(&mut time)?;

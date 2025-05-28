@@ -20,10 +20,12 @@ const BLOCK_HEIGHT: usize = 16;
 const BUFFER_RADIUS: usize = 1;
 const SHARED_SIZE: usize = (BLOCK_WIDTH + BUFFER_RADIUS * 2) * (BLOCK_HEIGHT + BUFFER_RADIUS * 2);
 
+#[inline(always)]
 unsafe fn read_volatile<T: Copy>(p: *const T) -> T {
     *p
     //core::intrinsics::volatile_load(p)
 }
+#[inline(always)]
 unsafe fn write_volatile<T: Copy>(p: *mut T, v: T) {
     *p = v
     //core::intrinsics::volatile_store(p, v)
@@ -32,9 +34,6 @@ unsafe fn write_volatile<T: Copy>(p: *mut T, v: T) {
 #[kernel]
 #[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
 pub unsafe fn propag(
-    geo_ref: GeoReference,
-    max_time: u32,
-    num_blocks: usize,
     speed_max: &[Option<float::T>],
     azimuth_max: &[Option<float::T>],
     eccentricity: &[Option<float::T>],
@@ -42,6 +41,9 @@ pub unsafe fn propag(
     refs_x: *mut Option<usize>,
     refs_y: *mut Option<usize>,
     progress: *mut u32,
+    geo_ref: GeoReference,
+    max_time: u32,
+    num_blocks: usize,
 ) {
     // Arrays in shared memory for fast analysis within block
     let shared: *mut Option<Point> = shared_array![Option<Point>; SHARED_SIZE];
@@ -62,11 +64,14 @@ pub unsafe fn propag(
     let global_ix = (idx_2d.x + idx_2d.y * width) as usize;
     let in_bounds = idx_2d.x < width && idx_2d.y < height;
     // Our index into the shared area
-    let shared_ix = compute_shared_ix(&pos).expect("pos must have shared ix");
+    let shared_ix = compute_shared_ix(&pos).unwrap();
 
     // mark no improvement
     let block_ix = (thread::block_idx_x() + thread::block_idx_y() * thread::grid_dim_x()) as usize;
-    assert!(block_ix < num_blocks);
+    if !block_ix < num_blocks {
+        println!("caca improved: {:?}", block_ix);
+        panic!("jhjklh");
+    };
     write_volatile(progress.add(block_ix), 0);
 
     let to_shared_off = |x, y| {
@@ -103,7 +108,7 @@ pub unsafe fn propag(
         let global_off = to_global_off(x, y);
         match (shared_off, global_off) {
             (Some(shared_off), Some(global_off)) => {
-                *shared.add(shared_off) = Point::load(
+                let p = Point::load(
                     &geo_ref,
                     pos,
                     global_off,
@@ -114,69 +119,97 @@ pub unsafe fn propag(
                     refs_x,
                     refs_y,
                 );
+                *shared.add(shared_off) = p;
+                p
             }
-            (Some(shared_off), None) => *shared.add(shared_off) = None,
+            (Some(shared_off), None) => {
+                *shared.add(shared_off) = None;
+                None
+            }
             (None, Some(_)) => {
                 println!("{:?} {:?} {:?} {:?}", x, y, shared_off, global_off);
                 panic!("should not happen");
             }
-            (None, None) => (),
+            (None, None) => None,
         }
     };
     // are we in-bounds of the target raster?
-    let fire = if in_bounds {
-        preload_point(0, 0);
+    let (is_new, fire) = if in_bounds {
+        let is_new = preload_point(0, 0).is_none();
+        let fire = if is_new {
+            load_fire(global_ix, speed_max, azimuth_max, eccentricity)
+        } else {
+            None
+        };
         // Preload boundaries
         let radius = BUFFER_RADIUS as i32;
-        if (thread::thread_idx_x() as i32) < radius {
-            preload_point(-radius, 0);
-            preload_point(BLOCK_WIDTH as i32, 0);
+        let x_near_border = (thread::thread_idx_x() as i32) < radius;
+        let y_near_border = (thread::thread_idx_y() as i32) < radius;
+        if x_near_border {
+            let _ = preload_point(-radius, 0);
+            let _ = preload_point(BLOCK_WIDTH as i32, 0);
         }
-        if (thread::thread_idx_y() as i32) < radius {
-            preload_point(0, -radius);
-            preload_point(0, BLOCK_HEIGHT as i32);
+        if y_near_border {
+            let _ = preload_point(0, -radius);
+            let _ = preload_point(0, BLOCK_HEIGHT as i32);
         }
-        load_fire(global_ix, speed_max, azimuth_max, eccentricity)
+        if x_near_border && y_near_border {
+            let _ = preload_point(-radius, -radius);
+            let _ = preload_point(BLOCK_WIDTH as i32, BLOCK_HEIGHT as i32);
+        }
+        (is_new, fire)
     } else {
-        None
+        (false, None)
     };
 
     thread::sync_threads();
 
-
     ////////////////////////////////////////////////////////////////////////
     // Begin neighbor analysys
-    ////////////////////////////////////////////////////////////////////////
-    let me = *shared.add(shared_ix);
     let mut best_fire: Option<Point> = None;
-    let improved = if me.is_none() && in_bounds {
+    let improved = if is_new {
         for neighbor in iter_neighbors(&geo_ref, shared) {
             let reference = (|| {
-                let neigh_ref = neighbor.reference();
-                if neigh_ref.pos() == neighbor.pos {
-                    return Some(neigh_ref);
-                }
-                let pos = Vec2 {
-                    x: pos.x as float::T,
-                    y: pos.y as float::T,
+                let candidate = neighbor.reference();
+                if candidate.pos() == pos {
+                    return None;
                 };
-                let other = Vec2 {
-                    x: neigh_ref.pos().x as float::T,
-                    y: neigh_ref.pos().y as float::T,
+                let pos = IVec2 {
+                    x: pos.x as _,
+                    y: pos.y as _,
                 };
-                let possible_blockage_pos = geometry::line_to(pos, other).nth(1)?;
+                Some(candidate)
+                /*
+                let candidate_pos = IVec2 {
+                    x: candidate.pos().x as _,
+                    y: candidate.pos().y as _,
+                };
+                let possible_blockage_pos = geometry::line_to(pos, candidate_pos).nth(1).expect({
+                    println!("caca: {:?} {:?} {:?}", pos, candidate_pos, geometry::line_to(pos, candidate_pos).count());
+                    ""
+                });
                 let possible_blockage_pos = USizeVec2 {
                     x: possible_blockage_pos.x as _,
                     y: possible_blockage_pos.y as _,
                 };
-                let shared_blockage_ix = compute_shared_ix(&possible_blockage_pos)?;
-                let possible_blockage = (*shared.add(shared_blockage_ix))?;
-                let blockage_fire = possible_blockage.fire?;
-                if similar_fires(blockage_fire, neighbor.point.fire?) {
-                    Some(neigh_ref)
+                let shared_blockage_ix = compute_shared_ix(&possible_blockage_pos).expect({
+                    println!("coco");
+                    ""
+                });
+                let possible_blockage = (*shared.add(shared_blockage_ix)).expect({
+                    println!("kiko");
+                    ""
+                });
+                let blockage_fire = possible_blockage.fire.expect({
+                    println!("kuko");
+                    ""
+                });
+                if similar_fires(blockage_fire, candidate.fire) {
+                    Some(candidate)
                 } else {
                     None
                 }
+                */
             })();
             //self::println!("vecino con fuego! {:?} {:?} {:?} {:?}", pos, me.is_some(), reference.is_some(), neighbor.reference().pos());
             let point = (|| match (fire, reference) {
@@ -191,8 +224,9 @@ pub unsafe fn propag(
                             reference: reference,
                         })
                     } else {
-                        //self::println!("case 1.2");
-                        // Reference is not valid, use the neighbor
+                        panic!("caca"); //FIXME
+                                        //self::println!("case 1.2");
+                                        // Reference is not valid, use the neighbor
                         match neighbor.as_reference() {
                             Some(reference)
                                 if reference.pos() != pos
@@ -213,7 +247,8 @@ pub unsafe fn propag(
                 // We are not combustible but reference can be used.
                 // We assign an access time but a None fire
                 (None, Some(reference)) => {
-                    //self::println!("case 3");
+                    self::println!("case 3");
+                    panic!("caca"); //FIXME
                     let time = reference.time_to(&geo_ref, pos)?;
                     when_lt_max_time(Point {
                         time,
@@ -221,29 +256,19 @@ pub unsafe fn propag(
                         reference,
                     })
                 }
-                // We are combustible but reference is not valid, we try
-                // our neighbor or else we use ourselves as ref
-                (Some(fire), None) => match neighbor.as_reference() {
-                    Some(reference) => {
-                        //self::println!("case 4");
-                        let time = reference.time_to(&geo_ref, pos)?;
-                        when_lt_max_time(Point {
-                            time,
-                            fire: Some(fire),
-                            reference,
-                        })
-                    }
-                    _ => panic!("should not happen"),
-                },
-                // Not combustible and invalid reference
-                (None, None) => None,
+                // Not combustible or invalid reference
+                _ => None,
             })();
             // Update the best_fire with the one with lowest access time
             //self::println!("lelo: {:?}, {:?}", point, point);
+            if let Some(point) = point {
+                if point.reference.pos() == pos {
+                    println!("caca punto: {:?}", pos);
+                    panic!("jhjklh");
+                };
+            };
             best_fire = match (point, best_fire) {
-                (Some(point), Some(best_fire)) if point.time < best_fire.time => {
-                    Some(point)
-                }
+                (Some(point), Some(best_fire)) if point.time < best_fire.time => Some(point),
                 (Some(point), None) => Some(point),
                 _ => best_fire,
             };
@@ -263,6 +288,7 @@ pub unsafe fn propag(
             },
             */
             Some(best_fire) => {
+                *shared.add(shared_ix) = Some(best_fire);
                 best_fire.save(global_ix, time, refs_x, refs_y);
                 1
             }
@@ -276,7 +302,10 @@ pub unsafe fn propag(
     if any_improved && thread::thread_idx_x() == 0 && thread::thread_idx_y() == 0 {
         let block_ix =
             (thread::block_idx_x() + thread::block_idx_y() * thread::grid_dim_x()) as usize;
-        assert!(block_ix < num_blocks);
+        if !block_ix < num_blocks {
+            println!("caca improved: {:?}", block_ix);
+            panic!("jhjklh");
+        };
         //println!("progress {} {}", thread::block_idx_x(), thread::block_idx_y());
         write_volatile(progress.add(block_ix), 1);
     }
@@ -294,7 +323,10 @@ fn compute_shared_ix(pos: &USizeVec2) -> Option<usize> {
     let shared_y = (pos.y % BLOCK_HEIGHT) + BUFFER_RADIUS;
     if shared_x < BLOCK_WIDTH + BUFFER_RADIUS * 2 && shared_y < BLOCK_HEIGHT + BUFFER_RADIUS * 2 {
         let ix = shared_x + shared_y * (BLOCK_WIDTH + BUFFER_RADIUS * 2);
-        assert!(ix < SHARED_SIZE);
+        if !ix < SHARED_SIZE {
+            println!("caca ix shared: {:?}", ix);
+            panic!("jhjklh");
+        };
         Some(ix)
     } else {
         None
@@ -363,29 +395,40 @@ impl Point {
     ) -> Option<Self> {
         let p_time = read_volatile(time.add(idx))?;
         let fire = load_fire(idx, speed_max, azimuth_max, eccentricity);
-        let ref_pos = USizeVec2 {
-            x: read_volatile(ref_x.add(idx))?,
-            y: read_volatile(ref_y.add(idx))?,
-        };
         let reference = match (fire) {
-            (Some(_)) if ref_pos != pos => {
+            (Some(_)) => {
+                let ref_x = read_volatile(ref_x.add(idx));
+                let ref_y = read_volatile(ref_y.add(idx));
+                if ref_x.is_none() || ref_y.is_none() {
+                    println!("caca ref: {:?}", idx);
+                    panic!("jnkjk");
+                }
+                let ref_pos = USizeVec2 {
+                    x: ref_x?,
+                    y: ref_y?,
+                };
                 let ref_ix: usize = ref_pos.x + ref_pos.y * geo_ref.size[0] as usize;
-                let fire = load_fire(ref_ix, speed_max, azimuth_max, eccentricity)?;
-                let r_time = read_volatile(time.add(ref_ix))?;
+                let fire = load_fire(ref_ix, speed_max, azimuth_max, eccentricity);
+                if fire.is_none() {
+                    println!("caca fuego: {:?}", ref_pos);
+                    panic!("jnkjk");
+                };
+                let r_time = read_volatile(time.add(ref_ix));
+                if r_time.is_none() {
+                    println!("caca tiempo: {:?}", ref_pos);
+                    panic!("jnkjk");
+                };
                 Some(PointRef {
-                    time: r_time,
+                    time: r_time?,
                     pos_x: ref_pos.x,
                     pos_y: ref_pos.y,
-                    fire,
+                    fire: fire?,
                 })
             }
-            (Some(fire)) => Some(PointRef {
-                time: p_time,
-                pos_x: pos.x,
-                pos_y: pos.y,
-                fire,
-            }),
-            _ => None,
+            _ => {
+                println!("cacalalala");
+                None
+            }
         };
         Some(Point {
             time: p_time,
@@ -467,8 +510,7 @@ unsafe fn iter_neighbors(
                 x: idx_2d.x as i32 + di,
                 y: idx_2d.y as i32 + dj,
             };
-            // If this neighbor is outside this block or global area
-            // continue
+            // If this neighbor is outside global area continue
             if pos.x < 0 || pos.x >= width as _ || pos.y < 0 || pos.y >= height as _ {
                 None
             } else {

@@ -15,7 +15,7 @@ rand = "0.9.0"
 
 [features]
 default = []
-std = []
+std=[]
 cuda = ["dep:cuda_std"]
 
 [lints.rust]

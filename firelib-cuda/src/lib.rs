@@ -1,16 +1,17 @@
-#![cfg_attr(
-    target_os = "cuda",
-    no_std,
-    register_attr(nvvm_internal)
-)]
-
-use cuda_std::*;
+use cuda_std::prelude::*;
+use firelib_rs::*;
 
 #[kernel]
-pub unsafe fn add(a: &[f32], b: &[f32], c: *mut f32) {
+#[allow(improper_ctypes_definitions, clippy::missing_safety_doc)]
+pub unsafe fn firelib_rs_spread(model: usize, terrain: &[Terrain], result: *mut Fire) {
     let idx = thread::index_1d() as usize;
-    if idx < a.len() {
-        let elem = &mut *c.add(idx);
-        *elem = a[idx] + b[idx];
+    if idx < terrain.len() {
+        let elem = &mut *result.add(idx);
+        if let Some(fire) = Catalog::STANDARD
+            .get(model)
+            .and_then(|fuel| fuel.burn(&terrain[idx]))
+        {
+            *elem = fire
+        }
     }
 }

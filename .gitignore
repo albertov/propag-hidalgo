@@ -1,4 +1,5 @@
 target
 *.sw?
 .DS_Store
-result
+result*
+rustc-ice*

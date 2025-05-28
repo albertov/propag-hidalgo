@@ -1,0 +1,7 @@
+[package]
+name = "propag"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+cuda_builder = { git = "https://github.com/Rust-GPU/Rust-CUDA/" }

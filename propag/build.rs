@@ -1,7 +1,8 @@
 use cuda_builder::CudaBuilder;
 
 fn main() {
-    CudaBuilder::new("/home/alberto/src/propag25/firelib-cuda")
+    CudaBuilder::new("../firelib-cuda")
+        .copy_to("../lala.ptx")
         .build()
         .unwrap();
 }

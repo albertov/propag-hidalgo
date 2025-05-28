@@ -45,12 +45,14 @@
             inherit system;
             overlays = [
               rust-overlay.overlays.default
-              (import ./overlay.nix)
+              (import ./overlay.nix inputs)
+              /*
               (_:_: {
                 pkgs_2311 = import inputs.nixpkgs_old {
                   inherit system;
                 };
               })
+              */
             ];
             config.allowUnfree = true;
           };
@@ -74,6 +76,7 @@
                 ;
               inherit (pkgs.firelib-cuda)
                 CUDA_PATH
+                CUDA_ROOT
                 LLVM_CONFIG
                 LLVM_LINK_SHARED
                 ;

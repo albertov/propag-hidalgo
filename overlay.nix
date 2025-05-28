@@ -1,17 +1,20 @@
-final: _prev:
+inputs: final: _prev:
 let
   inherit (final) lib buildPackages stdenv;
   libclang = buildPackages.llvmPackages.libclang.lib;
   clangMajorVer = builtins.head (lib.splitString "." (lib.getVersion buildPackages.clang));
   BINDGEN_EXTRA_CLANG_ARGS = ''
     -isystem ${libclang}/lib/clang/${clangMajorVer}/include
+  '';
+  /*
     ${builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"}
     ${builtins.readFile "${stdenv.cc}/nix-support/libc-cflags"}
     ${builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"}
     ${builtins.readFile "${stdenv.cc}/nix-support/libcxx-cxxflags"}
-  '';
+  */
   LIBCLANG_PATH = "${libclang}/lib";
-  CUDA_PATH=final.cudatoolkit;
+  CUDA_PATH=final.cudatoolkit_11;
+  CUDA_ROOT=final.cudatoolkit_11;
   LLVM_CONFIG = "${final.llvmPackages_7.llvm.dev}/bin/llvm-config";
   LLVM_LINK_SHARED="1";
 
@@ -23,22 +26,11 @@ let
       "const_soft_float-0.1.4" = "sha256-fm2e3np+q4yZjAafkwbxTqUZBgVDrQ/l4hxMD+l7kMA=";
       "cuda_builder-0.3.0" = lib.fakeHash;
     };
-    inherit BINDGEN_EXTRA_CLANG_ARGS LIBCLANG_PATH CUDA_PATH LLVM_CONFIG;
+    inherit BINDGEN_EXTRA_CLANG_ARGS LIBCLANG_PATH CUDA_PATH LLVM_CONFIG
+    CUDA_ROOT;
   };
 in
 {
-  inherit (final.pkgs_2311) llvmPackages_7;
-
-  myRustToolchain = (final.buildPackages.rust-bin.fromRustupToolchainFile
-  ./rust-toolchain.toml).override {
-    extensions = ["rust-src" "rustc-dev" "llvm-tools-preview"];
-  };
-  myRustPlatform = final.buildPackages.makeRustPlatform {
-    cargo = final.myRustToolchain;
-    rustc = final.myRustToolchain;
-  };
-
-
   firelib-rs = final.myRustPlatform.buildRustPackage (workspaceArgs // {
     pname = "firelib-rs";
     buildAndTestSubdir = "firelib-rs";
@@ -48,19 +40,48 @@ in
     pname = "firelib-cuda";
     buildAndTestSubdir = "firelib-cuda";
     buildInputs = with final; with final.myRustToolchain.availableComponents; [
-      cudatoolkit
-      cudatoolkit.lib
+      cudatoolkit_11
+      cudatoolkit_11.lib
       openssl
-      ncurses
-      #rust-src
-      #rustc-dev
-      #llvm-tools-preview
     ];
+    LLVM_LINK_SHARED = 1;
     nativeBuildInputs = with final; [
       pkg-config
       myRustToolchain
       llvmPackages_7.llvm
+      ncurses # nvmm backend needs it
     ];
 
   });
+
+
+  llvmPackages_7 = with final; with lib;
+  recurseIntoAttrs (callPackage "${inputs.nixpkgs_old}/pkgs/development/compilers/llvm/7" 
+  {
+    inherit (stdenvAdapters) overrideCC;
+    buildLlvmTools = buildPackages.llvmPackages_7.tools;
+    targetLlvm = targetPackages.llvmPackages_7.llvm or llvmPackages_7.llvm;
+    targetLlvmLibraries = targetPackages.llvmPackages_7.libraries or llvmPackages_7.libraries;
+    /*
+    fetchurl = {url,...}@args: final.fetchurl (args // {
+      url = let parts = splitString "7.1.0" url;
+            in concatStringsSep "7.0.1" parts;
+          });
+          */
+  });
+
+  /*
+  myRustToolchain = (final.buildPackages.rust-bin.fromRustupToolchainFile
+  ./rust-toolchain.toml).override {
+    extensions = ["rust-src" "rustc-dev" "llvm-tools-preview"];
+  };
+  */
+  myRustToolchain =
+    final.buildPackages.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+  myRustPlatform = final.buildPackages.makeRustPlatform {
+    cargo = final.myRustToolchain;
+    rustc = final.myRustToolchain;
+  };
+
+
 }

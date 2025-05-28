@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
-members=["firelib-rs", "firelib-sys", "firelib-cuda"]
+members=["firelib-rs", "firelib-cuda", "propag"]
 
 
 [profile.release]
 opt-level = 3
-lto = "fat"
+#lto = "fat"

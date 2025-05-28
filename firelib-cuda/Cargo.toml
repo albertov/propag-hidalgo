@@ -9,7 +9,6 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 cuda_std = { git = "https://github.com/Rust-GPU/Rust-CUDA/" }
 firelib-rs = { path = "../firelib-rs", default-features = false, features=["cuda"] }
-const_soft_float = { git = "https://github.com/albertov/const_soft_float.git", features= ["no_std"]}
 
 [build-dependencies]
 cuda_builder = { git = "https://github.com/Rust-GPU/Rust-CUDA/" }

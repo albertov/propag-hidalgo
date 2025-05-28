@@ -250,7 +250,6 @@ dependencies = [
 name = "firelib-cuda"
 version = "0.1.0"
 dependencies = [
- "const_soft_float",
  "cuda_builder",
  "cuda_std",
  "firelib-rs",
@@ -653,6 +652,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a31971752e70b8b2686d7e46ec17fb38dad4051d94024c88df49b667caea9c84"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "propag"
+version = "0.1.0"
+dependencies = [
+ "cuda_builder",
 ]
 
 [[package]]

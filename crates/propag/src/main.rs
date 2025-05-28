@@ -17,7 +17,7 @@ use std::error::Error;
 extern crate timeit;
 
 //TODO: Calculate max size that we can use on device
-const THREAD_BLOCK_AXIS_LENGTH: u32 = 25;
+const THREAD_BLOCK_AXIS_LENGTH: u32 = 19;
 
 static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
 static PTX_C: &str = include_str!("../../target/cuda/propag_c.ptx");
@@ -41,11 +41,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let settings = Settings {
         geo_ref,
         max_time,
-        find_ref_change: false,
+        find_ref_change: true,
     };
     let fire_pos = USizeVec2 {
-        x: geo_ref.width as usize / 2 - THREAD_BLOCK_AXIS_LENGTH as usize / 2,
-        y: geo_ref.height as usize / 2 - THREAD_BLOCK_AXIS_LENGTH as usize / 2,
+        x: geo_ref.width as usize / 2 - 24 as usize / 2,
+        y: geo_ref.height as usize / 2 - 24 as usize / 2,
     };
     println!("fire_pos={:?}", fire_pos);
     let len = geo_ref.len();
@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("max_active_blocks_per_multiprocessor={}", max_active_blocks);
     let mp_count = device.get_attribute(DeviceAttribute::MultiprocessorCount)?;
     let max_total_blocks = mp_count as u32 * max_active_blocks;
-    println!("max_total_blocks={}", max_total_blocks);
+    println!("max_active_total_blocks={}", max_total_blocks);
 
     // Assumes square block size
     assert_eq!(block_size.x, block_size.y);

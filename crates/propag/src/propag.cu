@@ -117,12 +117,7 @@ public:
 
 private:
   __device__ inline Point find_neighbor_with_least_access_time() {
-    const Point me = shared_[local_ix_];
-    const FireSimpleCuda fire = me.fire;
-    bool is_new = !(me.time < FLT_MAX);
-
-    Point best = Point_NULL;
-
+    Point best = shared_[local_ix_];
     if (in_bounds_) {
 #pragma unroll
       for (int j = -1; j < 2; j++) {
@@ -195,9 +190,10 @@ private:
             }
           }
 
-          float t = time_from_ref(reference);
+          float t = time_from(reference);
           if (t < best.time) {
-            best = Point(t, fire, reference);
+            best.time = t;
+            best.reference = reference;
           }
         };
       };
@@ -206,7 +202,7 @@ private:
   }
 
   __device__ inline bool update_point(Point p) {
-    Point &me = shared_[local_ix_];
+    const Point &me = shared_[local_ix_];
     if (p.time < me.time && p.time < settings_.max_time) {
       shared_[local_ix_] = p;
       commit_point();
@@ -215,13 +211,13 @@ private:
     return false;
   }
   __device__ inline void commit_point() {
-    Point &me = shared_[local_ix_];
-    // printf("best time %f\n", best.time);
+    const Point &me = shared_[local_ix_];
     refs_x_[global_ix_] = me.reference.pos.x;
     refs_y_[global_ix_] = me.reference.pos.y;
     // Time must be writen last and after a grid-level memory
     // fence because the time being set denotes the Point being
-    // comitted
+    // comitted. load_point must take this into account and place
+    // a memory barrier too
     __threadfence();
     time_[global_ix_] = me.time;
   }
@@ -244,15 +240,9 @@ private:
         ASSERT(p.reference.is_valid(settings_.geo_ref));
         size_t ref_ix =
             p.reference.pos.x + p.reference.pos.y * settings_.geo_ref.width;
-
-        if (p.reference.pos.x == pos.x && p.reference.pos.y == pos.y) {
-          p.reference.fire = p.fire;
-          p.reference.time = p.time;
-        } else {
-          p.reference.time = time_[ref_ix];
-          p.reference.fire =
-              load_fire(ref_ix, speed_max_, azimuth_max_, eccentricity_);
-        };
+        p.reference.time = time_[ref_ix];
+        p.reference.fire =
+            load_fire(ref_ix, speed_max_, azimuth_max_, eccentricity_);
         ASSERT(p.reference.time != FLT_MAX);
       };
       return p;
@@ -298,12 +288,10 @@ private:
     shared_[local.x + local.y * shared_width_] = load_point(global);
   }
 
-  __device__ inline float time_from_ref(const PointRef &from) const {
+  __device__ inline float time_from(const PointRef &from) const {
     int2 from_pos = make_int2(from.pos.x, from.pos.y);
     int2 to_pos = make_int2(idx_2d_.x, idx_2d_.y);
     float azimuth;
-    // TODO: This can be optimized by pre-calculating azimuth_cos and
-    //  azimuth_sin so we don't need atan2 or cos here
     if (settings_.geo_ref.transform.gt.dy < 0) {
       // north-up geotransform
       azimuth = atan2f(to_pos.x - from_pos.x, from_pos.y - to_pos.y);

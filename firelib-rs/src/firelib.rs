@@ -31,14 +31,14 @@ const MAX_PARTICLES: usize = 5;
 const MAX_FUELS: usize = 20;
 
 #[derive(Clone, Copy, PartialEq)]
-#[repr(C, align(16))]
+#[repr(C)]
 pub enum Life {
     Dead,
     Alive,
 }
 
 #[derive(Clone, Copy)]
-#[repr(C, align(16))]
+#[repr(C)]
 pub enum ParticleType {
     Dead,       // Dead fuel particle
     Herb,       // Herbaceous live particle
@@ -47,7 +47,7 @@ pub enum ParticleType {
 }
 
 #[derive(Clone, Copy)]
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct ParticleDef {
     pub type_: ParticleType,
     pub load: ArealMassDensity, // fuel loading
@@ -59,7 +59,7 @@ pub struct ParticleDef {
 }
 
 #[derive(Clone, Copy)]
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct Particle {
     pub type_: ParticleType,
     pub load: float::T,
@@ -78,7 +78,7 @@ pub struct Particle {
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "std", derive(StructOfArray), soa_derive(Debug))]
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct Terrain {
     pub d1hr: Ratio,
     pub d10hr: Ratio,
@@ -96,7 +96,7 @@ pub struct Terrain {
     derive(Copy, Clone, Debug, cust::DeviceCopy, StructOfArray),
     soa_derive(Debug)
 )]
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct TerrainCuda {
     pub d1hr: float::T,
     pub d10hr: float::T,
@@ -163,7 +163,7 @@ impl From<TerrainCudaRef<'_>> for Terrain {
 }
 
 #[derive(Debug, Clone)]
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct Fire {
     pub rx_int: HeatFluxDensity,
     pub speed0: Velocity,
@@ -179,7 +179,7 @@ pub struct Fire {
     derive(Copy, Clone, Debug, cust::DeviceCopy, StructOfArray),
     soa_derive(Debug)
 )]
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct FireCuda {
     pub rx_int: float::T,
     pub speed0: float::T,
@@ -233,20 +233,16 @@ impl From<FireCudaRef<'_>> for Fire {
 }
 
 #[derive(Debug, Copy, Clone)]
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct FireSimple {
     pub speed_max: Velocity,
     pub azimuth_max: Angle,
     pub eccentricity: Ratio,
 }
 
-#[cfg_attr(
-    not(target_os = "cuda"),
-    derive(StructOfArray),
-    soa_derive(Debug)
-)]
+#[cfg_attr(not(target_os = "cuda"), derive(StructOfArray), soa_derive(Debug))]
 #[derive(Copy, Clone, Debug, PartialEq, cust_core::DeviceCopy)]
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct FireSimpleCuda {
     pub speed_max: float::T,
     pub azimuth_max: float::T,
@@ -285,7 +281,7 @@ impl From<FireSimpleCudaRef<'_>> for FireSimple {
 }
 
 #[derive(Debug)]
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct Spread<'a, T> {
     fire: &'a T,
     factor: float::T,
@@ -304,10 +300,7 @@ pub trait CanSpread<'a> {
         let angle = (azimuth - azimuth_max).abs();
         let ecc = self.eccentricity().get::<ratio>();
         let factor = (1.0 - ecc) / (1.0 - ecc * angle.cos());
-        Spread {
-            fire: self,
-            factor,
-        }
+        Spread { fire: self, factor }
     }
 }
 
@@ -321,7 +314,7 @@ pub enum SizeClass {
     SC5,
 }
 
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct FuelDef {
     pub name: [u8; 16],
     pub desc: [u8; 64],
@@ -334,7 +327,7 @@ pub struct FuelDef {
 pub type ParticleDefs = [ParticleDef; MAX_PARTICLES];
 
 #[derive(Clone, Copy)]
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct Fuel {
     pub name: [u8; 16],
     pub desc: [u8; 64],
@@ -367,7 +360,7 @@ pub struct Fuel {
 
 pub type Particles = [Particle; MAX_PARTICLES];
 
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct Catalog([Fuel; MAX_FUELS]);
 
 macro_rules! accum_particles {

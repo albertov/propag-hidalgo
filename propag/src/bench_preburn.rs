@@ -30,16 +30,36 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut azimuth = { || Angle::new::<degree>(rng.random_range(0..36000) as float::T / 100.0) };
     let rng = &mut rand::rng();
     type OptionalVec<T> = Vec<Option<T>>;
-    let model: OptionalVec<usize> = (0..NUMBERS_LEN).map(|_n| Some(rng.random_range(0..14))).collect();
-    let d1hr: OptionalVec<float::T> = (0..NUMBERS_LEN).map(|_n| Some(rng.random_range(0..10000) as float::T / 10000.0)).collect();
-    let d10hr: OptionalVec<float::T> = (0..NUMBERS_LEN).map(|_n| Some(rng.random_range(0..10000) as float::T / 10000.0)).collect();
-    let d100hr: OptionalVec<float::T> = (0..NUMBERS_LEN).map(|_n| Some(rng.random_range(0..10000) as float::T / 10000.0)).collect();
-    let herb: OptionalVec<float::T> = (0..NUMBERS_LEN).map(|_n| Some(rng.random_range(0..10000) as float::T / 10000.0)).collect();
-    let wood: OptionalVec<float::T> = (0..NUMBERS_LEN).map(|_n| Some(rng.random_range(0..10000) as float::T / 10000.0)).collect();
-    let wind_speed: OptionalVec<float::T> = (0..NUMBERS_LEN).map(|_n| Some(rng.random_range(0..10000) as float::T / 1000.0)).collect();
-    let wind_azimuth: OptionalVec<float::T> = (0..NUMBERS_LEN).map(|_n| Some(rng.random_range(0..720) as float::T / 4.0*PI)).collect();
-    let aspect: OptionalVec<float::T> = (0..NUMBERS_LEN).map(|_n| Some(rng.random_range(0..720) as float::T / 4.0*PI)).collect();
-    let slope: OptionalVec<float::T> = (0..NUMBERS_LEN).map(|_n| Some(rng.random_range(0..10000) as float::T / 10000.0)).collect();
+    let model: OptionalVec<usize> = (0..NUMBERS_LEN)
+        .map(|_n| Some(rng.random_range(0..14)))
+        .collect();
+    let d1hr: OptionalVec<float::T> = (0..NUMBERS_LEN)
+        .map(|_n| Some(rng.random_range(0..10000) as float::T / 10000.0))
+        .collect();
+    let d10hr: OptionalVec<float::T> = (0..NUMBERS_LEN)
+        .map(|_n| Some(rng.random_range(0..10000) as float::T / 10000.0))
+        .collect();
+    let d100hr: OptionalVec<float::T> = (0..NUMBERS_LEN)
+        .map(|_n| Some(rng.random_range(0..10000) as float::T / 10000.0))
+        .collect();
+    let herb: OptionalVec<float::T> = (0..NUMBERS_LEN)
+        .map(|_n| Some(rng.random_range(0..10000) as float::T / 10000.0))
+        .collect();
+    let wood: OptionalVec<float::T> = (0..NUMBERS_LEN)
+        .map(|_n| Some(rng.random_range(0..10000) as float::T / 10000.0))
+        .collect();
+    let wind_speed: OptionalVec<float::T> = (0..NUMBERS_LEN)
+        .map(|_n| Some(rng.random_range(0..10000) as float::T / 1000.0))
+        .collect();
+    let wind_azimuth: OptionalVec<float::T> = (0..NUMBERS_LEN)
+        .map(|_n| Some(rng.random_range(0..720) as float::T / 4.0 * PI))
+        .collect();
+    let aspect: OptionalVec<float::T> = (0..NUMBERS_LEN)
+        .map(|_n| Some(rng.random_range(0..720) as float::T / 4.0 * PI))
+        .collect();
+    let slope: OptionalVec<float::T> = (0..NUMBERS_LEN)
+        .map(|_n| Some(rng.random_range(0..10000) as float::T / 10000.0))
+        .collect();
 
     // initialize CUDA, this will pick the first available device and will
     // make a CUDA context from it.
@@ -85,18 +105,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let aspect_gpu = aspect.as_slice().as_dbuf()?;
 
     // output vectors
-    let mut speed_max: OptionalVec<float::T> =
-         std::iter::repeat(None)
-        .take(model.len())
-        .collect();
+    let mut speed_max: OptionalVec<float::T> = std::iter::repeat(None).take(model.len()).collect();
     let mut azimuth_max: OptionalVec<float::T> =
-         std::iter::repeat(None)
-        .take(model.len())
-        .collect();
+        std::iter::repeat(None).take(model.len()).collect();
     let mut eccentricity: OptionalVec<float::T> =
-         std::iter::repeat(None)
-        .take(model.len())
-        .collect();
+        std::iter::repeat(None).take(model.len()).collect();
     // Actually launch the GPU kernel. This will queue up the launch on the stream, it will
     // not block the thread until the kernel is finished.
     unsafe {
@@ -143,25 +156,37 @@ fn main() -> Result<(), Box<dyn Error>> {
         eccentricity_buf.copy_to(&mut eccentricity)?;
     }
 
-    let fire : Vec<Option<FireSimple>> =
-        (0..model.len()).map(|i| Some((FireSimpleCuda{
-            speed_max: speed_max[i]?,
-            azimuth_max: azimuth_max[i]?,
-            eccentricity: eccentricity[i]?,
-        }).into())).collect();
+    let fire: Vec<Option<FireSimple>> = (0..model.len())
+        .map(|i| {
+            Some(
+                (FireSimpleCuda {
+                    speed_max: speed_max[i]?,
+                    azimuth_max: azimuth_max[i]?,
+                    eccentricity: eccentricity[i]?,
+                })
+                .into(),
+            )
+        })
+        .collect();
 
-    let terrain: Vec<Option<Terrain>> =
-        (0..model.len()).map(|i| Some((TerrainCuda{
-            d1hr: d1hr[i]?,
-            d10hr: d10hr[i]?,
-            d100hr: d100hr[i]?,
-            herb: herb[i]?,
-            wood: wood[i]?,
-            wind_speed: wind_speed[i]?,
-            wind_azimuth: wind_azimuth[i]?,
-            slope: slope[i]?,
-            aspect: aspect[i]?,
-        }).into())).collect();
+    let terrain: Vec<Option<Terrain>> = (0..model.len())
+        .map(|i| {
+            Some(
+                (TerrainCuda {
+                    d1hr: d1hr[i]?,
+                    d10hr: d10hr[i]?,
+                    d100hr: d100hr[i]?,
+                    herb: herb[i]?,
+                    wood: wood[i]?,
+                    wind_speed: wind_speed[i]?,
+                    wind_azimuth: wind_azimuth[i]?,
+                    slope: slope[i]?,
+                    aspect: aspect[i]?,
+                })
+                .into(),
+            )
+        })
+        .collect();
     let mut fire_rs: Vec<Option<FireSimple>> = Vec::new();
     for _ in 0..model.len() {
         fire_rs.push(None)
@@ -188,10 +213,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             Some(res)
         })
-        .all(|x| x != Some(false))
-        );
-    assert!(fire_rs.iter().any(|f|f.is_some()));
-    assert!(fire_rs.iter().any(|f|f.is_none()));
+        .all(|x| x != Some(false)));
+    assert!(fire_rs.iter().any(|f| f.is_some()));
+    assert!(fire_rs.iter().any(|f| f.is_none()));
     println!("All equal");
 
     Ok(())

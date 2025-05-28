@@ -1,3 +1,4 @@
+#![feature(int_roundings)]
 use ::geometry::*;
 use cust::function::{BlockSize, GridSize};
 use cust::prelude::*;
@@ -20,8 +21,14 @@ static PTX: &str = include_str!("../../target/cuda/firelib.ptx");
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("Calculating with GPU Propag");
-    let geo_ref : GeoReference = GeoReference::south_up(
-        (Vec2{x:0.0,y:0.0},Vec2{x:25000.0,y:25000.0}),
+    let geo_ref: GeoReference = GeoReference::south_up(
+        (
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 {
+                x: 25000.0,
+                y: 25000.0,
+            },
+        ),
         Vec2 { x: 25.0, y: 25.0 },
         25830,
     )
@@ -34,24 +41,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     let rng = &mut rand::rng();
     let mut azimuth = { || Angle::new::<degree>(rng.random_range(0..36000) as float::T / 100.0) };
     let rng = &mut rand::rng();
-    let terrain: TerrainCudaVec = (0..len)
-        .map(|_n| {
-            let wind_speed =
-                Velocity::new::<meter_per_second>(1.0);
-            From::from(Terrain {
-                d1hr: Ratio::new::<ratio>(0.1),
-                d10hr: Ratio::new::<ratio>(0.1),
-                d100hr: Ratio::new::<ratio>(0.1),
-                herb: Ratio::new::<ratio>(0.1),
-                wood: Ratio::new::<ratio>(0.1),
-                wind_speed,
-                wind_azimuth: Angle::new::<degree>(0.0),
-                slope: Ratio::new::<ratio>(0.0),
-                aspect: Angle::new::<degree>(180.0),
-            })
-        })
-        .collect();
-    let model: Vec<usize> = (0..len).map(|_n| 1).collect();
+
+    type OptionalVec<T> = Vec<Option<T>>;
+    let model: OptionalVec<usize> = (0..len).map(|_n| Some(1)).collect();
+    let d1hr: OptionalVec<float::T> = (0..len).map(|_n| Some(0.1)).collect();
+    let d10hr: OptionalVec<float::T> = (0..len).map(|_n| Some(0.1)).collect();
+    let d100hr: OptionalVec<float::T> = (0..len).map(|_n| Some(0.1)).collect();
+    let herb: OptionalVec<float::T> = (0..len).map(|_n| Some(0.1)).collect();
+    let wood: OptionalVec<float::T> = (0..len).map(|_n| Some(0.1)).collect();
+    let wind_speed: OptionalVec<float::T> = (0..len).map(|_n| Some(5.0)).collect();
+    let wind_azimuth: OptionalVec<float::T> = (0..len).map(|_n| Some(0.0)).collect();
+    let aspect: OptionalVec<float::T> = (0..len).map(|_n| Some(PI)).collect();
+    let slope: OptionalVec<float::T> = (0..len).map(|_n| Some(PI)).collect();
 
     // initialize CUDA, this will pick the first available device and will
     // make a CUDA context from it.
@@ -67,14 +68,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
 
     // retrieve the add kernel from the module so we can calculate the right launch config.
-    let func = module.get_function("propag")?;
+    let propag = module.get_function("propag")?;
+    let pre_burn = module.get_function("pre_burn")?;
 
     let grid_size = GridSize {
-        x: geo_ref.size[0] / THREAD_BLOCK_AXIS_LENGTH + 1,
-        y: geo_ref.size[1] / THREAD_BLOCK_AXIS_LENGTH + 1,
+        x: geo_ref.size[0].div_ceil(THREAD_BLOCK_AXIS_LENGTH),
+        y: geo_ref.size[1].div_ceil(THREAD_BLOCK_AXIS_LENGTH),
         z: 1,
     };
-    let linear_grid_size : u32 = grid_size.x * grid_size.y * grid_size.z;
+    let linear_grid_size: u32 = grid_size.x * grid_size.y * grid_size.z;
 
     let block_size = BlockSize {
         x: THREAD_BLOCK_AXIS_LENGTH,
@@ -85,79 +87,62 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!(
         "using grid_size={:?} blocks_size={:?} linear_grid_size={} for {} elems",
-        grid_size,
-        block_size,
-        linear_grid_size,
-        len
+        grid_size, block_size, linear_grid_size, len
     );
     // allocate the GPU memory needed to house our numbers and copy them over.
     let model_gpu = model.as_slice().as_dbuf()?;
-    let d1hr_gpu = terrain.d1hr.as_slice().as_dbuf()?;
-    let d10hr_gpu = terrain.d10hr.as_slice().as_dbuf()?;
-    let d100hr_gpu = terrain.d100hr.as_slice().as_dbuf()?;
-    let herb_gpu = terrain.herb.as_slice().as_dbuf()?;
-    let wood_gpu = terrain.wood.as_slice().as_dbuf()?;
-    let wind_speed_gpu = terrain.wind_speed.as_slice().as_dbuf()?;
-    let wind_azimuth_gpu = terrain.wind_azimuth.as_slice().as_dbuf()?;
-    let slope_gpu = terrain.slope.as_slice().as_dbuf()?;
-    let aspect_gpu = terrain.aspect.as_slice().as_dbuf()?;
+    let d1hr_gpu = d1hr.as_slice().as_dbuf()?;
+    let d10hr_gpu = d10hr.as_slice().as_dbuf()?;
+    let d100hr_gpu = d100hr.as_slice().as_dbuf()?;
+    let herb_gpu = herb.as_slice().as_dbuf()?;
+    let wood_gpu = wood.as_slice().as_dbuf()?;
+    let wind_speed_gpu = wind_speed.as_slice().as_dbuf()?;
+    let wind_azimuth_gpu = wind_azimuth.as_slice().as_dbuf()?;
+    let slope_gpu = slope.as_slice().as_dbuf()?;
+    let aspect_gpu = aspect.as_slice().as_dbuf()?;
 
     // input/output vectors
-    let mut time: Vec<Option<float::T>> = std::iter::repeat(None)
-        .take(model.len())
-        .collect();
-    let mut speed_max: Vec<Option<float::T>> = std::iter::repeat(None)
-        .take(model.len())
-        .collect();
-    let mut azimuth_max: Vec<Option<float::T>> = std::iter::repeat(None)
-        .take(model.len())
-        .collect();
-    let mut eccentricity: Vec<Option<float::T>> = std::iter::repeat(None)
-        .take(model.len())
-        .collect();
+    let mut time: Vec<Option<float::T>> = std::iter::repeat(None).take(model.len()).collect();
     let mut refs_x: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
     let mut refs_y: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
+    let mut out_time: Vec<Option<float::T>> = std::iter::repeat(None).take(model.len()).collect();
+    let mut out_refs_x: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
+    let mut out_refs_y: Vec<Option<usize>> = std::iter::repeat(None).take(model.len()).collect();
+
+    let mut speed_max: Vec<Option<float::T>> = std::iter::repeat(None).take(model.len()).collect();
+    let mut azimuth_max: Vec<Option<float::T>> =
+        std::iter::repeat(None).take(model.len()).collect();
+    let mut eccentricity: Vec<Option<float::T>> =
+        std::iter::repeat(None).take(model.len()).collect();
     let mut block_progress: Vec<float::T> = std::iter::repeat(0.0)
         .take(linear_grid_size as usize)
         .collect();
 
-    let max_time = (60.0*60.0*500.0 as float::T);
-    time[(500 + 200 * geo_ref.size[0]) as usize] = Some(0.0);
-    refs_x[(500 + 200 * geo_ref.size[0]) as usize] = Some(500);
-    refs_y[(500 + 200 * geo_ref.size[0]) as usize] = Some(200);
+    let max_time: float::T = 60.0 * 60.0 * 10.0;
+    time[(100 + 200 * geo_ref.size[0]) as usize] = Some(0.0);
+    refs_x[(100 + 200 * geo_ref.size[0]) as usize] = Some(100);
+    refs_y[(100 + 200 * geo_ref.size[0]) as usize] = Some(200);
 
-    let mut speed_max_buf = speed_max.as_slice().as_unified_buf()?;
-    let mut azimuth_max_buf = azimuth_max.as_slice().as_unified_buf()?;
-    let mut eccentricity_buf = eccentricity.as_slice().as_unified_buf()?;
-    let mut refs_x_buf = refs_x.as_slice().as_unified_buf()?;
-    let mut refs_y_buf = refs_y.as_slice().as_unified_buf()?;
-    let mut time_buf = time.as_slice().as_unified_buf()?;
-    let mut block_progress_buf = block_progress.as_slice().as_unified_buf()?;
+    let mut speed_max_buf = speed_max.as_slice().as_dbuf()?;
+    let mut azimuth_max_buf = azimuth_max.as_slice().as_dbuf()?;
+    let mut eccentricity_buf = eccentricity.as_slice().as_dbuf()?;
+    let mut refs_x_buf = refs_x.as_slice().as_dbuf()?;
+    let mut refs_y_buf = refs_y.as_slice().as_dbuf()?;
+    let mut time_buf = time.as_slice().as_dbuf()?;
+    let mut out_refs_x_buf = out_refs_x.as_slice().as_dbuf()?;
+    let mut out_refs_y_buf = out_refs_y.as_slice().as_dbuf()?;
+    let mut out_time_buf = out_time.as_slice().as_dbuf()?;
 
+    let (_, block_size2) = pre_burn.suggested_launch_configuration(0, 0.into())?;
+    let grid_size2 = (model.len() as u32).div_ceil(block_size2) + 1;
+
+    let geo_ref_var = DeviceVariable::new(geo_ref)?;
+    let max_time_var = DeviceVariable::new(max_time)?;
     unsafe {
         ({
-            loop {
-                let num_times = time_buf
-                    .as_slice()
-                    .iter()
-                    .filter(|t|t.is_some())
-                    .count();
-                println!("num_times={}", num_times);
-                let num_fires = speed_max_buf
-                    .as_slice()
-                    .iter()
-                    .filter(|t|t.is_some())
-                    .count();
-                println!("num_fires={}", num_fires);
-                let num_refs = refs_x_buf
-                    .as_slice()
-                    .iter()
-                    .filter(|t|t.is_some())
-                    .count();
-                println!("num_refs={}", num_refs);
             launch!(
                 // slices are passed as two parameters, the pointer and the length.
-                func<<<grid_size, block_size, 0, stream>>>(
+                pre_burn<<<grid_size2, block_size2, 0, stream>>>(
                     model_gpu.as_device_ptr(),
                     model_gpu.len(),
                     d1hr_gpu.as_device_ptr(),
@@ -178,35 +163,57 @@ fn main() -> Result<(), Box<dyn Error>> {
                     slope_gpu.len(),
                     aspect_gpu.as_device_ptr(),
                     aspect_gpu.len(),
-                    speed_max_buf.as_unified_ptr(),
-                    azimuth_max_buf.as_unified_ptr(),
-                    eccentricity_buf.as_unified_ptr(),
-                    time_buf.as_unified_ptr(),
-                    refs_x_buf.as_unified_ptr(),
-                    refs_y_buf.as_unified_ptr(),
-                    block_progress_buf.as_unified_ptr(),
-                    geo_ref,
-                    linear_grid_size,
-                    max_time,
+                    speed_max_buf.as_device_ptr(),
+                    azimuth_max_buf.as_device_ptr(),
+                    eccentricity_buf.as_device_ptr(),
                 )
             )?;
+            let width = geo_ref.size[0];
+            let times: Vec<(u32, u32, f32)> = (0..len)
+                .zip(time.iter())
+                .filter_map(|(i, t)| Some((i % width, i.div_floor(width), (*t)?)))
+                .collect();
             stream.synchronize()?;
-            let num_times_after = time_buf
-                .as_slice()
-                .iter()
-                .filter(|t|t.is_some())
-                .count();
-            if num_times_after == num_times {
-                break
-            }
-
+            loop {
+                time_buf.copy_to(&mut time)?;
+                let num_times = time.iter().filter(|t| t.is_some()).count();
+                launch!(
+                    // slices are passed as two parameters, the pointer and the length.
+                    propag<<<grid_size, block_size, 0, stream>>>(
+                        geo_ref_var.as_device_ptr(),
+                        max_time,
+                        speed_max_buf.as_device_ptr(),
+                        speed_max_buf.len(),
+                        azimuth_max_buf.as_device_ptr(),
+                        azimuth_max_buf.len(),
+                        eccentricity_buf.as_device_ptr(),
+                        eccentricity_buf.len(),
+                        time_buf.as_device_ptr(),
+                        time_buf.len(),
+                        refs_x_buf.as_device_ptr(),
+                        refs_x_buf.len(),
+                        refs_y_buf.as_device_ptr(),
+                        refs_y_buf.len(),
+                        out_time_buf.as_device_ptr(),
+                        out_refs_x_buf.as_device_ptr(),
+                        out_refs_y_buf.as_device_ptr(),
+                    )
+                )?;
+                stream.synchronize()?;
+                out_time_buf.copy_to(&mut time)?;
+                let num_times_after = time.iter().filter(|t| t.is_some()).count();
+                println!("num_times_after={}", num_times_after);
+                let width = geo_ref.size[0];
+                if num_times_after == num_times {
+                    break;
+                }
+                out_time_buf.copy_to(&mut time_buf)?;
+                out_refs_x_buf.copy_to(&mut refs_x_buf)?;
+                out_refs_y_buf.copy_to(&mut refs_y_buf)?;
             }
         });
-
     }
-    assert!(time_buf.as_slice().iter().filter(|t| t.is_some()).count() > 1);
-    let time : Vec<f32> =
-        time_buf.as_slice().iter().filter_map(|t| *t).collect();
-    println!("{:?}", time);
+    time_buf.copy_to(&mut time)?;
+    assert!(time.len() > 1);
     Ok(())
 }

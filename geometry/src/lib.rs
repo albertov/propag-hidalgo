@@ -3,12 +3,12 @@
 #[cfg(test)]
 extern crate std;
 
-use approx::{abs_diff_ne,abs_diff_eq};
+use approx::{abs_diff_eq, abs_diff_ne};
 
 pub use approx::AbsDiffEq;
 
 pub use glam::*;
-pub use num_traits::{NumCast};
+pub use num_traits::NumCast;
 
 #[cfg(target_os = "cuda")]
 extern crate cuda_std;
@@ -19,7 +19,7 @@ extern crate cust_core;
 use cuda_std::GpuFloat;
 
 #[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct GT {
     pub x0: f32,
     dx: f32,
@@ -29,8 +29,7 @@ pub struct GT {
     dy: f32,
 }
 
-impl GT
-{
+impl GT {
     pub fn new(xs: [f32; 6]) -> Self {
         Self {
             x0: xs[0],
@@ -42,26 +41,49 @@ impl GT
         }
     }
     pub fn as_array_64(&self) -> [f64; 6] {
-        let GT {x0,dx,rx,y0,ry,dy} = *self;
-        [x0.into(),dx.into(),rx.into(),y0.into(),ry.into(),dy.into()]
+        let GT {
+            x0,
+            dx,
+            rx,
+            y0,
+            ry,
+            dy,
+        } = *self;
+        [
+            x0.into(),
+            dx.into(),
+            rx.into(),
+            y0.into(),
+            ry.into(),
+            dy.into(),
+        ]
     }
     pub fn as_array(&self) -> [f32; 6] {
-        let GT {x0,dx,rx,y0,ry,dy} = *self;
-        [x0,dx,rx,y0,ry,dy]
+        let GT {
+            x0,
+            dx,
+            rx,
+            y0,
+            ry,
+            dy,
+        } = *self;
+        [x0, dx, rx, y0, ry, dy]
     }
 }
 
 #[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
-#[repr(C, align(16))]
+#[repr(C)]
 pub struct GeoTransform {
     pub gt: GT,
-    pub inv: GT
+    pub inv: GT,
 }
 
-impl GeoTransform
-{
+impl GeoTransform {
     pub fn new(xs: [f32; 6]) -> Option<Self> {
-        Some(Self {gt: GT::new(xs), inv:Self::invert(xs)?})
+        Some(Self {
+            gt: GT::new(xs),
+            inv: Self::invert(xs)?,
+        })
     }
     pub fn is_north_up(&self) -> bool {
         self.dy() < 0.0
@@ -86,7 +108,7 @@ impl GeoTransform
     }
     pub fn forward(&self, p: Vec2) -> USizeVec2 {
         let Vec2 { x, y } = p - self.origin();
-        let GT{dx, rx, ry, dy, ..} = self.inv;
+        let GT { dx, rx, ry, dy, .. } = self.inv;
         let p = Vec2 {
             x: x * dx + y * rx,
             y: x * ry + y * dy,
@@ -102,7 +124,7 @@ impl GeoTransform
             y: <f32 as NumCast>::from(p.y).expect("T to from failed"),
         };
         let Vec2 { x, y } = p + self.origin();
-        let GT{dx, rx, ry, dy, ..} = self.gt;
+        let GT { dx, rx, ry, dy, .. } = self.gt;
         Vec2 {
             x: x * dx + y * rx,
             y: x * ry + y * dy,
@@ -125,16 +147,14 @@ impl GeoTransform
 }
 
 #[derive(Copy, Clone, Debug, cust_core::DeviceCopy)]
-#[repr(C, align(16))]
-pub struct GeoReference
-{
-    pub size: [u32;2],
+#[repr(C)]
+pub struct GeoReference {
+    pub size: [u32; 2],
     pub epsg: u32,
     pub transform: GeoTransform,
 }
 
-impl GeoReference
-{
+impl GeoReference {
     pub fn len(&self) -> u32 {
         self.size[0] * self.size[1]
     }
@@ -145,13 +165,13 @@ impl GeoReference
     pub fn backward(&self, p: USizeVec2) -> Vec2 {
         self.transform.backward(p)
     }
-    pub fn south_up(bbox: (Vec2,Vec2), pixel_size: Vec2, epsg: u32) -> Option<GeoReference> {
+    pub fn south_up(bbox: (Vec2, Vec2), pixel_size: Vec2, epsg: u32) -> Option<GeoReference> {
         let Vec2 { x: dx, y: dy } = pixel_size;
-        let (Vec2 { x: x0, y: y0}, Vec2 { x:x1, y:y1 }) = bbox;
+        let (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }) = bbox;
         let transform = GeoTransform::new([x0, dx, 0.0, y0, 0.0, dy])?;
         let size = [
-            NumCast::from((x1-x0) / dx)?,
-            NumCast::from((y1-y0) / dy)?,
+            NumCast::from((x1 - x0) / dx)?,
+            NumCast::from((y1 - y0) / dy)?,
         ];
         Some(GeoReference {
             transform,
@@ -159,13 +179,13 @@ impl GeoReference
             epsg,
         })
     }
-    pub fn north_up(bbox: (Vec2,Vec2), pixel_size: Vec2, epsg: u32) -> Option<GeoReference> {
+    pub fn north_up(bbox: (Vec2, Vec2), pixel_size: Vec2, epsg: u32) -> Option<GeoReference> {
         let Vec2 { x: dx, y: dy } = pixel_size;
-        let (Vec2 { x: x0, y: y0}, Vec2 { x:x1, y:y1 }) = bbox;
+        let (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }) = bbox;
         let transform = GeoTransform::new([x0, dx, 0.0, y1, 0.0, -dy])?;
         let size = [
-            NumCast::from((x1-x0) / dx)?,
-            NumCast::from((y1-y0) / dy)?,
+            NumCast::from((x1 - x0) / dx)?,
+            NumCast::from((y1 - y0) / dy)?,
         ];
         Some(GeoReference {
             transform,
@@ -183,11 +203,12 @@ impl GeoReference
         ];
         //assert!(dx > 0.0 && dy > 0.0 && rx == 0.0 && ry == 0.0);
         let origin = transform.origin();
-        (origin,
+        (
+            origin,
             Vec2 {
                 x: transform.dx() * size[0],
                 y: transform.dy() * size[1],
-            }
+            },
         )
     }
     pub fn is_north_up(&self) -> bool {
@@ -203,10 +224,8 @@ impl GeoReference
         }
     }
     pub fn distance(&self, a: Vec2, b: Vec2) -> f32 {
-        (
-            ((a.x - b.x) * self.transform.dx()).powi(2)
-                + ((a.y - b.y) * self.transform.dy()).powi(2)
-        ).sqrt()
+        (((a.x - b.x) * self.transform.dx()).powi(2) + ((a.y - b.y) * self.transform.dy()).powi(2))
+            .sqrt()
     }
 }
 
@@ -217,8 +236,7 @@ pub struct Raster<'a, T> {
 }
 */
 
-struct DDA
-{
+struct DDA {
     dest: Vec2,
     step: Vec2,
     cur: Option<Vec2>,
@@ -226,9 +244,7 @@ struct DDA
     delta: Vec2,
 }
 
-
-impl DDA
-{
+impl DDA {
     fn new(origin: Vec2, dest: Vec2) -> Self {
         let t_max = (dest - origin).abs().recip();
         let step = (dest - origin).signum();
@@ -247,8 +263,7 @@ impl DDA
     }
 }
 
-impl Iterator for DDA
-{
+impl Iterator for DDA {
     type Item = Vec2;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -309,8 +324,7 @@ impl Iterator for DDA
     }
 }
 
-pub fn line_to(from: Vec2, to: Vec2) -> impl Iterator<Item = Vec2>
-{
+pub fn line_to(from: Vec2, to: Vec2) -> impl Iterator<Item = Vec2> {
     DDA::new(from, to)
 }
 
@@ -324,14 +338,12 @@ mod test {
 
     #[test]
     fn can_line_to_self() {
-        let points: Vec<Vec2> =
-            line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: 0.0 }).collect();
+        let points: Vec<Vec2> = line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: 0.0 }).collect();
         assert_eq!(points, vec![(Vec2 { x: 0.0, y: 0.0 })]);
     }
     #[test]
     fn can_line_to_north() {
-        let points: Vec<Vec2> =
-            line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: 2.0 }).collect();
+        let points: Vec<Vec2> = line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: 2.0 }).collect();
         assert_eq!(
             points,
             vec![
@@ -356,8 +368,7 @@ mod test {
     }
     #[test]
     fn can_line_to_east() {
-        let points: Vec<Vec2> =
-            line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 2.0, y: 0.0 }).collect();
+        let points: Vec<Vec2> = line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 2.0, y: 0.0 }).collect();
         assert_eq!(
             points,
             vec![
@@ -421,8 +432,7 @@ mod test {
     }
     #[test]
     fn can_line_to_south_east() {
-        let points: Vec<Vec2> =
-            line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 2.0, y: 2.0 }).collect();
+        let points: Vec<Vec2> = line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 2.0, y: 2.0 }).collect();
         assert_eq!(
             points,
             vec![
@@ -437,8 +447,13 @@ mod test {
     #[test]
     fn south_up_bearing() -> Result<()> {
         let geo_ref = GeoReference::south_up(
-            (Vec2 {x:-180.0,y:-90.0},
-             Vec2 {x:180.0, y:90.0}),
+            (
+                Vec2 {
+                    x: -180.0,
+                    y: -90.0,
+                },
+                Vec2 { x: 180.0, y: 90.0 },
+            ),
             Vec2 { x: 0.1, y: 0.1 },
             4326,
         )
@@ -495,8 +510,13 @@ mod test {
     #[test]
     fn north_up_bearing() -> Result<()> {
         let geo_ref = GeoReference::north_up(
-            (Vec2 {x:-180.0,y:-90.0},
-             Vec2 {x:180.0, y:90.0}),
+            (
+                Vec2 {
+                    x: -180.0,
+                    y: -90.0,
+                },
+                Vec2 { x: 180.0, y: 90.0 },
+            ),
             Vec2 { x: 0.1, y: 0.1 },
             4326,
         )

@@ -56,7 +56,7 @@ impl WarpedDataset {
 
 pub fn to_spatial_ref<const N: usize>(proj: &[u8; N]) -> Result<SpatialRef> {
     let ix = proj.iter().position(|x| *x == 0).unwrap_or(0);
-    if let Some(proj) = str::from_utf8(&proj[0..ix]).ok() {
+    if let Ok(proj) = str::from_utf8(&proj[0..ix]) {
         println!("proj={}", proj);
         SpatialRef::from_proj4(proj)
     } else {

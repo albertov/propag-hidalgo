@@ -209,8 +209,8 @@ impl GeoReference {
         })
     }
     #[unsafe(no_mangle)]
-    #[allow(clippy::len_without_is_empty)]
-    pub extern "C" fn GeoReference_south_up(
+    #[allow(clippy::missing_safety_doc)]
+    pub unsafe extern "C" fn GeoReference_south_up(
         x0: f32,
         y0: f32,
         x1: f32,
@@ -237,8 +237,8 @@ impl GeoReference {
         }
     }
     #[unsafe(no_mangle)]
-    #[allow(clippy::len_without_is_empty)]
-    pub extern "C" fn GeoReference_north_up(
+    #[allow(clippy::missing_safety_doc)]
+    pub unsafe extern "C" fn GeoReference_north_up(
         x0: f32,
         y0: f32,
         x1: f32,

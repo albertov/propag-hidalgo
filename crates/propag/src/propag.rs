@@ -179,7 +179,8 @@ impl TryFrom<FFIPropagation> for Propagation {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn FFIPropagation_run(propag: FFIPropagation, err_msg: *mut c_char) -> bool {
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn FFIPropagation_run(propag: FFIPropagation, err_msg: *mut c_char) -> bool {
     match (|| {
         let propag: Propagation = propag.try_into()?;
         let geo_ref = propag.settings.geo_ref;

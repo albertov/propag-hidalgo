@@ -61,15 +61,7 @@ pub struct Spread {
     pub speed_max: Velocity,
     pub azimuth_max: Angle,
     pub eccentricity: Ratio,
-    pub byrams_max: LinearPowerDensity,
-    pub flame_max: Length,
-}
-
-#[derive(Debug)]
-pub struct SpreadAtAzimuth {
-    pub speed: Velocity,
-    pub byrams: LinearPowerDensity,
-    pub flame: Length,
+    pub residence_time: Time,
 }
 
 #[derive(Clone)]

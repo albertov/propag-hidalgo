@@ -11,6 +11,7 @@ use uom::si::f64::*;
 use uom::si::length::foot;
 use uom::si::mass_density::pound_per_cubic_foot;
 use uom::si::ratio::ratio;
+use uom::si::time::minute;
 use uom::si::velocity::foot_per_minute;
 use uom::si::velocity::meter_per_second;
 
@@ -29,30 +30,7 @@ impl Terrain {
     }
 }
 
-impl SpreadAtAzimuth {
-    pub fn almost_eq(&self, other: &Self) -> bool {
-        #[allow(unused)]
-        fn cmp(msg: &str, a: f64, b: f64) -> bool {
-            let r = (a - b).abs() < SMIDGEN;
-            #[cfg(test)]
-            if !r {
-                println!("{}: {} /= {}", msg, a, b);
-            }
-            r
-        }
-        cmp(
-            "speed",
-            self.speed.get::<foot_per_minute>(),
-            other.speed.get::<foot_per_minute>(),
-        ) && cmp(
-            "byrams",
-            self.byrams.get::<btu_foot_sec>(),
-            other.byrams.get::<btu_foot_sec>(),
-        ) && cmp("flame", self.flame.get::<foot>(), other.flame.get::<foot>())
-    }
-}
-
-impl Spread {
+impl<'a> Spread {
     pub fn no_spread() -> Spread {
         Spread {
             rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(0.0),
@@ -62,12 +40,22 @@ impl Spread {
             speed_max: Velocity::new::<foot_per_minute>(0.0),
             azimuth_max: Angle::new::<degree>(0.0),
             eccentricity: Ratio::new::<ratio>(0.0),
-            byrams_max: LinearPowerDensity::new::<btu_foot_sec>(0.0),
-            flame_max: Length::new::<foot>(0.0),
+            residence_time: Time::new::<minute>(0.0),
         }
     }
+    pub fn byrams_max(&self) -> LinearPowerDensity {
+        LinearPowerDensity::new::<btu_foot_sec>(
+            self.residence_time.get::<minute>()
+                * self.speed_max.get::<foot_per_minute>()
+                * self.rx_int.get::<btu_sq_foot_min>()
+                / 60.0,
+        )
+    }
+    pub fn flame_max(&self) -> Length {
+        Length::new::<foot>(flame_length(self.byrams_max().get::<btu_foot_sec>()))
+    }
 
-    pub fn at_azimuth(&self, azimuth: Angle) -> SpreadAtAzimuth {
+    pub fn at_azimuth(&'a self, azimuth: Angle) -> Spreader<'a> {
         let azimuth = azimuth.get::<radian>();
         let azimuth_max = self.azimuth_max.get::<radian>();
         let angle = {
@@ -84,13 +72,9 @@ impl Spread {
         } else {
             safe_div(1.0 - ecc, 1.0 - ecc * angle.cos())
         };
-        let byrams = self.byrams_max.get::<btu_foot_sec>() * factor;
-        SpreadAtAzimuth {
-            speed: Velocity::new::<foot_per_minute>(
-                self.speed_max.get::<foot_per_minute>() * factor,
-            ),
-            byrams: LinearPowerDensity::new::<btu_foot_sec>(byrams),
-            flame: Length::new::<foot>(flame_length(byrams)),
+        Spreader {
+            spread: self,
+            factor: Ratio::new::<ratio>(factor),
         }
     }
 
@@ -130,12 +114,12 @@ impl Spread {
             other.eccentricity.get::<ratio>(),
         ) && cmp(
             "byrams_max",
-            self.byrams_max.get::<btu_foot_sec>(),
-            other.byrams_max.get::<btu_foot_sec>(),
+            self.byrams_max().get::<btu_foot_sec>(),
+            other.byrams_max().get::<btu_foot_sec>(),
         ) && cmp(
             "flame_max",
-            self.flame_max.get::<foot>(),
-            other.flame_max.get::<foot>(),
+            self.flame_max().get::<foot>(),
+            other.flame_max().get::<foot>(),
         ) && cmp(
             "azimuth_max",
             self.azimuth_max.get::<radian>(),
@@ -144,13 +128,21 @@ impl Spread {
     }
 }
 
-impl SpreadAtAzimuth {
-    pub fn no_spread() -> SpreadAtAzimuth {
-        SpreadAtAzimuth {
-            speed: Velocity::new::<foot_per_minute>(0.0),
-            byrams: LinearPowerDensity::new::<btu_foot_sec>(0.0),
-            flame: Length::new::<foot>(0.0),
-        }
+#[derive(Debug)]
+pub struct Spreader<'a> {
+    pub spread: &'a Spread,
+    pub factor: Ratio,
+}
+
+impl<'a> Spreader<'a> {
+    pub fn speed(&self) -> Velocity {
+        self.spread.speed_max * self.factor
+    }
+    pub fn byrams(&self) -> LinearPowerDensity {
+        self.spread.byrams_max() * self.factor
+    }
+    pub fn flame(&self) -> Length {
+        Length::new::<foot>(flame_length(self.byrams().get::<btu_foot_sec>()))
     }
 }
 
@@ -440,7 +432,6 @@ impl Combustion {
             let speed0 = self.speed0(terrain, rx_int);
             let (phi_eff_wind, eff_wind, speed_max, azimuth_max) =
                 self.calculate_wind_dependent_vars(terrain, speed0, rx_int);
-            let byrams_max = self.byrams_max(speed_max, rx_int);
             Spread {
                 rx_int: HeatFluxDensity::new::<btu_sq_foot_min>(rx_int),
                 speed0: Velocity::new::<foot_per_minute>(speed0),
@@ -449,8 +440,7 @@ impl Combustion {
                 speed_max: Velocity::new::<foot_per_minute>(speed_max),
                 azimuth_max: Angle::new::<radian>(azimuth_max),
                 eccentricity: Ratio::new::<ratio>(Combustion::eccentricity(eff_wind)),
-                byrams_max: LinearPowerDensity::new::<btu_foot_sec>(byrams_max),
-                flame_max: Length::new::<foot>(flame_length(byrams_max)),
+                residence_time: Time::new::<minute>(self.residence_time),
             }
         }
     }
@@ -572,9 +562,6 @@ impl Combustion {
         } else {
             0.0
         }
-    }
-    fn byrams_max(&self, speed_max: f64, rx_int: f64) -> f64 {
-        self.residence_time * speed_max * rx_int / 60.0
     }
     fn life_moisture(&self, life: Life, terrain: &Terrain) -> f64 {
         self.fuel
@@ -701,7 +688,7 @@ mod tests {
         match STANDARD_CATALOG.get(model) {
             Some(fuel) => {
                 let spread = fuel.spread(terrain);
-                let spread_az = spread.at_azimuth(azimuth);
+                let spread_az = SpreadAtAzimuth::from_spreader(&spread.at_azimuth(azimuth));
                 (spread, spread_az)
             }
             None => (Spread::no_spread(), SpreadAtAzimuth::no_spread()),
@@ -749,8 +736,7 @@ mod tests {
                 speed_max: Velocity::new::<foot_per_minute>(f.spreadMax),
                 azimuth_max: Angle::new::<degree>(f.azimuthMax),
                 eccentricity: Ratio::new::<ratio>(f.eccentricity),
-                byrams_max: LinearPowerDensity::new::<btu_foot_sec>(f.byrams),
-                flame_max: Length::new::<foot>(f.flame),
+                residence_time: Time::new::<minute>(f.taur),
             };
             Fire_SpreadAtAzimuth(
                 catalog,
@@ -806,6 +792,47 @@ mod tests {
         fn arbitrary(g: &mut Gen) -> Self {
             let models = &(0..13).collect::<Vec<_>>()[..];
             Self(*g.choose(models).unwrap())
+        }
+    }
+    #[derive(Debug)]
+    struct SpreadAtAzimuth {
+        speed: Velocity,
+        byrams: LinearPowerDensity,
+        flame: Length,
+    }
+
+    impl SpreadAtAzimuth {
+        fn from_spreader(s: &Spreader) -> Self {
+            SpreadAtAzimuth {
+                flame: s.flame(),
+                speed: s.speed(),
+                byrams: s.byrams(),
+            }
+        }
+        fn no_spread() -> SpreadAtAzimuth {
+            SpreadAtAzimuth {
+                speed: Velocity::new::<foot_per_minute>(0.0),
+                byrams: LinearPowerDensity::new::<btu_foot_sec>(0.0),
+                flame: Length::new::<foot>(0.0),
+            }
+        }
+        fn almost_eq(&self, other: &Self) -> bool {
+            fn cmp(msg: &str, a: f64, b: f64) -> bool {
+                let r = (a - b).abs() < SMIDGEN;
+                if !r {
+                    println!("{}: {} /= {}", msg, a, b);
+                }
+                r
+            }
+            cmp(
+                "speed",
+                self.speed.get::<foot_per_minute>(),
+                other.speed.get::<foot_per_minute>(),
+            ) && cmp(
+                "byrams",
+                self.byrams.get::<btu_foot_sec>(),
+                other.byrams.get::<btu_foot_sec>(),
+            ) && cmp("flame", self.flame.get::<foot>(), other.flame.get::<foot>())
         }
     }
 }

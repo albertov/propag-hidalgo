@@ -9,3 +9,4 @@ bundle
 propag.docker
 .env
 refs
+.pre-commit-config.yaml

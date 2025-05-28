@@ -69,19 +69,23 @@
               nativeBuildInputs = with pkgs; [
                 fpm
                 binutils
+                rsync
               ];
             }
             ''
-              mkdir -p ./bin
-              cp -r ${pkg}/bin/* ./bin/
-              chmod -R a+rwx ./bin
+              mkdir -p tmp
+              rsync -a ${pkg}/ tmp/
+              chmod -R u+rwx tmp/
+              pushd tmp
+              ${drv.ubuntuPrePackage or ""}
               fpm -s dir -t deb \
                 --name ${drv.pname} \
                 -v ${drv.version or "0.1"} \
                 ${depends} \
-                bin
+                ./
+              popd
               mkdir -p $out
-              cp -r *.deb $out
+              cp -r tmp/*.deb $out
             '';
         toDockerImage =
           { ... }@drv:
@@ -133,6 +137,7 @@
           packages = {
             default = self'.packages.propag;
             propag = pkgs.propag;
+            py-propag = pkgs.py-propag;
           };
           apps.make_deb = flake-utils.lib.mkApp {
             drv = pkgs.writeShellApplication {

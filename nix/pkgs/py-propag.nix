@@ -28,4 +28,15 @@ buildWorkspacePythonPackage {
     ncurses # nvmm backend needs it
     which
   ];
+  passthru = {
+    ubuntuDeps = [
+      "libcudart12"
+      "libgdal34t64"
+      "python3"
+    ];
+    ubuntuPrePackage = ''
+      mkdir -p usr/lib/python3/dist-packages/
+      mv lib/python3.12/site-packages/* usr/lib/python3/dist-packages/
+    '';
+  };
 }

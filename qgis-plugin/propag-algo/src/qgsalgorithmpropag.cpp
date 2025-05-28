@@ -119,15 +119,18 @@ QVariantMap QgsPropagAlgorithm::processAlgorithm( const QVariantMap &parameters,
     throw QgsProcessingException( QObject::tr( "Invalid IGNITED_ELEMENT_TIME_FIELD" ) );
   }
 
+  std::cout << "lolol" << std::endl;
+
   GeoReference geo_ref;
-  long epsg = ignitedElements->sourceCrs().srsid();
-  if (!GeoReference_south_up(extent.xMinimum(), extent.yMinimum(), extent.xMaximum(), extent.yMaximum(), xSize, ySize, epsg, &geo_ref)) {
+  QString proj = ignitedElements->sourceCrs().toProj();
+  QByteArray proj_ba = proj.toUtf8();
+  if (!GeoReference_south_up(extent.xMinimum(), extent.yMinimum(), extent.xMaximum(), extent.yMaximum(), xSize, ySize, proj_ba.data(), &geo_ref)) {
     throw QgsProcessingException( QObject::tr( "Could not create a valid GeoReference with given CELL_SIZE_? and EXTENT" ) );
   }
 
   Settings settings(geo_ref, max_time, find_ref_change);
 
-  QByteArray outputFile_ba = outputFile.toLocal8Bit();
+  QByteArray outputFile_ba = outputFile.toUtf8();
   const char *output_path = outputFile_ba.data();
 
   QgsPropagLoader loader;
@@ -143,10 +146,10 @@ QVariantMap QgsPropagAlgorithm::processAlgorithm( const QVariantMap &parameters,
   }
   while ( it.nextFeature( feature ) ) {
     QgsGeometry geom = feature.geometry();
-    QByteArray wkb = geom.asWkb();
-    wkbs.push_back(wkb);
+    wkbs.push_back(geom.asWkb());
+    QByteArray const *wkb = &wkbs[wkbs.size()-1];
     QVariant timeValue = feature.attribute( timeIdx );
-    FFITimeFeature time_feature(timeValue.toDouble()*60.0, (const uint8_t*)wkb.constData(), wkb.size());
+    FFITimeFeature time_feature(timeValue.toDouble()*60.0, (const uint8_t*)wkb->data(), wkb->size());
     features.push_back(time_feature);
   };
 

@@ -5,7 +5,6 @@ use core::ffi::c_char;
 use gdal::errors::GdalError::CplError;
 use gdal::raster::Buffer;
 use gdal::raster::RasterCreationOptions;
-use gdal::spatial_ref::SpatialRef;
 use gdal::DriverManager;
 use gdal_sys::CPLErr::CE_None;
 use gdal_sys::OGRGeometryH;
@@ -109,6 +108,7 @@ impl From<FireSimpleCudaRef<'_>> for FireSimple {
     }
 }
 
+#[cfg_attr(not(target_os = "cuda"), derive(Debug))]
 pub struct TimeFeature {
     time: float::T,
     geom: gdal::vector::Geometry,
@@ -141,13 +141,19 @@ pub struct FFIPropagation {
 
 impl From<FFIPropagation> for Propagation {
     fn from(p: FFIPropagation) -> Self {
-        let is = unsafe {
-            std::slice::from_raw_parts(p.initial_ignited_elements, p.initial_ignited_elements_len)
+        let initial_ignited_elements = if p.initial_ignited_elements_len > 0 {
+            let is = unsafe {
+                std::slice::from_raw_parts(
+                    p.initial_ignited_elements,
+                    p.initial_ignited_elements_len,
+                )
+            };
+            is.iter()
+                .filter_map(|x| TimeFeature::try_from(x).ok())
+                .collect()
+        } else {
+            Vec::new()
         };
-        let initial_ignited_elements = is
-            .iter()
-            .filter_map(|x| TimeFeature::try_from(x).ok())
-            .collect();
         let output_path = unsafe { CStr::from_ptr(p.output_path) };
         let output_path = String::from_utf8_lossy(output_path.to_bytes()).to_string();
         Propagation {
@@ -162,7 +168,6 @@ impl From<FFIPropagation> for Propagation {
 #[unsafe(no_mangle)]
 pub extern "C" fn FFIPropagation_run(propag: FFIPropagation) {
     let propag: Propagation = propag.into();
-    println!("settings={:?}", propag.settings);
     let geo_ref = propag.settings.geo_ref;
     if let Ok(times) = rasterize_times(&propag.initial_ignited_elements, &geo_ref) {
         let _ = write_times(times, &geo_ref, propag.output_path);
@@ -184,7 +189,7 @@ fn write_times(
         1,
         &options,
     )?;
-    let srs = SpatialRef::from_epsg(geo_ref.epsg)?;
+    let srs = crate::loader::to_spatial_ref(&geo_ref.proj)?;
     ds.set_spatial_ref(&srs)?;
     ds.set_geo_transform(&geo_ref.transform.as_array_64())?;
     let mut band = ds.rasterband(1)?;
@@ -249,13 +254,14 @@ pub fn rasterize_times(
     geo_ref: &GeoReference,
 ) -> gdal::errors::Result<Vec<f32>> {
     let d = DriverManager::get_driver_by_name("MEM")?;
-    let mut ds = d.create("in-memory", geo_ref.width as _, geo_ref.height as _, 1)?;
-    ds.set_spatial_ref(&SpatialRef::from_epsg(geo_ref.epsg)?)?;
+    let mut ds =
+        d.create_with_band_type::<f32, _>("in-memory", geo_ref.width as _, geo_ref.height as _, 1)?;
+    ds.set_spatial_ref(&crate::loader::to_spatial_ref(&geo_ref.proj)?)?;
     ds.set_geo_transform(&geo_ref.transform.as_array_64())?;
     let mut b = ds.rasterband(1)?;
     let no_data: f32 = Max::MAX;
-    b.set_no_data_value(Some(no_data as f64))?;
     b.fill(no_data as f64, None)?;
+    b.set_no_data_value(Some(no_data as f64))?;
     let time_values: Vec<f64> = times.iter().map(|f| f.time as f64).collect();
     let ret = unsafe {
         let geoms: Vec<OGRGeometryH> = times.iter().map(|f| f.geom.c_geometry()).collect();

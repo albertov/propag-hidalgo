@@ -5,10 +5,10 @@ use cust::function::{BlockSize, GridSize};
 use cust::prelude::*;
 use firelib::float;
 use gdal::raster::*;
-use gdal::spatial_ref::SpatialRef;
 use gdal::vector::*;
 use gdal::*;
 use min_max_traits::Max;
+use propag::loader;
 use propag::propag::{Settings, HALO_RADIUS};
 use std::error::Error;
 
@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             },
         ),
         px,
-        25830,
+        "+proj=utm +zone=30 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs +type=crs",
     )
     .unwrap();
     let settings = Settings {
@@ -271,7 +271,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         1,
         &options,
     )?;
-    let srs = SpatialRef::from_epsg(geo_ref.epsg)?;
+    let srs = loader::to_spatial_ref(&geo_ref.proj)?;
     ds.set_spatial_ref(&srs)?;
     ds.set_geo_transform(&geo_ref.transform.as_array_64())?;
     let mut band = ds.rasterband(1)?;

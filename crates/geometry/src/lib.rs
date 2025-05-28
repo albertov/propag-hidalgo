@@ -1,15 +1,17 @@
 #![no_std]
 
 #[cfg(test)]
+#[cfg(not(target_os = "cuda"))]
 extern crate std;
 
 use approx::abs_diff_ne;
 
 pub use approx::AbsDiffEq;
 
+use core::ffi::c_char;
+use core::ffi::CStr;
 pub use glam::*;
 pub use num_traits::NumCast;
-
 #[cfg(target_os = "cuda")]
 extern crate cuda_std;
 
@@ -151,7 +153,7 @@ impl GeoTransform {
 pub struct GeoReference {
     pub width: u32,
     pub height: u32,
-    pub epsg: u32,
+    pub proj: [u8; 1024],
     pub transform: GeoTransform,
 }
 
@@ -168,30 +170,42 @@ impl GeoReference {
     pub fn backward(&self, p: USizeVec2) -> Vec2 {
         self.transform.backward(p)
     }
-    pub fn south_up(bbox: (Vec2, Vec2), pixel_size: Vec2, epsg: u32) -> Option<GeoReference> {
+    pub fn south_up(bbox: (Vec2, Vec2), pixel_size: Vec2, proj: &str) -> Option<GeoReference> {
         let Vec2 { x: dx, y: dy } = pixel_size;
         let (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }) = bbox;
         let transform = GeoTransform::new([x0, dx, 0.0, y0, 0.0, dy])?;
         let width = NumCast::from(((x1 - x0) / dx).ceil())?;
         let height = NumCast::from(((y1 - y0) / dy).ceil())?;
+        let mut proj_buf: [u8; 1024] = [0; 1024];
+        (0..proj.len())
+            .zip(proj.as_bytes().iter())
+            .for_each(|(i, c)| {
+                proj_buf[i] = *c;
+            });
         Some(GeoReference {
             transform,
             width,
             height,
-            epsg,
+            proj: proj_buf,
         })
     }
-    pub fn north_up(bbox: (Vec2, Vec2), pixel_size: Vec2, epsg: u32) -> Option<GeoReference> {
+    pub fn north_up(bbox: (Vec2, Vec2), pixel_size: Vec2, proj: &str) -> Option<GeoReference> {
         let Vec2 { x: dx, y: dy } = pixel_size;
         let (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }) = bbox;
         let transform = GeoTransform::new([x0, dx, 0.0, y1, 0.0, -dy])?;
         let width = NumCast::from(((x1 - x0) / dx).ceil())?;
         let height = NumCast::from(((y1 - y0) / dy).ceil())?;
+        let mut proj_buf: [u8; 1024] = [0; 1024];
+        (0..proj.len())
+            .zip(proj.as_bytes().iter())
+            .for_each(|(i, c)| {
+                proj_buf[i] = *c;
+            });
         Some(GeoReference {
             transform,
             width,
             height,
-            epsg,
+            proj: proj_buf,
         })
     }
     #[unsafe(no_mangle)]
@@ -203,19 +217,23 @@ impl GeoReference {
         y1: f32,
         dx: f32,
         dy: f32,
-        epsg: u32,
+        proj: *const c_char,
         result: &mut GeoReference,
     ) -> bool {
-        match Self::south_up(
-            (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }),
-            Vec2 { x: dx, y: dy },
-            epsg,
-        ) {
-            Some(x) => {
-                *result = x;
-                true
+        if let Some(proj) = unsafe { CStr::from_ptr(proj).to_str().ok() } {
+            match Self::south_up(
+                (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }),
+                Vec2 { x: dx, y: dy },
+                proj,
+            ) {
+                Some(x) => {
+                    *result = x;
+                    true
+                }
+                None => false,
             }
-            None => false,
+        } else {
+            false
         }
     }
     #[unsafe(no_mangle)]
@@ -227,19 +245,23 @@ impl GeoReference {
         y1: f32,
         dx: f32,
         dy: f32,
-        epsg: u32,
+        proj: *const c_char,
         result: &mut GeoReference,
     ) -> bool {
-        match Self::north_up(
-            (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }),
-            Vec2 { x: dx, y: dy },
-            epsg,
-        ) {
-            Some(x) => {
-                *result = x;
-                true
+        if let Some(proj) = unsafe { CStr::from_ptr(proj).to_str().ok() } {
+            match Self::north_up(
+                (Vec2 { x: x0, y: y0 }, Vec2 { x: x1, y: y1 }),
+                Vec2 { x: dx, y: dy },
+                proj,
+            ) {
+                Some(x) => {
+                    *result = x;
+                    true
+                }
+                None => false,
             }
-            None => false,
+        } else {
+            false
         }
     }
     pub fn bbox(&self) -> (Vec2, Vec2) {

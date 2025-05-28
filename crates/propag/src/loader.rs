@@ -16,7 +16,7 @@ impl WarpedDataset {
     }
 
     pub fn new(src: Dataset, dt: GdalDataType, geo_ref: GeoReference) -> Result<Self> {
-        let spatial_ref = to_spatial_ref(geo_ref.epsg)?;
+        let spatial_ref = to_spatial_ref(&geo_ref.proj)?;
         let dst_gt = geo_ref.transform.as_array_64();
         unsafe {
             let trans = GDALCreateGenImgProjTransformer3(
@@ -54,8 +54,15 @@ impl WarpedDataset {
     }
 }
 
-fn to_spatial_ref(epsg: u32) -> Result<SpatialRef> {
-    SpatialRef::from_epsg(epsg)
+pub fn to_spatial_ref<const N: usize>(proj: &[u8; N]) -> Result<SpatialRef> {
+    let ix = proj.iter().position(|x| *x == 0).unwrap_or(0);
+    if let Some(proj) = str::from_utf8(&proj[0..ix]).ok() {
+        println!("proj={}", proj);
+        SpatialRef::from_proj4(proj)
+    } else {
+        // hack
+        SpatialRef::from_proj4("")
+    }
 }
 
 #[cfg(test)]
@@ -79,12 +86,12 @@ mod tests {
                     Vec2 { x: 180.0, y: 90.0 },
                 ),
                 Vec2 { x: 0.1, y: 0.1 },
-                4326,
+                "+proj=longlat +datum=WGS84 +no_defs +type=crs",
             )
             .unwrap();
             let d = DriverManager::get_driver_by_name("MEM")?;
             let mut ds = d.create("in-memory", geo_ref.width as _, geo_ref.height as _, 3)?;
-            ds.set_spatial_ref(&to_spatial_ref(geo_ref.epsg.clone())?)?;
+            ds.set_spatial_ref(&to_spatial_ref(&geo_ref.proj)?)?;
             ds.set_geo_transform(&geo_ref.transform.as_array_64())?;
             assert_eq!(ds.raster_count(), 3);
             assert_eq!(ds.raster_size(), (3600, 1800));
@@ -99,7 +106,7 @@ mod tests {
             let ext = (Vec2 { x: 4.8e5, y: 4.6e6 }, Vec2 { x: 5.2e5, y: 4.7e6 });
 
             let px_size = Vec2 { x: 50.0, y: 500.0 };
-            let epsg = 25830;
+            let epsg = "+proj=utm +zone=30 +ellps=GRS80 +units=m +no_defs";
             let geo_ref = GeoReference::south_up(ext, px_size, epsg).unwrap();
             let wrapped = WarpedDataset::new(ds, <f64>::datatype(), geo_ref)?;
             let ds2 = wrapped.get();

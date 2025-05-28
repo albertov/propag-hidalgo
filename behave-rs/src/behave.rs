@@ -3,6 +3,8 @@ use crate::units::heat_flux_density::btu_sq_foot_min;
 use crate::units::linear_power_density::btu_foot_sec;
 use crate::units::radiant_exposure::btu_sq_foot;
 use crate::units::reciprocal_length::reciprocal_foot;
+use uom::si::reciprocal_length::reciprocal_meter;
+use uom::si::inverse_velocity::second_per_meter;
 use uom::si::angle::degree;
 use uom::si::available_energy::btu_per_pound;
 use uom::si::f64::*;
@@ -84,13 +86,12 @@ impl Particle {
         if self.density.get::<pound_per_cubic_foot>() > SMIDGEN {
             self.load * self.savr / self.density
         } else {
-            //Area::new::<square_foot>(0.0)
             Ratio::new::<ratio>(0.0)
         }
     }
 
     pub fn sigma_factor(&self) -> Ratio {
-        (ReciprocalLength::new::<reciprocal_foot>(-138.0) / self.savr).exp()
+        (ReciprocalLength::new::<reciprocal_meter>(-138.0) / self.savr).exp()
     }
 
     pub fn size_class(&self) -> SizeClass {
@@ -154,7 +155,7 @@ impl Fuel {
         match life {
             Life::Alive => self
                 .life_particles(life)
-                .map(|p| p.load * (ReciprocalLength::new::<reciprocal_foot>(-500.0) / p.savr).exp())
+                .map(|p| p.load * (ReciprocalLength::new::<reciprocal_meter>(-500.0) / p.savr).exp())
                 .sum(),
             Life::Dead => self
                 .life_particles(life)
@@ -202,12 +203,12 @@ impl Fuel {
             + self.life_area_weight(Life::Dead) * self.life_savr(Life::Dead)
     }
     fn ratio(&self) -> f64 {
-        let sigma = self.sigma().get::<reciprocal_foot>();
+        let sigma = self.sigma().get::<reciprocal_meter>();
         let beta = self.beta().get::<ratio>();
         beta / (3.348 / (sigma.powf(0.8189)))
     }
     fn flux_ratio(&self) -> Ratio {
-        let sigma = self.sigma().get::<reciprocal_foot>();
+        let sigma = self.sigma().get::<reciprocal_meter>();
         let beta = self.beta().get::<ratio>();
         Ratio::new::<ratio>(
             ((0.792 + 0.681 * sigma.sqrt()) * (beta.sqrt() + 0.1)).exp() / (192.0 + 0.2595 * sigma),
@@ -222,7 +223,7 @@ impl Fuel {
         }
     }
     fn gamma(&self) -> Ratio {
-        let sigma = self.sigma().get::<reciprocal_foot>();
+        let sigma = self.sigma().get::<reciprocal_meter>();
         let sigma15 = sigma.powf(1.5);
         let gamma_max = sigma15 / (495.0 + 0.0594 * sigma15);
         let aa = 133.0 / sigma.powf(0.7913);
@@ -263,7 +264,7 @@ impl Fuel {
     }
 
     fn residence_time(&self) -> Time {
-        InverseVelocity::new::<minute_per_foot>(384.0) / self.sigma()
+        InverseVelocity::new::<second_per_meter>(384.0) / self.sigma()
     }
 
     fn slope_k(&self) -> f64 {
@@ -272,7 +273,7 @@ impl Fuel {
     }
 
     fn wind_bke(&self) -> (f64, f64, f64) {
-        let sigma = self.sigma().get::<reciprocal_foot>();
+        let sigma = self.sigma().get::<reciprocal_meter>();
         let wind_b = 0.02526 * sigma.powf(0.54);
         let r = self.ratio();
         let c = 7.47 * ((-0.133) * (sigma.powf(0.55))).exp();
@@ -473,9 +474,7 @@ mod tests {
 
     fn almost_eq(a: f64, b: f64) -> bool {
         let r = (a - b).abs() < SMIDGEN;
-        if !r {
-            println!("{:?} /= {:?}", a, b);
-        }
+        println!("{:?} = {:?}", a, b);
         r
     }
 

@@ -129,7 +129,8 @@ load_point(const GeoReference &geo_ref, uint2 pos, size_t idx,
 }
 
 #define LOAD(LOCAL_X, LOCAL_Y, GLOBAL_X, GLOBAL_Y)                             \
-  if ((GLOBAL_X >= 0) && (GLOBAL_X) < (int)width && (GLOBAL_Y >= 0) && (GLOBAL_Y) < (int)height) {                             \
+  if ((GLOBAL_X >= 0) && (GLOBAL_X) < (int)width && (GLOBAL_Y >= 0) &&         \
+      (GLOBAL_Y) < (int)height) {                                              \
     shared[(LOCAL_X) + (LOCAL_Y) * shared_width] =                             \
         load_point(settings.geo_ref, make_uint2(GLOBAL_X, GLOBAL_Y),           \
                    (GLOBAL_X) + (GLOBAL_Y) * width, speed_max, azimuth_max,    \
@@ -201,6 +202,5 @@ __device__ inline float time_to(const GeoReference &geo_ref,
     return MAX_TIME;
   }
 }
-
 
 #endif

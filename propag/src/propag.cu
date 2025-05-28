@@ -27,7 +27,7 @@ class ALIGN Propagator {
   unsigned volatile *progress_;
   unsigned *worked_;
 
-  Point volatile *shared_;
+  __shared__ Point *shared_;
   bool volatile *grid_improved_;
 
 public:
@@ -37,7 +37,7 @@ public:
              const float *azimuth_max, const float *eccentricity,
              float volatile *time, unsigned short volatile *refs_x,
              unsigned short volatile *refs_y, unsigned volatile *progress,
-             Point volatile *shared, bool volatile *grid_improved)
+             __shared__ Point *shared, bool volatile *grid_improved)
       : settings_(settings), gridIx_(make_uint2(grid_x, grid_y)),
         idx_2d_(index_2d(gridIx_)),
         global_ix_(idx_2d_.x + idx_2d_.y * settings_.geo_ref.width),
@@ -56,37 +56,37 @@ public:
 
   __device__ void run() {};
 
-//private:
+  // private:
   __device__ inline void load_points_into_shared_memory(bool first_iteration) {
-      if (in_bounds_) {
-        // Load the central block data
-        if (first_iteration) {
-          load_point_at_offset(make_int2(0, 0));
-        }
-
-        // Load the halo regions
-        bool x_near_x0 = threadIdx.x < HALO_RADIUS;
-        bool y_near_y0 = threadIdx.y < HALO_RADIUS;
-        if (y_near_y0) {
-          // Top halo
-          load_point_at_offset(make_int2(0, -HALO_RADIUS));
-          // Bottom halo
-          load_point_at_offset(make_int2(0, blockDim.y));
-        }
-        if (x_near_x0) {
-          // Left halo
-          load_point_at_offset(make_int2(-HALO_RADIUS, 0));
-          // Right halo
-          load_point_at_offset(make_int2(blockDim.x, 0));
-        }
-        if (x_near_x0 && y_near_y0) {
-          // corners
-          load_point_at_offset(make_int2(-HALO_RADIUS, -HALO_RADIUS));
-          load_point_at_offset(make_int2(blockDim.x, -HALO_RADIUS));
-          load_point_at_offset(make_int2(blockDim.x, blockDim.y));
-          load_point_at_offset(make_int2(-HALO_RADIUS, blockDim.y));
-        }
+    if (in_bounds_) {
+      // Load the central block data
+      if (first_iteration) {
+        load_point_at_offset(make_int2(0, 0));
       }
+
+      // Load the halo regions
+      bool x_near_x0 = threadIdx.x < HALO_RADIUS;
+      bool y_near_y0 = threadIdx.y < HALO_RADIUS;
+      if (y_near_y0) {
+        // Top halo
+        load_point_at_offset(make_int2(0, -HALO_RADIUS));
+        // Bottom halo
+        load_point_at_offset(make_int2(0, blockDim.y));
+      }
+      if (x_near_x0) {
+        // Left halo
+        load_point_at_offset(make_int2(-HALO_RADIUS, 0));
+        // Right halo
+        load_point_at_offset(make_int2(blockDim.x, 0));
+      }
+      if (x_near_x0 && y_near_y0) {
+        // corners
+        load_point_at_offset(make_int2(-HALO_RADIUS, -HALO_RADIUS));
+        load_point_at_offset(make_int2(blockDim.x, -HALO_RADIUS));
+        load_point_at_offset(make_int2(blockDim.x, blockDim.y));
+        load_point_at_offset(make_int2(-HALO_RADIUS, blockDim.y));
+      }
+    }
   }
 
   __device__ inline void load_point_at_offset(const int2 offset) {
@@ -103,9 +103,116 @@ public:
     }
   }
 
+  __device__ inline void find_neighbor_with_least_access_time(Point *result) {
+    ////////////////////////////////////////////////////////////////////////
+    // Begin neighbor analysys
+    ////////////////////////////////////////////////////////////////////////
+    Point me = shared_[local_ix_];
+    FireSimpleCuda fire = me.fire;
+    bool is_new = !(me.time < MAX_TIME);
 
+    Point best = Point_NULL;
 
-  __device__ inline bool find_neighbor_with_least_access_time(Point *result) {
+    if (in_bounds_ && is_new) {
+#pragma unroll
+      for (int j = -1; j < 2; j++) {
+#pragma unroll
+        for (int i = -1; i < 2; i++) {
+          // Skip self and out-of-bounds neighbors
+          if (i == 0 && j == 0)
+            continue;
+
+          int2 neighbor_pos = make_int2((int)idx_2d_.x + i, (int)idx_2d_.y + j);
+          if (!(neighbor_pos.x >= 0 && neighbor_pos.y >= 0 &&
+                neighbor_pos.x < settings_.geo_ref.width &&
+                neighbor_pos.y < settings_.geo_ref.height))
+            continue;
+
+          // Good neighbor
+          Point neighbor_point =
+              shared_[(local_x_ + i) + (local_y_ + j) * shared_width_];
+
+          if (!(neighbor_point.time < MAX_TIME &&
+                !is_fire_null(neighbor_point.fire))) {
+            // not burning, skip it
+            continue;
+          };
+
+          PointRef reference = neighbor_point.reference;
+          ASSERT((reference.time < MAX_TIME && reference.pos.x != USHRT_MAX &&
+                  reference.pos.y != USHRT_MAX));
+          ASSERT(
+              !(reference.pos.x == idx_2d_.x && reference.pos.y == idx_2d_.y));
+          ASSERT(!is_fire_null(reference.fire));
+
+          // Check if neighbor's reference is usable
+          /*
+          int2 dir = neighbor_direction(
+              idx_2d, make_uint2(reference.pos.x, reference.pos.y));
+          if ((int)idx_2d.x + dir.x >= 0 && (int)idx_2d.x + dir.x < width &&
+              (int)idx_2d.y + dir.y >= 0 && (int)idx_2d.y + dir.y < height) {
+            Point possible_blockage =
+                shared[(local_x + dir.x) + (local_y + dir.y) * shared_width];
+            if (is_point_null(possible_blockage)) {
+              // If we haven't analyzed the blockage point yet then we can't
+              // use the reference in this iteration
+              // printf("cant analyze %d %d\n", global_x+dir.x, global_y +
+              // dir.y);
+              reference = PointRef_NULL;
+            } else {
+              if (!similar_fires_(possible_blockage.fire, reference.fire)) {
+                reference = PointRef_NULL;
+              };
+            };
+          };
+          */
+
+          // Look for a new candidate for best time
+          Point candidate = Point_NULL;
+          if (!is_fire_null(fire) && reference.time < MAX_TIME) {
+            // We are combustible
+            if (!similar_fires_(fire, reference.fire)) {
+              assert(false); // FIXME
+              // we can't reuse reference because fire is different to ours.
+              // Try to use neighbor as reference
+              PointRef r = PointRef(neighbor_point.time, neighbor_pos,
+                                    neighbor_point.fire);
+              if (!is_fire_null(r.fire) && similar_fires_(fire, r.fire)) {
+                reference = r;
+              } else {
+                reference = PointRef_NULL;
+              };
+            };
+            if (reference.time < MAX_TIME && !is_fire_null(reference.fire)) {
+              float t = time_to(settings_.geo_ref, reference, idx_2d_);
+              if (t < settings_.max_time) {
+                ASSERT(!(reference.pos.x == USHRT_MAX ||
+                         reference.pos.y == USHRT_MAX));
+                candidate.time = t;
+                candidate.fire = fire;
+                candidate.reference = reference;
+              }
+            };
+          } else if (reference.time < MAX_TIME) {
+            assert(false); // FIXME
+            // We are not combustible but reference can be used.
+            // We assign an access time but a None fire
+            float t = time_to(settings_.geo_ref, reference, idx_2d_);
+            if (t < settings_.max_time) {
+              candidate.time = t;
+              candidate.fire = FireSimpleCuda_NULL;
+              candidate.reference = reference;
+            }
+          }
+
+          // If no candidate or candidate improves use it as best
+          if (candidate.time < best.time) {
+            best = candidate;
+          }
+        };
+      };
+    };
+    *result = best;
   }
 };
 
@@ -167,110 +274,8 @@ __global__ void propag(const Settings &settings, unsigned grid_x,
       ////////////////////////////////////////////////////////////////////////
       // Begin neighbor analysys
       ////////////////////////////////////////////////////////////////////////
-      Point me = shared[local_ix];
-      FireSimpleCuda fire = me.fire;
-      bool is_new = !(me.time < MAX_TIME);
-
-      Point best = Point_NULL;
-
-      if (in_bounds && is_new) {
-#pragma unroll
-        for (int j = -1; j < 2; j++) {
-#pragma unroll
-          for (int i = -1; i < 2; i++) {
-            // Skip self and out-of-bounds neighbors
-            if (i == 0 && j == 0)
-              continue;
-
-            int2 neighbor_pos = make_int2((int)idx_2d.x + i, (int)idx_2d.y + j);
-            if (!(neighbor_pos.x >= 0 && neighbor_pos.y >= 0 &&
-                  neighbor_pos.x < width && neighbor_pos.y < height))
-              continue;
-
-            // Good neighbor
-            Point neighbor_point =
-                shared[(local_x + i) + (local_y + j) * shared_width];
-
-            if (!(neighbor_point.time < MAX_TIME &&
-                  !is_fire_null(neighbor_point.fire))) {
-              // not burning, skip it
-              continue;
-            };
-
-            PointRef reference = neighbor_point.reference;
-            ASSERT((reference.time < MAX_TIME && reference.pos.x != USHRT_MAX &&
-                    reference.pos.y != USHRT_MAX));
-            ASSERT(
-                !(reference.pos.x == idx_2d.x && reference.pos.y == idx_2d.y));
-            ASSERT(!is_fire_null(reference.fire));
-
-            // Check if neighbor's reference is usable
-            /*
-            int2 dir = neighbor_direction(
-                idx_2d, make_uint2(reference.pos.x, reference.pos.y));
-            if ((int)idx_2d.x + dir.x >= 0 && (int)idx_2d.x + dir.x < width &&
-                (int)idx_2d.y + dir.y >= 0 && (int)idx_2d.y + dir.y < height) {
-              Point possible_blockage =
-                  shared[(local_x + dir.x) + (local_y + dir.y) * shared_width];
-              if (is_point_null(possible_blockage)) {
-                // If we haven't analyzed the blockage point yet then we can't
-                // use the reference in this iteration
-                // printf("cant analyze %d %d\n", global_x+dir.x, global_y +
-                // dir.y);
-                reference = PointRef_NULL;
-              } else {
-                if (!similar_fires_(possible_blockage.fire, reference.fire)) {
-                  reference = PointRef_NULL;
-                };
-              };
-            };
-            */
-
-            // Look for a new candidate for best time
-            Point candidate = Point_NULL;
-            if (!is_fire_null(fire) && reference.time < MAX_TIME) {
-              // We are combustible
-              if (!similar_fires_(fire, reference.fire)) {
-                assert(false); // FIXME
-                // we can't reuse reference because fire is different to ours.
-                // Try to use neighbor as reference
-                PointRef r = PointRef(neighbor_point.time, neighbor_pos,
-                                      neighbor_point.fire);
-                if (!is_fire_null(r.fire) && similar_fires_(fire, r.fire)) {
-                  reference = r;
-                } else {
-                  reference = PointRef_NULL;
-                };
-              };
-              if (reference.time < MAX_TIME && !is_fire_null(reference.fire)) {
-                float t = time_to(settings.geo_ref, reference, idx_2d);
-                if (t < settings.max_time) {
-                  ASSERT(!(reference.pos.x == USHRT_MAX ||
-                           reference.pos.y == USHRT_MAX));
-                  candidate.time = t;
-                  candidate.fire = fire;
-                  candidate.reference = reference;
-                }
-              };
-            } else if (reference.time < MAX_TIME) {
-              assert(false); // FIXME
-              // We are not combustible but reference can be used.
-              // We assign an access time but a None fire
-              float t = time_to(settings.geo_ref, reference, idx_2d);
-              if (t < settings.max_time) {
-                candidate.time = t;
-                candidate.fire = FireSimpleCuda_NULL;
-                candidate.reference = reference;
-              }
-            }
-
-            // If no candidate or candidate improves use it as best
-            if (candidate.time < best.time) {
-              best = candidate;
-            }
-          };
-        };
-      };
+      Point best;
+      sim.find_neighbor_with_least_access_time(&best);
 
       ///////////////////////////////////////////////////
       // End of neighbor analysys, save point if improves

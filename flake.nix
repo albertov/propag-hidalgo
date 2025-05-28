@@ -40,6 +40,24 @@
             program = nixpkgs.lib.getExe drv;
             inherit (drv) version;
           };
+        toDockerImage =
+          { ... }@drv:
+          let
+            pkgs = nixpkgs.legacyPackages.x86_64-linux;
+          in
+          pkgs.dockerTools.buildImage {
+            name = drv.pname or "image";
+            tag = drv.version;
+            fromImageName = "nvidia/cuda";
+            fromImageTag = "12.6.3-runtime-ubuntu24.04";
+            copyToRoot = pkgs.buildEnv {
+              name = "image-root";
+              paths = [ drv ];
+              #pathsToLink = [ "/bin" ];
+            };
+            config.EntryPoint = [ (pkgs.lib.getExe drv) ];
+            config.Env = [ "LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64" ];
+          };
       };
     }
     // flake-parts.lib.mkFlake { inherit inputs; } {
@@ -90,6 +108,18 @@
               runtimeInputs = [ pkgs.nix ];
               text = ''
                 nix bundle --bundler .#toDEB .# -o bundle
+                echo Produced DEB package at bundle/*
+              '';
+            };
+          };
+          apps.make_docker = flake-utils.lib.mkApp {
+            drv = pkgs.writeShellApplication {
+              name = "make_docker";
+              runtimeInputs = [ pkgs.nix ];
+              text = ''
+                nix bundle --bundler .#toDockerImage .# -o propag.docker
+                echo Produced Docker image at propag.docker
+                echo 'Load it with "docker load < propag.docker"'
               '';
             };
           };

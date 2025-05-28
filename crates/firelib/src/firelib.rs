@@ -108,6 +108,21 @@ pub struct TerrainCuda {
     pub aspect: float::T,
 }
 
+impl TerrainCuda {
+    pub const NULL: Self = Self {
+        fuel_code: 0,
+        d1hr: 0.0,
+        d10hr: 0.0,
+        d100hr: 0.0,
+        herb: 0.0,
+        wood: 0.0,
+        wind_speed: 0.0,
+        wind_azimuth: 0.0,
+        slope: 0.0,
+        aspect: 0.0,
+    };
+}
+
 #[macro_export]
 macro_rules! to_quantity {
     ($quant:ident, $val:expr) => {{

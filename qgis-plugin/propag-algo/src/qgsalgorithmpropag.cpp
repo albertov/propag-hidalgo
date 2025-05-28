@@ -45,6 +45,13 @@ void QgsPropagAlgorithm::initAlgorithm(const QVariantMap &) {
       QObject::tr("The name of the field of the ignited element feature that "
                   "holds the access time"),
       QVariant("time"), false, false));
+  addParameter(new QgsProcessingParameterFeatureSource(
+      QStringLiteral("FUEL"), QObject::tr("Fuel codes polygon layer")));
+  addParameter(new QgsProcessingParameterString(
+      QStringLiteral("FUEL_CODE_FIELD"),
+      QObject::tr("The name of the field of the fuel code feature that "
+                  "holds the fuel code"),
+      QVariant("code"), false, false));
   addParameter(new QgsProcessingParameterBoolean(
       QStringLiteral("GENERATE_REFS"),
       QObject::tr("Generate references vector layer"), false));
@@ -53,6 +60,8 @@ void QgsPropagAlgorithm::initAlgorithm(const QVariantMap &) {
       QObject::tr("Maximum simulation minutes"),
       Qgis::ProcessingNumberParameterType::Double, QVariant(5.0 * 60.0), false,
       1e-9));
+  addParameter(new QgsProcessingParameterExtent(
+      QStringLiteral("EXTENT"), QObject::tr("Extent"), QVariant(), false));
   addParameter(new QgsProcessingParameterCrs(
       QStringLiteral("CRS"),
       QObject::tr("Output Coordinate Reference System")));
@@ -62,8 +71,6 @@ void QgsPropagAlgorithm::initAlgorithm(const QVariantMap &) {
   addParameter(new QgsProcessingParameterNumber(
       QStringLiteral("CELL_SIZE_Y"), QObject::tr("Cell size Y"),
       Qgis::ProcessingNumberParameterType::Double, QVariant(5.0), false, 1e-9));
-  addParameter(new QgsProcessingParameterExtent(
-      QStringLiteral("EXTENT"), QObject::tr("Extent"), QVariant(), false));
   addParameter(new QgsProcessingParameterRasterDestination(
       QStringLiteral("TIMES"), QObject::tr("Access time output raster")));
 }
@@ -79,6 +86,27 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
       parameterAsSource(parameters, "IGNITED_ELEMENTS", context);
   if (!ignitedElements) {
     throw QgsProcessingException("Invalid source layer");
+  }
+  QString ignited_element_time_field;
+  if (parameters.value(QStringLiteral("IGNITED_ELEMENT_TIME_FIELD"))
+          .isValid()) {
+    ignited_element_time_field = parameterAsString(
+        parameters, QStringLiteral("IGNITED_ELEMENT_TIME_FIELD"), context);
+  } else {
+    throw QgsProcessingException(
+        QObject::tr("Invalid IGNITED_ELEMENT_TIME_FIELD"));
+  }
+
+  QgsFeatureSource *fuelCodes = parameterAsSource(parameters, "FUEL", context);
+  if (!fuelCodes) {
+    throw QgsProcessingException("Invalid fuel codes layer");
+  }
+  QString fuel_code_field;
+  if (parameters.value(QStringLiteral("FUEL_CODE_FIELD")).isValid()) {
+    fuel_code_field = parameterAsString(
+        parameters, QStringLiteral("FUEL_CODE_FIELD"), context);
+  } else {
+    throw QgsProcessingException(QObject::tr("Invalid FUEL_CODE_FIELD"));
   }
 
   const bool find_ref_change =
@@ -126,16 +154,6 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
         QObject::tr("MAX_SIMULATION_MINUTES must be > 0"));
   }
 
-  QString ignited_element_time_field;
-  if (parameters.value(QStringLiteral("IGNITED_ELEMENT_TIME_FIELD"))
-          .isValid()) {
-    ignited_element_time_field = parameterAsString(
-        parameters, QStringLiteral("IGNITED_ELEMENT_TIME_FIELD"), context);
-  } else {
-    throw QgsProcessingException(
-        QObject::tr("Invalid IGNITED_ELEMENT_TIME_FIELD"));
-  }
-
   QgsCoordinateReferenceSystem crs;
   if (parameters.value(QStringLiteral("CRS")).isValid()) {
     crs = parameterAsCrs(parameters, QStringLiteral("CRS"), context);
@@ -159,7 +177,7 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
   QByteArray outputFile_ba = outputFile.toUtf8();
   const char *output_path = outputFile_ba.data();
 
-  QgsPropagLoader loader;
+  QgsPropagLoader loader(fuelCodes, fuel_code_field);
   FFITerrainLoader terrain_loader(&load_terrain, &loader);
 
   std::vector<QByteArray> wkbs;
@@ -189,7 +207,7 @@ QgsPropagAlgorithm::processAlgorithm(const QVariantMap &parameters,
 
   char err_c[1024];
   memset(&err_c, 0, 1024);
-  if (!FFIPropagation_run(propagation, err_c)) {
+  if (!FFIPropagation_run(propagation, 1024, err_c)) {
     throw QgsProcessingException(err_c);
   }
 

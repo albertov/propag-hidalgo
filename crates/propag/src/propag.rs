@@ -5,6 +5,7 @@ use cust::error::CudaError;
 use cust::function::{BlockSize, GridSize};
 use cust::prelude::*;
 use firelib::float::*;
+use firelib::TerrainCuda;
 use firelib::{float, from_quantity, to_quantity, FireSimple, TerrainCudaVec};
 use gdal::errors::GdalError;
 use gdal::errors::GdalError::CplError;
@@ -191,6 +192,7 @@ impl TryFrom<FFIPropagation> for Propagation {
 pub enum PropagError {
     PropagGdalError(GdalError),
     PropagCudaError(CudaError),
+    PropagLoadExtentError,
 }
 
 impl fmt::Display for PropagError {
@@ -199,6 +201,7 @@ impl fmt::Display for PropagError {
         match self {
             PropagGdalError(err) => write!(f, "{}", err),
             PropagCudaError(err) => write!(f, "{}", err),
+            PropagLoadExtentError => write!(f, "load_extent_error"),
         }
     }
 }
@@ -222,7 +225,7 @@ pub unsafe extern "C" fn FFIPropagation_run(
             &geo_ref,
         )
         .map_err(PropagGdalError)?;
-        propagate(&propag, &mut time).map_err(PropagCudaError)?;
+        propagate(&propag, &mut time)?;
         write_times(time, &geo_ref, propag.output_path).map_err(PropagGdalError)
     })() {
         Ok(()) => true,
@@ -235,103 +238,95 @@ pub unsafe extern "C" fn FFIPropagation_run(
     }
 }
 
-fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<(), CudaError> {
+fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<(), PropagError> {
     let settings = propag.settings;
     let max_time = settings.max_time;
     let geo_ref = settings.geo_ref;
-    let len = geo_ref.len();
-    let model: Vec<u8> = (0..len).map(|_n| 1).collect();
-    let d1hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
-    let d10hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
-    let d100hr: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
-    let herb: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
-    let wood: Vec<float::T> = (0..len).map(|_n| 0.1).collect();
-    let wind_speed: Vec<float::T> = (0..len).map(|_n| 5.0).collect();
-    let wind_azimuth: Vec<float::T> = (0..len).map(|_n| 0.0).collect();
-    let aspect: Vec<float::T> = (0..len).map(|_n| 0.0).collect();
-    let slope: Vec<float::T> = (0..len).map(|_n| 0.0).collect();
+    let len = geo_ref.len() as usize;
+    let terrain = propag
+        .terrain_loader
+        .load_extent(&geo_ref)
+        .map(Ok)
+        .unwrap_or(Err(PropagError::PropagLoadExtentError))?;
 
-    // initialize CUDA, this will pick the first available device and will
-    // make a CUDA context from it.
-    // We don't need the context for anything but it must be kept alive.
-    cust::init(CudaFlags::empty())?;
-    let device = Device::get_device(0)?;
-    let ctx = Context::new(device)?;
-    ctx.set_flags(ContextFlags::SCHED_AUTO)?;
+    (|| {
+        // initialize CUDA, this will pick the first available device and will
+        // make a CUDA context from it.
+        // We don't need the context for anything but it must be kept alive.
+        cust::init(CudaFlags::empty())?;
+        let device = Device::get_device(0)?;
+        let ctx = Context::new(device)?;
+        ctx.set_flags(ContextFlags::SCHED_AUTO)?;
 
-    println!("Loading module");
-    // Make the CUDA module, modules just house the GPU code for the kernels we created.
-    // they can be made from PTX code, cubins, or fatbins.
-    let module = Module::from_ptx(PTX, &[])?;
-    let module_c = Module::from_ptx(PTX_C, &[])?;
+        println!("Loading module");
+        // Make the CUDA module, modules just house the GPU code for the kernels we created.
+        // they can be made from PTX code, cubins, or fatbins.
+        let module = Module::from_ptx(PTX, &[])?;
+        let module_c = Module::from_ptx(PTX_C, &[])?;
 
-    // make a CUDA stream to issue calls to. You can think of this as an OS thread but for dispatching
-    // GPU calls.
-    let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
+        // make a CUDA stream to issue calls to. You can think of this as an OS thread but for dispatching
+        // GPU calls.
+        let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
 
-    println!("Getting function");
-    // retrieve the add kernel from the module so we can calculate the right launch config.
-    let propag_c = module_c.get_function("propag")?;
-    let pre_burn = module.get_function("cuda_standard_simple_burn")?;
+        println!("Getting function");
+        // retrieve the add kernel from the module so we can calculate the right launch config.
+        let propag_c = module_c.get_function("propag")?;
+        let pre_burn = module.get_function("cuda_standard_simple_burn")?;
 
-    let block_size = BlockSize {
-        x: THREAD_BLOCK_AXIS_LENGTH,
-        y: THREAD_BLOCK_AXIS_LENGTH,
-        z: 1,
-    };
+        let block_size = BlockSize {
+            x: THREAD_BLOCK_AXIS_LENGTH,
+            y: THREAD_BLOCK_AXIS_LENGTH,
+            z: 1,
+        };
 
-    let radius = HALO_RADIUS as u32;
-    let shmem_size = (block_size.x + radius * 2) * (block_size.y + radius * 2);
-    let shmem_bytes = shmem_size * 24; //FIXME: std::mem::size_of::<Point>() as u32;
-                                       //assert_eq!(std::mem::size_of::<Point>(), 64);
+        let radius = HALO_RADIUS as u32;
+        let shmem_size = (block_size.x + radius * 2) * (block_size.y + radius * 2);
+        let shmem_bytes = shmem_size * 24; //FIXME: std::mem::size_of::<Point>() as u32;
+                                           //assert_eq!(std::mem::size_of::<Point>(), 64);
 
-    let max_active_blocks =
-        propag_c.max_active_blocks_per_multiprocessor(block_size, shmem_bytes as _)?;
-    println!("max_active_blocks_per_multiprocessor={}", max_active_blocks);
-    let mp_count = device.get_attribute(DeviceAttribute::MultiprocessorCount)?;
-    let max_total_blocks = mp_count as u32 * max_active_blocks;
-    println!("max_active_total_blocks={}", max_total_blocks);
+        let max_active_blocks =
+            propag_c.max_active_blocks_per_multiprocessor(block_size, shmem_bytes as _)?;
+        println!("max_active_blocks_per_multiprocessor={}", max_active_blocks);
+        let mp_count = device.get_attribute(DeviceAttribute::MultiprocessorCount)?;
+        let max_total_blocks = mp_count as u32 * max_active_blocks;
+        println!("max_active_total_blocks={}", max_total_blocks);
 
-    // Assumes square block size
-    assert_eq!(block_size.x, block_size.y);
-    let grid_w = (max_total_blocks as f64).sqrt().floor() as u32;
-    let grid_size: GridSize = (grid_w, grid_w).into();
+        // Assumes square block size
+        assert_eq!(block_size.x, block_size.y);
+        let grid_w = (max_total_blocks as f64).sqrt().floor() as u32;
+        let grid_size: GridSize = (grid_w, grid_w).into();
 
-    let super_grid_size: (u32, u32) = (
-        geo_ref.width.div_ceil(grid_size.x * block_size.x),
-        geo_ref.height.div_ceil(grid_size.y * block_size.y),
-    );
+        let super_grid_size: (u32, u32) = (
+            geo_ref.width.div_ceil(grid_size.x * block_size.x),
+            geo_ref.height.div_ceil(grid_size.y * block_size.y),
+        );
 
-    println!(
+        println!(
         "using geo_ref={:?}\ngrid_size={:?}\nblocks_size={:?}\nsuper_grid_size={:?}\nfor {} elems",
         geo_ref, grid_size, block_size, super_grid_size, len
     );
-    // allocate the GPU memory needed to house our numbers and copy them over.
-    let model_gpu = model.as_slice().as_dbuf()?;
-    let d1hr_gpu = d1hr.as_slice().as_dbuf()?;
-    let d10hr_gpu = d10hr.as_slice().as_dbuf()?;
-    let d100hr_gpu = d100hr.as_slice().as_dbuf()?;
-    let herb_gpu = herb.as_slice().as_dbuf()?;
-    let wood_gpu = wood.as_slice().as_dbuf()?;
-    let wind_speed_gpu = wind_speed.as_slice().as_dbuf()?;
-    let wind_azimuth_gpu = wind_azimuth.as_slice().as_dbuf()?;
-    let slope_gpu = slope.as_slice().as_dbuf()?;
-    let aspect_gpu = aspect.as_slice().as_dbuf()?;
+        // allocate the GPU memory needed to house our numbers and copy them over.
+        let model_gpu = terrain.fuel_code.as_slice().as_dbuf()?;
+        let d1hr_gpu = terrain.d1hr.as_slice().as_dbuf()?;
+        let d10hr_gpu = terrain.d10hr.as_slice().as_dbuf()?;
+        let d100hr_gpu = terrain.d100hr.as_slice().as_dbuf()?;
+        let herb_gpu = terrain.herb.as_slice().as_dbuf()?;
+        let wood_gpu = terrain.wood.as_slice().as_dbuf()?;
+        let wind_speed_gpu = terrain.wind_speed.as_slice().as_dbuf()?;
+        let wind_azimuth_gpu = terrain.wind_azimuth.as_slice().as_dbuf()?;
+        let slope_gpu = terrain.slope.as_slice().as_dbuf()?;
+        let aspect_gpu = terrain.aspect.as_slice().as_dbuf()?;
 
-    // input/output vectors
-    let mut refs_x: Vec<u16> = std::iter::repeat_n(Max::MAX, model.len()).collect();
-    let mut refs_y: Vec<u16> = std::iter::repeat_n(Max::MAX, model.len()).collect();
-    let mut refs_time: Vec<f32> = std::iter::repeat_n(Max::MAX, model.len()).collect();
-    let mut boundary_change: Vec<u16> = std::iter::repeat_n(0, model.len()).collect();
+        // input/output vectors
+        let mut refs_x: Vec<u16> = std::iter::repeat_n(Max::MAX, len).collect();
+        let mut refs_y: Vec<u16> = std::iter::repeat_n(Max::MAX, len).collect();
+        let mut refs_time: Vec<f32> = std::iter::repeat_n(Max::MAX, len).collect();
+        let mut boundary_change: Vec<u16> = std::iter::repeat_n(0, len).collect();
 
-    ({
-        let speed_max: Vec<float::T> = std::iter::repeat_n(0.0, model.len()).collect();
-        let azimuth_max: Vec<float::T> = std::iter::repeat_n(0.0, model.len()).collect();
-        let eccentricity: Vec<float::T> = std::iter::repeat_n(0.0, model.len()).collect();
+        let speed_max: Vec<float::T> = std::iter::repeat_n(0.0, len).collect();
+        let azimuth_max: Vec<float::T> = std::iter::repeat_n(0.0, len).collect();
+        let eccentricity: Vec<float::T> = std::iter::repeat_n(0.0, len).collect();
 
-        refs_x.fill(Max::MAX);
-        refs_y.fill(Max::MAX);
-        refs_time.fill(Max::MAX);
         for i in 0..geo_ref.width {
             for j in 0..geo_ref.height {
                 let ix = (i + j * geo_ref.width) as usize;
@@ -354,11 +349,9 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<(), CudaError>
         let (_, pre_burn_block_size) = pre_burn.suggested_launch_configuration(0, 0.into())?;
         let pre_burn_grid_size = geo_ref.len().div_ceil(pre_burn_block_size);
         unsafe {
-            //println!("pre burn");
             launch!(
-                // slices are passed as two parameters, the pointer and the length.
                 pre_burn<<<pre_burn_grid_size, pre_burn_block_size, 0, stream>>>(
-                    model.len(),
+                    len,
                     model_gpu.as_device_ptr(),
                     d1hr_gpu.as_device_ptr(),
                     d10hr_gpu.as_device_ptr(),
@@ -375,8 +368,6 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<(), CudaError>
                 )
             )?;
             stream.synchronize()?;
-            //println!("propag");
-            //println!("propag");
             loop {
                 let mut worked: Vec<DeviceVariable<u32>> =
                     Vec::with_capacity((super_grid_size.0 * super_grid_size.1) as usize);
@@ -430,23 +421,25 @@ fn propagate(propag: &Propagation, time: &mut Vec<f32>) -> Result<(), CudaError>
         boundary_change_buf.copy_to(&mut boundary_change)?;
         refs_x_buf.copy_to(&mut refs_x)?;
         refs_y_buf.copy_to(&mut refs_y)?;
-    });
-    let good_times: Vec<f32> = time
-        .iter()
-        .filter_map(|x| if *x < Max::MAX { Some(*x) } else { None })
-        .collect();
-    println!("config_max_time={}", max_time);
-    println!(
-        "max_time={:?}",
-        good_times.iter().max_by(|a, b| a.total_cmp(b))
-    );
-    println!(
-        "max_time={:?}",
-        good_times.iter().min_by(|a, b| a.total_cmp(b))
-    );
-    let num_times_after = good_times.len();
-    println!("num_times_after={}", num_times_after);
-    Ok(())
+
+        let good_times: Vec<f32> = time
+            .iter()
+            .filter_map(|x| if *x < Max::MAX { Some(*x) } else { None })
+            .collect();
+        println!("config_max_time={}", max_time);
+        println!(
+            "max_time={:?}",
+            good_times.iter().max_by(|a, b| a.total_cmp(b))
+        );
+        println!(
+            "max_time={:?}",
+            good_times.iter().min_by(|a, b| a.total_cmp(b))
+        );
+        let num_times_after = good_times.len();
+        println!("num_times_after={}", num_times_after);
+        Ok(())
+    })()
+    .map_err(PropagError::PropagCudaError)
 }
 
 fn write_times(
@@ -503,7 +496,8 @@ type LoadFn = unsafe extern "C" fn(*mut core::ffi::c_void, &GeoReference, &mut F
 
 impl TerrainLoader for FFITerrainLoader {
     fn load_extent(&self, geo_ref: &geometry::GeoReference) -> Option<TerrainCudaVec> {
-        let mut ret = TerrainCudaVec::with_capacity(geo_ref.len() as _);
+        let mut ret: TerrainCudaVec =
+            std::iter::repeat_n(TerrainCuda::NULL, geo_ref.len() as _).collect();
         let mut chunk = FFITerrain {
             fuel_code: ret.fuel_code.as_mut_ptr(),
             d1hr: ret.d1hr.as_mut_ptr(),

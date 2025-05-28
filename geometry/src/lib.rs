@@ -7,7 +7,7 @@ use approx::abs_diff_ne;
 
 use approx::AbsDiffEq;
 
-pub use geo_types::*;
+pub use vek::*;
 use num_traits::{Float, NumCast};
 
 #[cfg(target_os = "cuda")]
@@ -21,19 +21,21 @@ use cuda_std::GpuFloat;
 
 #[cfg_attr(not(target_os = "cuda"), derive(cust::DeviceCopy))]
 #[derive(Copy, Clone, Debug)]
+#[repr(C)]
 pub enum Crs {
     Epsg(u32),
-    Wkt([u8; 1024]),
-    Proj4([u8; 1024]),
+    Wkt([u8; 8]), //FIXME
+    Proj4([u8; 8]), //FIXME
 }
 
 #[cfg_attr(not(target_os = "cuda"), derive(cust::DeviceCopy))]
 #[derive(Copy, Clone, Debug)]
+#[repr(C)]
 pub struct GeoTransform<T>([T; 6], [T; 6]);
 
 impl<T> GeoTransform<T>
 where
-    T: CoordFloat + AbsDiffEq,
+    T: AbsDiffEq + Copy + Float + NumCast
 {
     pub fn new(xs: [T; 6]) -> Option<Self> {
         Some(Self(xs, Self::invert(xs)?))
@@ -41,8 +43,8 @@ where
     pub fn is_north_up(&self) -> bool {
         self.dy() < T::zero()
     }
-    pub fn origin(&self) -> Coord<T> {
-        Coord {
+    pub fn origin(&self) -> Vec2<T> {
+        Vec2 {
             x: self.0[0],
             y: self.0[3],
         }
@@ -59,26 +61,26 @@ where
     pub fn as_ref<'a>(&'a self) -> &'a [T; 6] {
         &self.0
     }
-    pub fn forward(&self, p: Coord<T>) -> Coord<usize> {
-        let Coord { x, y } = p - self.origin();
+    pub fn forward(&self, p: Vec2<T>) -> Vec2<usize> {
+        let Vec2 { x, y } = p - self.origin();
         let [_, dx, rx, _, ry, dy] = self.1;
-        let p = Coord {
+        let p = Vec2 {
             x: x * dx + y * rx,
             y: x * ry + y * dy,
         };
-        Coord {
+        Vec2 {
             x: NumCast::from(p.x.trunc()).expect("T to usize failed"),
             y: NumCast::from(p.y.trunc()).expect("T to usize failed"),
         }
     }
-    pub fn backward(&self, p: Coord<usize>) -> Coord<T> {
-        let p = Coord {
-            x: NumCast::from(p.x).expect("T from usize failed"),
-            y: NumCast::from(p.y).expect("T to from failed"),
+    pub fn backward(&self, p: Vec2<usize>) -> Vec2<T> {
+        let p = Vec2 {
+            x: <T as NumCast>::from(p.x).expect("T from usize failed"),
+            y: <T as NumCast>::from(p.y).expect("T to from failed"),
         };
-        let Coord { x, y } = p + self.origin();
+        let Vec2 { x, y } = p + self.origin();
         let [_, dx, rx, _, ry, dy] = self.0;
-        Coord {
+        Vec2 {
             x: x * dx + y * rx,
             y: x * ry + y * dy,
         }
@@ -101,75 +103,72 @@ where
 
 #[cfg_attr(not(target_os = "cuda"), derive(cust::DeviceCopy))]
 #[derive(Copy, Clone, Debug)]
+#[repr(C)]
 pub struct GeoReference<T>
-where
-    T: CoordFloat,
 {
     pub transform: GeoTransform<T>,
-    pub size: [u32; 2],
+    pub size: Extent2<u32>,
     pub crs: Crs,
 }
 
 impl<T> GeoReference<T>
 where
-    T: CoordFloat + Clone + From<u32> + AbsDiffEq,
+    T: Clone + From<u32> + AbsDiffEq + Float
 {
     pub fn len(&self) -> u32 {
-        self.size[0] * self.size[1]
+        self.size.w * self.size.h
     }
 
-    pub fn forward(&self, p: Coord<T>) -> Coord<usize> {
+    pub fn forward(&self, p: Vec2<T>) -> Vec2<usize> {
         self.transform.forward(p)
     }
-    pub fn backward(&self, p: Coord<usize>) -> Coord<T> {
+    pub fn backward(&self, p: Vec2<usize>) -> Vec2<T> {
         self.transform.backward(p)
     }
-    pub fn south_up(extent: Rect<T>, pixel_size: Coord<T>, crs: Crs) -> Option<GeoReference<T>> {
-        let Coord { x: dx, y: dy } = pixel_size;
-        let Coord { x: x0, y: y0 } = extent.min();
+    pub fn south_up(bbox: Rect<T,T>, pixel_size: Extent2<T>, crs: Crs) -> Option<GeoReference<T>> {
+        let Extent2 { w: dx, h: dy } = pixel_size;
+        let Rect { x: x0, y: y0, w, h } = bbox;
         let transform = GeoTransform::new([x0, dx, T::zero(), y0, T::zero(), dy])?;
-        let size = [
-            NumCast::from(extent.width() / dx)?,
-            NumCast::from(extent.height() / dy)?,
-        ];
+        let size = Extent2 {
+            w: NumCast::from(w / dx)?,
+            h: NumCast::from(h / dy)?,
+        };
         Some(GeoReference {
             transform,
             size,
             crs,
         })
     }
-    pub fn north_up(extent: Rect<T>, pixel_size: Coord<T>, crs: Crs) -> Option<GeoReference<T>> {
-        let Coord { x: dx, y: dy } = pixel_size;
-        let Coord { x: x0, .. } = extent.min();
-        let Coord { y: y1, .. } = extent.max();
-        let size = [
-            NumCast::from(extent.width() / dx)?,
-            NumCast::from(extent.height() / dy)?,
-        ];
+    pub fn north_up(bbox: Rect<T,T>, pixel_size: Extent2<T>, crs: Crs) -> Option<GeoReference<T>> {
+        let Extent2 { w: dx, h: dy } = pixel_size;
+        let Rect { x: x0, y: y0, w, h } = bbox;
+        let y1 = y0 + h;
         let transform = GeoTransform::new([x0, dx, T::zero(), y1, T::zero(), -dy])?;
+        let size = Extent2 {
+            w: NumCast::from(w / dx)?,
+            h: NumCast::from(h / dy)?,
+        };
         Some(GeoReference {
             transform,
             size,
             crs,
         })
     }
-    pub fn extent(&self) -> Rect<T> {
+    pub fn bbox(&self) -> Rect<T,T> {
         let Self {
             transform, size, ..
         } = self;
-        let size = Coord {
+        let size = Vec2 {
             x: size[0].into(),
             y: size[1].into(),
         };
         //assert!(dx > T::zero() && dy > T::zero() && rx == T::zero() && ry == T::zero());
         let origin = transform.origin();
         Rect::new(
-            origin,
-            origin
-                + Coord {
-                    x: transform.dx() * size.x,
-                    y: transform.dy() * size.y,
-                },
+            origin.x,
+            origin.y,
+            transform.dx() * size.x,
+            transform.dy() * size.y,
         )
     }
     pub fn is_north_up(&self) -> bool {
@@ -177,14 +176,14 @@ where
     }
 
     // Azimuth (radian)
-    pub fn bearing(&self, a: Coord<T>, b: Coord<T>) -> T {
+    pub fn bearing(&self, a: Vec2<T>, b: Vec2<T>) -> T {
         if self.is_north_up() {
             Float::atan2(b.x - a.x, a.y - b.y)
         } else {
             Float::atan2(b.x - a.x, b.y - a.y)
         }
     }
-    pub fn distance(&self, a: Coord<T>, b: Coord<T>) -> T {
+    pub fn distance(&self, a: Vec2<T>, b: Vec2<T>) -> T {
         Float::sqrt(
             ((a.x - b.x) * self.transform.dx()).powi(2)
                 + ((a.y - b.y) * self.transform.dy()).powi(2),
@@ -200,44 +199,42 @@ pub struct Raster<'a, T> {
 */
 
 struct DDA<T>
-where
-    T: CoordFloat,
 {
-    dest: Coord<T>,
-    step: Coord<T>,
-    cur: Option<Coord<T>>,
-    t_max: Coord<T>,
-    delta: Coord<T>,
+    dest: Vec2<T>,
+    step: Vec2<T>,
+    cur: Option<Vec2<T>>,
+    t_max: Vec2<T>,
+    delta: Vec2<T>,
 }
 
-fn abs<T>(coord: Coord<T>) -> Coord<T>
+fn abs<T>(coord: Vec2<T>) -> Vec2<T>
 where
-    T: CoordFloat,
+    T: Float
 {
-    let Coord { x, y } = coord;
-    Coord {
+    let Vec2 { x, y } = coord;
+    Vec2 {
         x: x.abs(),
         y: y.abs(),
     }
 }
 
-fn recip<T>(coord: Coord<T>) -> Coord<T>
+fn recip<T>(coord: Vec2<T>) -> Vec2<T>
 where
-    T: CoordFloat,
+    T: Float
 {
-    let Coord { x, y } = coord;
-    Coord {
+    let Vec2 { x, y } = coord;
+    Vec2 {
         x: T::one() / x,
         y: T::one() / y,
     }
 }
 
-fn signum<T>(coord: Coord<T>) -> Coord<T>
+fn signum<T>(coord: Vec2<T>) -> Vec2<T>
 where
-    T: CoordFloat,
+    T: Float,
 {
-    let Coord { x, y } = coord;
-    Coord {
+    let Vec2 { x, y } = coord;
+    Vec2 {
         x: x.signum(),
         y: y.signum(),
     }
@@ -245,9 +242,9 @@ where
 
 impl<T> DDA<T>
 where
-    T: CoordFloat,
+    T: Float,
 {
-    fn new(origin: Coord<T>, dest: Coord<T>) -> Self {
+    fn new(origin: Vec2<T>, dest: Vec2<T>) -> Self {
         let t_max = recip(abs(dest - origin));
         let step = signum(dest - origin);
         let cur = if step.x == T::zero() && step.y == T::zero() {
@@ -267,9 +264,9 @@ where
 
 impl<T> Iterator for DDA<T>
 where
-    T: CoordFloat + AbsDiffEq<Epsilon = T>,
+    T: Float + AbsDiffEq<Epsilon = T>,
 {
-    type Item = Coord<T>;
+    type Item = Vec2<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let valid_x = |x: T| {
@@ -288,38 +285,38 @@ where
         };
         match self.cur {
             None => None,
-            Some(Coord { x, y }) if !(valid_x(x) && valid_y(y)) => {
+            Some(Vec2 { x, y }) if !(valid_x(x) && valid_y(y)) => {
                 self.cur = None;
                 None
             }
-            Some(Coord { x, y }) if (self.t_max.x - self.t_max.y).abs() < T::default_epsilon() => {
+            Some(Vec2 { x, y }) if (self.t_max.x - self.t_max.y).abs() < T::default_epsilon() => {
                 let ret = self.cur;
-                self.cur = Some(Coord {
+                self.cur = Some(Vec2 {
                     x: x + self.step.x,
                     y: y + self.step.y,
                 });
                 self.t_max = self.t_max + self.delta;
                 ret
             }
-            Some(Coord { x, y }) if self.t_max.x < self.t_max.y => {
+            Some(Vec2 { x, y }) if self.t_max.x < self.t_max.y => {
                 let ret = self.cur;
-                self.cur = Some(Coord {
+                self.cur = Some(Vec2 {
                     x: self.step.x + x,
                     y: y,
                 });
-                self.t_max = Coord {
+                self.t_max = Vec2 {
                     x: self.t_max.x + self.delta.x,
                     y: self.t_max.y,
                 };
                 ret
             }
-            Some(Coord { x, y }) => {
+            Some(Vec2 { x, y }) => {
                 let ret = self.cur;
-                self.cur = Some(Coord {
+                self.cur = Some(Vec2 {
                     x,
                     y: self.step.y + y,
                 });
-                self.t_max = Coord {
+                self.t_max = Vec2 {
                     x: self.t_max.x,
                     y: self.t_max.y + self.delta.y,
                 };
@@ -329,9 +326,9 @@ where
     }
 }
 
-pub fn line_to<T>(from: Coord<T>, to: Coord<T>) -> impl Iterator<Item = Coord<T>>
+pub fn line_to<T>(from: Vec2<T>, to: Vec2<T>) -> impl Iterator<Item = Vec2<T>>
 where
-    T: CoordFloat + AbsDiffEq<Epsilon = T>,
+    T: Float + AbsDiffEq<Epsilon = T>,
 {
     DDA::new(from, to)
 }
@@ -346,111 +343,111 @@ mod test {
 
     #[test]
     fn can_line_to_self() {
-        let points: Vec<Coord<f64>> =
-            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 0.0 }).collect();
-        assert_eq!(points, vec![(Coord { x: 0.0, y: 0.0 })]);
+        let points: Vec<Vec2<f64>> =
+            line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: 0.0 }).collect();
+        assert_eq!(points, vec![(Vec2 { x: 0.0, y: 0.0 })]);
     }
     #[test]
     fn can_line_to_north() {
-        let points: Vec<Coord<f64>> =
-            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 2.0 }).collect();
+        let points: Vec<Vec2<f64>> =
+            line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: 2.0 }).collect();
         assert_eq!(
             points,
             vec![
-                (Coord { x: 0.0, y: 0.0 }),
-                (Coord { x: 0.0, y: 1.0 }),
-                (Coord { x: 0.0, y: 2.0 })
+                (Vec2 { x: 0.0, y: 0.0 }),
+                (Vec2 { x: 0.0, y: 1.0 }),
+                (Vec2 { x: 0.0, y: 2.0 })
             ]
         );
     }
     #[test]
     fn can_line_to_south() {
-        let points: Vec<Coord<f64>> =
-            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: -2.0 }).collect();
+        let points: Vec<Vec2<f64>> =
+            line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: -2.0 }).collect();
         assert_eq!(
             points,
             vec![
-                (Coord { x: 0.0, y: 0.0 }),
-                (Coord { x: 0.0, y: -1.0 }),
-                (Coord { x: 0.0, y: -2.0 })
+                (Vec2 { x: 0.0, y: 0.0 }),
+                (Vec2 { x: 0.0, y: -1.0 }),
+                (Vec2 { x: 0.0, y: -2.0 })
             ]
         );
     }
     #[test]
     fn can_line_to_east() {
-        let points: Vec<Coord<f64>> =
-            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 0.0 }).collect();
+        let points: Vec<Vec2<f64>> =
+            line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 2.0, y: 0.0 }).collect();
         assert_eq!(
             points,
             vec![
-                (Coord { x: 0.0, y: 0.0 }),
-                (Coord { x: 1.0, y: 0.0 }),
-                (Coord { x: 2.0, y: 0.0 })
+                (Vec2 { x: 0.0, y: 0.0 }),
+                (Vec2 { x: 1.0, y: 0.0 }),
+                (Vec2 { x: 2.0, y: 0.0 })
             ]
         );
     }
     #[test]
     fn can_line_to_west() {
-        let points: Vec<Coord<f64>> =
-            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: -2.0, y: 0.0 }).collect();
+        let points: Vec<Vec2<f64>> =
+            line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: -2.0, y: 0.0 }).collect();
         assert_eq!(
             points,
             vec![
-                (Coord { x: 0.0, y: 0.0 }),
-                (Coord { x: -1.0, y: 0.0 }),
-                (Coord { x: -2.0, y: 0.0 })
+                (Vec2 { x: 0.0, y: 0.0 }),
+                (Vec2 { x: -1.0, y: 0.0 }),
+                (Vec2 { x: -2.0, y: 0.0 })
             ]
         );
     }
     #[test]
     fn can_line_to_north_west() {
-        let points: Vec<Coord<f64>> =
-            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: -2.0, y: -2.0 }).collect();
+        let points: Vec<Vec2<f64>> =
+            line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: -2.0, y: -2.0 }).collect();
         assert_eq!(
             points,
             vec![
-                (Coord { x: 0.0, y: 0.0 }),
-                (Coord { x: -1.0, y: -1.0 }),
-                (Coord { x: -2.0, y: -2.0 })
+                (Vec2 { x: 0.0, y: 0.0 }),
+                (Vec2 { x: -1.0, y: -1.0 }),
+                (Vec2 { x: -2.0, y: -2.0 })
             ]
         );
     }
     #[test]
     fn can_line_to_north_east() {
-        let points: Vec<Coord<f64>> =
-            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: -2.0, y: 2.0 }).collect();
+        let points: Vec<Vec2<f64>> =
+            line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: -2.0, y: 2.0 }).collect();
         assert_eq!(
             points,
             vec![
-                (Coord { x: 0.0, y: 0.0 }),
-                (Coord { x: -1.0, y: 1.0 }),
-                (Coord { x: -2.0, y: 2.0 })
+                (Vec2 { x: 0.0, y: 0.0 }),
+                (Vec2 { x: -1.0, y: 1.0 }),
+                (Vec2 { x: -2.0, y: 2.0 })
             ]
         );
     }
     #[test]
     fn can_line_to_south_west() {
-        let points: Vec<Coord<f64>> =
-            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: -2.0 }).collect();
+        let points: Vec<Vec2<f64>> =
+            line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 2.0, y: -2.0 }).collect();
         assert_eq!(
             points,
             vec![
-                (Coord { x: 0.0, y: 0.0 }),
-                (Coord { x: 1.0, y: -1.0 }),
-                (Coord { x: 2.0, y: -2.0 })
+                (Vec2 { x: 0.0, y: 0.0 }),
+                (Vec2 { x: 1.0, y: -1.0 }),
+                (Vec2 { x: 2.0, y: -2.0 })
             ]
         );
     }
     #[test]
     fn can_line_to_south_east() {
-        let points: Vec<Coord<f64>> =
-            line_to(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 }).collect();
+        let points: Vec<Vec2<f64>> =
+            line_to(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 2.0, y: 2.0 }).collect();
         assert_eq!(
             points,
             vec![
-                (Coord { x: 0.0, y: 0.0 }),
-                (Coord { x: 1.0, y: 1.0 }),
-                (Coord { x: 2.0, y: 2.0 })
+                (Vec2 { x: 0.0, y: 0.0 }),
+                (Vec2 { x: 1.0, y: 1.0 }),
+                (Vec2 { x: 2.0, y: 2.0 })
             ]
         );
     }
@@ -459,60 +456,54 @@ mod test {
     #[test]
     fn south_up_bearing() -> Result<()> {
         let geo_ref = GeoReference::south_up(
-            Rect::new(
-                Coord {
-                    x: -180.0,
-                    y: -90.0,
-                },
-                Coord { x: 180.0, y: 90.0 },
-            ),
-            Coord { x: 0.1, y: 0.1 },
+            Rect::new(-180.0,-90.0,360.0, 180.0),
+            Extent2 { w: 0.1, h: 0.1 },
             Crs::Epsg(4326),
         )
         .ok_or("should not happen")?;
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 0.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: 0.0 }),
             0.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: 1.0 }),
             0.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: -1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: -1.0 }),
             PI
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: -1.0, y: 0.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: -1.0, y: 0.0 }),
             -PI / 2.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 0.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 1.0, y: 0.0 }),
             PI / 2.0
         );
 
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 1.0, y: 1.0 }),
             PI / 4.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: -1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 1.0, y: -1.0 }),
             PI - PI / 4.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 1.0, y: 1.0 }),
             PI / 4.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: -1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 1.0, y: -1.0 }),
             PI - PI / 4.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: -1.0, y: 1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: -1.0, y: 1.0 }),
             -PI / 4.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: -1.0, y: -1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: -1.0, y: -1.0 }),
             -(PI - PI / 4.0)
         );
 
@@ -522,60 +513,54 @@ mod test {
     #[test]
     fn north_up_bearing() -> Result<()> {
         let geo_ref = GeoReference::north_up(
-            Rect::new(
-                Coord {
-                    x: -180.0,
-                    y: -90.0,
-                },
-                Coord { x: 180.0, y: 90.0 },
-            ),
-            Coord { x: 0.1, y: 0.1 },
+            Rect::new(-180.0,-90.0,360.0, 180.0),
+            Extent2 { w: 0.1, h: 0.1 },
             Crs::Epsg(4326),
         )
         .ok_or("should not happen")?;
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 0.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: 0.0 }),
             0.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: -1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: -1.0 }),
             0.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 0.0, y: 1.0 }),
             PI
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: -1.0, y: 0.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: -1.0, y: 0.0 }),
             -PI / 2.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 0.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 1.0, y: 0.0 }),
             PI / 2.0
         );
 
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: -1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 1.0, y: -1.0 }),
             PI / 4.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 1.0, y: 1.0 }),
             PI - PI / 4.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: -1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 1.0, y: -1.0 }),
             PI / 4.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 1.0, y: 1.0 }),
             PI - PI / 4.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: -1.0, y: -1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: -1.0, y: -1.0 }),
             -PI / 4.0
         );
         assert_eq!(
-            geo_ref.bearing(Coord { x: 0.0, y: 0.0 }, Coord { x: -1.0, y: 1.0 }),
+            geo_ref.bearing(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: -1.0, y: 1.0 }),
             -(PI - PI / 4.0)
         );
         Ok(())

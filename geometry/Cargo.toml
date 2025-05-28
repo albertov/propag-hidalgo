@@ -6,8 +6,8 @@ edition = "2024"
 [dependencies]
 cuda_std = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }
 num-traits = { version = "0.2.19", default-features = false }
-geo-types = { version = "0.7.16", default-features = false, features=["approx"] }
 approx = {version="0.5.1", default-features=false}
+vek = {version="0.17.1", default-features=false}
 
 [target.'cfg(not(target_os = "cuda"))'.dependencies]
 cust = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12" }

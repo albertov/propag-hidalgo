@@ -1,8 +1,8 @@
 inputs: final: prev:
 let
-  cargo = x: builtins.fromTOML (builtins.readFile x);
 
   rust_cuda_sha256 = "sha256-3cpFOdAdoKLnd5HB9ryNWIUOXlF/g1cm8RA+0nAQDK0=";
+  cargoDepsHash = "sha256-NLY3TkUO5Kz0tvA2z2tXeDmeTKGFoC3cDa8Vg6uRNBM=";
   inherit (final) lib buildPackages stdenv;
   libclang = buildPackages.llvmPackages.libclang.lib;
   clangMajorVer = builtins.head (lib.splitString "." (lib.getVersion buildPackages.clang));
@@ -21,11 +21,13 @@ let
 
   workspaceArgs = {
     src = final.lib.cleanSource ../crates;
-    cargoLock.lockFile = ../crates/Cargo.lock;
-    cargoLock.outputHashes = {
-      "const_soft_float-0.1.4" = "sha256-fm2e3np+q4yZjAafkwbxTqUZBgVDrQ/l4hxMD+l7kMA=";
-      "cuda_builder-0.3.0" = rust_cuda_sha256;
-      "cuda_std-0.2.2" = rust_cuda_sha256;
+    cargoDeps = final.myRustPlatform.importCargoLock {
+      lockFile = ../crates/Cargo.lock;
+      outputHashes = {
+        "const_soft_float-0.1.4" = "sha256-fm2e3np+q4yZjAafkwbxTqUZBgVDrQ/l4hxMD+l7kMA=";
+        "cuda_builder-0.3.0" = rust_cuda_sha256;
+        "cuda_std-0.2.2" = rust_cuda_sha256;
+      };
     };
     inherit
       BINDGEN_EXTRA_CLANG_ARGS
@@ -33,20 +35,73 @@ let
       CUDA_PATH
       LLVM_CONFIG
       CUDA_ROOT
+      LLVM_LINK_SHARED
       ;
+    # Remove unneeded references (propably in the embedded PTX) to massively
+    # reduce closure size from ~7Gb to ~200M
+    fixupPhase = with final; ''
+      if [[ -d $out/bin ]]; then
+        find $out/bin -type f -exec \
+          remove-references-to \
+            -t ${myRustToolchain} \
+            -t ${cudaPackages.backendStdenv.cc} \
+            -t ${cudaPackages.cuda_nvcc} \
+            -t ${cudaCombined} \
+            {} \;
+      fi
+    '';
   };
 in
 {
-  gdal = final.callPackage ./gdal.nix { };
 
-  firelib = final.myRustPlatform.buildRustPackage (
-    workspaceArgs
-    // {
-      inherit ((cargo ../crates/firelib/Cargo.toml).package) version;
-      pname = "firelib";
-      buildAndTestSubdir = "firelib";
-    }
-  );
+  propag = final.callPackage ./pkgs/propag.nix {
+    # Otherwise deb package is huge
+    gdal = final.gdal-small;
+  };
+
+  py-propag = final.callPackage ./pkgs/py-propag.nix {
+    # Otherwise deb package is huge
+    gdal = final.gdal-small;
+  };
+
+  buildWorkspacePythonPackage =
+    args:
+    final.python3.pkgs.buildPythonPackage (
+      workspaceArgs
+      // args
+      // {
+        nativeBuildInputs = args.nativeBuildInputs or [ ] ++ [
+          final.myRustToolchain
+          final.removeReferencesTo
+        ];
+        build-system = with final.myRustPlatform; [
+          cargoSetupHook
+          maturinBuildHook
+        ];
+      }
+    );
+
+  buildWorkspacePackage =
+    args:
+    final.myRustPlatform.buildRustPackage (
+      workspaceArgs
+      // args
+      // {
+        nativeBuildInputs = args.nativeBuildInputs or [ ] ++ [
+          final.myRustToolchain
+          final.removeReferencesTo
+        ];
+      }
+    );
+
+  readCargo = x: builtins.fromTOML (builtins.readFile x);
+
+  gdal-small = final.callPackage ./gdal.nix { };
+
+  gdal = prev.gdal.override {
+    useMinimalFeatures = true;
+    usePostgres = true;
+  };
 
   cudaPackages = prev.cudaPackages_12;
 
@@ -64,46 +119,6 @@ in
       #cudaPackages.cuda_cupti
     ];
   };
-
-  propag = final.myRustPlatform.buildRustPackage (
-    workspaceArgs
-    // {
-      inherit ((cargo ../crates/propag/Cargo.toml).package) version;
-      pname = "propag";
-      buildAndTestSubdir = "propag";
-      buildInputs =
-        with final;
-        with final.myRustToolchain.availableComponents;
-        [
-          cudaPackages.cuda_cudart.static
-          openssl
-          gdal
-        ];
-      LLVM_LINK_SHARED = 1;
-      nativeBuildInputs = with final; [
-        removeReferencesTo
-        cudaCombined
-        pkg-config
-        myRustToolchain
-        llvmPackages_7.llvm
-        ncurses # nvmm backend needs it
-        which
-      ];
-
-      # Remove unneeded references (propably in the embedded PTX) to massively
-      # reduce closure size from ~7Gb to ~200M
-      fixupPhase = ''
-        remove-references-to \
-          -t ${final.myRustToolchain} \
-          -t ${final.cudaPackages.backendStdenv.cc} \
-          -t ${final.cudaPackages.cuda_nvcc} \
-          -t ${final.cudaCombined} \
-          $out/bin/propag
-      '';
-      meta.mainProgram = "propag";
-
-    }
-  );
 
   llvmPackages_7 =
     with final;

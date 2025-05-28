@@ -7,3 +7,4 @@ rustc-ice*
 *.log
 bundle
 propag.docker
+.env

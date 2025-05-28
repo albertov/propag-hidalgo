@@ -1,5 +1,14 @@
 {
   description = "WildFire Propagator 2025";
+  nixConfig = {
+    bash-prompt = "\\[\\e[0;37m\\](\\[\\e[0m\\]nix) \\[\\e[0;1;91m\\]propag25 \\[\\e[0m\\]\\w \\[\\e[0;1m\\]$ \\[\\e[0m\\]";
+    extra-substituters = [
+      "https://nixcache.toscat.net/propag25"
+    ];
+    extra-trusted-public-keys = [
+      "propag25:gOQfcU+oofw7ILwjHXQZC6JTlcrc/wrKFn6k7eBN5y0="
+    ];
+  };
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/release-24.11";
     nixpkgs_old.url = "github:NixOS/nixpkgs/release-23.11";
@@ -53,7 +62,6 @@
             copyToRoot = pkgs.buildEnv {
               name = "image-root";
               paths = [ drv ];
-              #pathsToLink = [ "/bin" ];
             };
             config.EntryPoint = [ (pkgs.lib.getExe drv) ];
             config.Env = [ "LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64" ];
@@ -81,13 +89,6 @@
             overlays = [
               rust-overlay.overlays.default
               (import ./nix/overlay.nix inputs)
-              /*
-                (_:_: {
-                  pkgs_2311 = import inputs.nixpkgs_old {
-                    inherit system;
-                  };
-                })
-              */
             ];
             config.allowUnfree = true;
           };
@@ -99,7 +100,6 @@
             default = self'.packages.propag;
             inherit (pkgs)
               propag
-              firelib
               ;
           };
           apps.make_deb = flake-utils.lib.mkApp {
@@ -124,42 +124,9 @@
             };
           };
 
-          devShells.default = pkgs.mkShell {
-            inputsFrom = [
-              pkgs.firelib
-              pkgs.propag
-            ];
-            env = {
-              # FIXME
-              LD_LIBRARY_PATH = "${pkgs.linuxPackages.nvidia_x11}/lib";
+          # Development shell
+          devShells.default = import ./nix/devshell.nix pkgs;
 
-              GDAL_DATA = "${pkgs.gdal}/share/gdal";
-              PROJ_DATA = "${pkgs.proj}/share/proj";
-
-              inherit (pkgs.firelib)
-                BINDGEN_EXTRA_CLANG_ARGS
-                LIBCLANG_PATH
-                ;
-              inherit (pkgs.propag)
-                CUDA_PATH
-                CUDA_ROOT
-                LLVM_CONFIG
-                LLVM_LINK_SHARED
-                ;
-            };
-            packages = with pkgs; [
-              linuxPackages.nvidia_x11
-              linuxPackages.nvidia_x11.bin
-              git
-              cudaPackages.cuda_gdb
-              cargo-watch
-              cargo-valgrind
-              valgrind
-              rustup
-              gdb
-              (enableDebugging gdal)
-            ];
-          };
           # for `nix fmt`
           formatter = treefmtEval.config.build.wrapper;
           # for `nix flake check`

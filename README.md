@@ -18,6 +18,7 @@ $ nix develop
 Inside the dev shell run cargo
 
 ```console
+$ cd crates
 $ cargo build
 ```
 

@@ -141,3 +141,5 @@ This application has been developed within the frame and for the purpose of the
 HiDALGO2 project, funded by the European Union. This work has received funding
 from the European High Performance Computing Joint Undertaking (JU) and Poland,
 Germany, Spain, Hungary, France, Greece under grant agreement number: 101093457.
+
+[![HiDALGO2](https://www.hidalgo2.eu/wp-content/uploads/2023/07/cropped-cropped-HiDALGO2-logo-color-RGB-768x212.png)](https://www.hidalgo2.eu)

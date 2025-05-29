@@ -143,3 +143,4 @@ from the European High Performance Computing Joint Undertaking (JU) and Poland,
 Germany, Spain, Hungary, France, Greece under grant agreement number: 101093457.
 
 [![HiDALGO2](https://www.hidalgo2.eu/wp-content/uploads/2023/07/cropped-cropped-HiDALGO2-logo-color-RGB-768x212.png)](https://www.hidalgo2.eu)
+[![Funded by the European Union](./EN_FundedbytheEU_RGB_POS.png)](https://ec.europa.eu)

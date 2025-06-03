@@ -44,11 +44,11 @@ fn _efecto_precipitacion(mes: i32, pp: f64, offset: usize) -> f64 {
 
     if pp > 0.0 {
         let indice_mes = if (4..=10).contains(&mes) { 0 } else { 1 };
-        let indice_pp = if pp >= 1.0 && pp < 5.0 {
+        let indice_pp = if (1.0..5.0).contains(&pp) {
             0
-        } else if pp >= 5.0 && pp < 15.0 {
+        } else if (5.0..15.0).contains(&pp) {
             1
-        } else if pp >= 15.0 && pp < 35.0 {
+        } else if (15.0..35.0).contains(&pp) {
             2
         } else {
             3
@@ -126,7 +126,7 @@ pub fn hcb(temperatura: f64, humedad_relativa: f64, _hora: i32) -> i32 {
     let humedad_idx = max(0.0, min(20.0, (humedad_relativa / 5.0).floor())) as usize;
     let temperatura_idx = if temperatura < 0.0 {
         0
-    } else if temperatura >= 0.0 && temperatura <= 9.0 {
+    } else if (0.0..=9.0).contains(&temperatura) {
         1
     } else if temperatura > 9.0 && temperatura <= 20.0 {
         2
@@ -313,14 +313,14 @@ pub fn probabilidad_ignicion(
     ];
 
     if modelo_combustible == 0 {
-        return 0;
+        0
     } else if hcs > 0.0 && hcs < 18.0 {
         let sombreado_val = sombreado(nubosidad, modelo_combustible);
-        let sombreado_idx = if sombreado_val >= 0.0 && sombreado_val < 10.0 {
+        let sombreado_idx = if (0.0..10.0).contains(&sombreado_val) {
             0
-        } else if sombreado_val >= 10.0 && sombreado_val < 50.0 {
+        } else if (10.0..50.0).contains(&sombreado_val) {
             1
-        } else if sombreado_val >= 50.0 && sombreado_val < 90.0 {
+        } else if (50.0..90.0).contains(&sombreado_val) {
             2
         } else {
             3
@@ -362,7 +362,7 @@ fn _corrector_por_sombreado(
     // between 6 and 8. It's an attempt to make the variation come out
     // continuous since the tables don't contemplate correction at night but
     // they are wrong
-    let (hora, sombreado) = if hora_param > 19 || hora_param < 6 {
+    let (hora, sombreado) = if !(6..=19).contains(&hora_param) {
         (19, 100.0)
     } else if hora_param < 8 {
         (8, 100.0)
@@ -378,7 +378,7 @@ fn _corrector_por_sombreado(
 
     // Index month
     let mes_idx = match mes {
-        5 | 6 | 7 | 8 => 0,
+        5..=8 => 0,
         2 | 3 | 4 | 9 | 10 => 1,
         11 | 12 | 1 => 2,
         _ => return 0, // invalid month
@@ -522,9 +522,9 @@ pub fn corrige_prob_por_pp(prob: i32, efecto_precipitacion: f64) -> i32 {
         let prob_ajustada = prob as f64
             + if efecto_precipitacion > 0.0 && efecto_precipitacion < 5.0 {
                 -5.0
-            } else if efecto_precipitacion >= 5.0 && efecto_precipitacion < 15.0 {
+            } else if (5.0..15.0).contains(&efecto_precipitacion) {
                 -10.0
-            } else if efecto_precipitacion >= 15.0 && efecto_precipitacion < 35.0 {
+            } else if (15.0..35.0).contains(&efecto_precipitacion) {
                 -20.0
             } else if efecto_precipitacion >= 35.0 {
                 -30.0
@@ -570,11 +570,11 @@ pub fn hco_x10hr(hora: i32, humedad: f64, humedad_6: f64, humedad_15: f64) -> f6
             }
         } else {
             // interpolate the value based on the hour of the day
-            if hora >= 0 && hora < 6 {
+            if (0..6).contains(&hora) {
                 a_las_15 + (((a_las_6 - a_las_15) / 15.0) * ((hora + 15) as f64))
-            } else if hora >= 6 && hora < 15 {
+            } else if (6..15).contains(&hora) {
                 a_las_6 + (((a_las_15 - a_las_6) / 9.0) * ((hora - 6) as f64))
-            } else if hora >= 15 && hora < 24 {
+            } else if (15..24).contains(&hora) {
                 a_las_15 + (((a_las_6 - a_las_15) / 15.0) * ((hora - 15) as f64))
             } else {
                 humedad // fallback for invalid hour
@@ -587,7 +587,7 @@ pub fn hco_x10hr(hora: i32, humedad: f64, humedad_6: f64, humedad_15: f64) -> f6
 pub fn humedad_vivo(mes: i32) -> f64 {
     match mes {
         1 | 2 => 100.0,
-        3 | 4 | 5 => 200.0,
+        3..=5 => 200.0,
         6 => 100.0,
         7 | 8 => 80.0,
         9 | 10 => 90.0,
@@ -612,8 +612,6 @@ pub fn mod_viento(u: f64, v: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::f64::consts::PI;
 
     const EPSILON: f64 = 1e-10;
 

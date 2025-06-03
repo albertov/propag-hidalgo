@@ -608,3 +608,327 @@ pub fn dir_viento(u: f64, v: f64) -> f64 {
 pub fn mod_viento(u: f64, v: f64) -> f64 {
     (u * u + v * v).sqrt()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::f64::consts::PI;
+
+    const EPSILON: f64 = 1e-10;
+
+    fn approx_eq(a: f64, b: f64) -> bool {
+        (a - b).abs() < EPSILON
+    }
+
+    #[test]
+    fn test_corrige_hcb_por_sombreado() {
+        // Test cases from corrige_hcb_por_sombreado.txt
+        assert_eq!(corrige_hcb_por_sombreado(15, 100.0, 4, 0.0, 60.0, 0, 0), 0);
+        assert_eq!(
+            corrige_hcb_por_sombreado(15, 100.0, 12, 315.0, 45.0, 9, 0),
+            20
+        );
+        assert_eq!(
+            corrige_hcb_por_sombreado(0, 100.0, 10, 315.0, 15.0, 1, 0),
+            5
+        );
+        assert_eq!(
+            corrige_hcb_por_sombreado(20, 40.0, 5, 225.0, 60.0, 3, 6),
+            25
+        );
+        assert_eq!(
+            corrige_hcb_por_sombreado(15, 0.0, 10, 135.0, 45.0, 1, 6),
+            20
+        );
+        assert_eq!(corrige_hcb_por_sombreado(5, 20.0, 9, 90.0, 45.0, 5, 12), 6);
+        assert_eq!(corrige_hcb_por_sombreado(0, 60.0, 11, 0.0, 0.0, 3, 6), 5);
+        assert_eq!(
+            corrige_hcb_por_sombreado(20, 60.0, 3, 0.0, 15.0, 11, 12),
+            24
+        );
+        assert_eq!(corrige_hcb_por_sombreado(15, 20.0, 3, 90.0, 60.0, 6, 6), 20);
+        assert_eq!(
+            corrige_hcb_por_sombreado(5, 100.0, 6, 315.0, 30.0, 5, 12),
+            8
+        );
+        assert_eq!(
+            corrige_hcb_por_sombreado(10, 0.0, 4, 135.0, 15.0, 10, 0),
+            15
+        );
+        assert_eq!(
+            corrige_hcb_por_sombreado(10, 60.0, 11, 45.0, 30.0, 2, 12),
+            13
+        );
+        assert_eq!(
+            corrige_hcb_por_sombreado(20, 80.0, 5, 135.0, 45.0, 7, 12),
+            23
+        );
+        assert_eq!(
+            corrige_hcb_por_sombreado(15, 100.0, 6, 90.0, 30.0, 3, 0),
+            20
+        );
+        assert_eq!(
+            corrige_hcb_por_sombreado(10, 20.0, 2, 90.0, 30.0, 4, 18),
+            14
+        );
+
+        // Test hour out of range - should clamp
+        assert_eq!(
+            corrige_hcb_por_sombreado(10, 60.0, 11, 135.0, 45.0, 0, 25),
+            0
+        );
+    }
+
+    #[test]
+    fn test_corrige_prob_por_pp() {
+        // Test cases from corrige_prob_por_pp.txt
+        assert_eq!(corrige_prob_por_pp(100, 0.0), 100);
+        assert_eq!(corrige_prob_por_pp(100, 1.0), 95);
+        assert_eq!(corrige_prob_por_pp(100, 2.0), 95);
+        assert_eq!(corrige_prob_por_pp(100, 3.0), 95);
+        assert_eq!(corrige_prob_por_pp(100, 4.0), 95);
+        assert_eq!(corrige_prob_por_pp(100, 5.0), 90);
+        assert_eq!(corrige_prob_por_pp(100, 6.0), 90);
+        assert_eq!(corrige_prob_por_pp(100, 15.0), 80);
+        assert_eq!(corrige_prob_por_pp(100, 35.0), 70);
+        assert_eq!(corrige_prob_por_pp(100, 36.0), 70);
+        assert_eq!(corrige_prob_por_pp(0, 15.0), 0);
+        assert_eq!(corrige_prob_por_pp(0, 40.0), 0);
+        assert_eq!(corrige_prob_por_pp(101, 0.0), 100); // Clamped to 100
+    }
+
+    #[test]
+    fn test_d1hr() {
+        // Test cases from d1hr.txt
+        assert_eq!(d1hr(0.0, 0.0, 0.0).round(), 0.0);
+        assert_eq!(d1hr(0.0, 0.0, -5.0).round(), 0.0);
+        assert_eq!(d1hr(0.0, 10.0, 10.0).round(), 0.0);
+        assert_eq!(d1hr(5.0, 0.0, 0.0).round(), 30.0);
+        assert_eq!(d1hr(5.0, 10.0, 10.0).round(), 5.0);
+        assert_eq!(d1hr(5.0, 10.0, 5.0).round(), 10.0);
+        assert_eq!(d1hr(5.0, 20.0, 20.0).round(), 5.0);
+        assert_eq!(d1hr(5.0, 20.0, 15.0).round(), 7.0);
+        assert_eq!(d1hr(10.0, 10.0, 10.0).round(), 10.0);
+        assert_eq!(d1hr(10.0, 20.0, 15.0).round(), 13.0);
+        assert_eq!(d1hr(15.0, 20.0, 20.0).round(), 15.0);
+        assert_eq!(d1hr(20.0, 20.0, 20.0).round(), 20.0);
+        assert_eq!(d1hr(25.0, 20.0, 20.0).round(), 25.0);
+        assert_eq!(d1hr(30.0, 30.0, 30.0).round(), 30.0);
+        assert_eq!(d1hr(35.0, 40.0, 40.0).round(), 35.0);
+    }
+
+    #[test]
+    fn test_dir_viento() {
+        // Test cases from dir_viento.txt
+        assert!(approx_eq(dir_viento(0.0, 0.0), 0.0));
+        assert!(approx_eq(dir_viento(1.0, 0.0), 90.0));
+        assert!(approx_eq(dir_viento(1.0, 1.0), 45.0));
+        assert!(approx_eq(dir_viento(0.0, 1.0), 0.0));
+        assert!(approx_eq(dir_viento(0.0, -1.0), 180.0));
+        assert!(approx_eq(dir_viento(-1.0, 1.0), 315.0));
+        assert!(approx_eq(dir_viento(-1.0, 0.0), 270.0));
+    }
+
+    #[test]
+    fn test_efecto_precipitacion_maximo() {
+        // Test cases from efecto_precipitacion_maximo.txt
+        // Testing with [1] + range(6) which means month 1 with values 0,1,2,3,4,5
+        assert_eq!(
+            efecto_precipitacion_maximo(1, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+            3.0
+        );
+        assert_eq!(
+            efecto_precipitacion_maximo(2, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+            3.0
+        );
+        assert_eq!(
+            efecto_precipitacion_maximo(3, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+            3.0
+        );
+        assert_eq!(
+            efecto_precipitacion_maximo(4, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+            1.0
+        );
+        assert_eq!(
+            efecto_precipitacion_maximo(5, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+            1.0
+        );
+        assert_eq!(
+            efecto_precipitacion_maximo(6, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+            1.0
+        );
+        assert_eq!(
+            efecto_precipitacion_maximo(7, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+            1.0
+        );
+        assert_eq!(
+            efecto_precipitacion_maximo(8, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+            1.0
+        );
+        assert_eq!(
+            efecto_precipitacion_maximo(9, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+            1.0
+        );
+        assert_eq!(
+            efecto_precipitacion_maximo(10, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+            1.0
+        );
+        assert_eq!(
+            efecto_precipitacion_maximo(11, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+            3.0
+        );
+        assert_eq!(
+            efecto_precipitacion_maximo(12, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+            3.0
+        );
+    }
+
+    #[test]
+    fn test_hcb() {
+        // Test cases from hcb.txt
+        assert_eq!(hcb(-20.0, 0.0, 0), 1);
+        assert_eq!(hcb(-20.0, 5.0, 0), 2);
+        assert_eq!(hcb(-20.0, 10.0, 0), 2);
+        assert_eq!(hcb(-20.0, 15.0, 0), 3);
+        assert_eq!(hcb(-20.0, 20.0, 0), 4);
+        assert_eq!(hcb(-20.0, 25.0, 0), 5);
+        assert_eq!(hcb(-20.0, 100.0, 0), 14);
+        assert_eq!(hcb(0.0, 0.0, 0), 1);
+        assert_eq!(hcb(5.0, 0.0, 0), 1);
+        assert_eq!(hcb(10.0, 0.0, 0), 1);
+        assert_eq!(hcb(15.0, 0.0, 0), 1);
+        assert_eq!(hcb(20.0, 0.0, 0), 1);
+        assert_eq!(hcb(25.0, 10.0, 0), 2);
+        assert_eq!(hcb(30.0, 100.0, 0), 13);
+        assert_eq!(hcb(35.0, 100.0, 0), 13);
+        assert_eq!(hcb(40.0, 100.0, 0), 13);
+        assert_eq!(hcb(45.0, 100.0, 0), 12);
+    }
+
+    #[test]
+    fn test_hco_x10hr() {
+        // Test cases from hco_x10hr.txt
+        assert_eq!(hco_x10hr(1, 10.0, 25.0, 25.0).round(), 25.0);
+        assert_eq!(hco_x10hr(6, 10.0, 5.0, 0.0).round(), 2.0);
+        assert_eq!(hco_x10hr(23, 10.0, 0.0, 25.0).round(), 14.0);
+        assert_eq!(hco_x10hr(19, 5.0, 20.0, 25.0).round(), 23.0);
+        assert_eq!(hco_x10hr(8, 20.0, 20.0, 0.0).round(), 8.0);
+        assert_eq!(hco_x10hr(15, 25.0, 0.0, 25.0).round(), 14.0);
+        assert_eq!(hco_x10hr(1, 20.0, 15.0, 20.0).round(), 18.0);
+        assert_eq!(hco_x10hr(3, 15.0, 5.0, 25.0).round(), 17.0);
+        assert_eq!(hco_x10hr(6, 10.0, 0.0, 20.0).round(), 12.0);
+        assert_eq!(hco_x10hr(22, 5.0, 25.0, 20.0).round(), 22.0);
+        assert_eq!(hco_x10hr(9, 0.0, 20.0, 25.0).round(), 0.0);
+        assert_eq!(hco_x10hr(0, 5.0, 0.0, 5.0).round(), 3.0);
+    }
+
+    #[test]
+    fn test_humedad_vivo() {
+        // Test cases from humedad_vivo.txt
+        assert_eq!(humedad_vivo(1), 100.0);
+        assert_eq!(humedad_vivo(2), 100.0);
+        assert_eq!(humedad_vivo(3), 200.0);
+        assert_eq!(humedad_vivo(4), 200.0);
+        assert_eq!(humedad_vivo(5), 200.0);
+        assert_eq!(humedad_vivo(6), 100.0);
+        assert_eq!(humedad_vivo(7), 80.0);
+        assert_eq!(humedad_vivo(8), 80.0);
+        assert_eq!(humedad_vivo(9), 90.0);
+        assert_eq!(humedad_vivo(10), 90.0);
+        assert_eq!(humedad_vivo(11), 100.0);
+        assert_eq!(humedad_vivo(12), 100.0);
+        assert!(humedad_vivo(13).is_nan()); // Invalid month
+    }
+
+    #[test]
+    fn test_mod_viento() {
+        // Test cases from mod_viento.txt
+        let test_cases = [
+            ((-3.0, -3.0), 4.2426406871192848),
+            ((-3.0, -2.0), 3.6055512754639891),
+            ((-3.0, -1.0), 3.1622776601683795),
+            ((-3.0, 0.0), 3.0),
+            ((-3.0, 1.0), 3.1622776601683795),
+            ((-2.0, -2.0), 2.8284271247461903),
+            ((-1.0, -1.0), 1.4142135623730951),
+            ((0.0, 0.0), 0.0),
+            ((1.0, 1.0), 1.4142135623730951),
+            ((2.0, 2.0), 2.8284271247461903),
+        ];
+
+        for ((u, v), expected) in test_cases.iter() {
+            assert!(approx_eq(mod_viento(*u, *v), *expected));
+        }
+    }
+
+    #[test]
+    fn test_probabilidad_ignicion() {
+        // Test cases from probabilidad_ignicion.txt
+        assert_eq!(probabilidad_ignicion(0.0, 40.0, 7.0, 1), 40);
+        assert_eq!(probabilidad_ignicion(0.0, 0.0, 8.0, 9), 30);
+        assert_eq!(probabilidad_ignicion(20.0, 20.0, 23.0, 8), 0); // hcs >= 18
+        assert_eq!(probabilidad_ignicion(20.0, 60.0, 11.0, 4), 20);
+        assert_eq!(probabilidad_ignicion(35.0, 70.0, 18.0, 7), 0); // hcs >= 18
+        assert_eq!(probabilidad_ignicion(-10.0, 100.0, 24.0, 12), 0); // hcs >= 18
+        assert_eq!(probabilidad_ignicion(15.0, 30.0, 8.0, 11), 40);
+        assert_eq!(probabilidad_ignicion(45.0, 20.0, 20.0, 8), 0); // hcs >= 18
+        assert_eq!(probabilidad_ignicion(0.0, 20.0, 11.0, 3), 20);
+        assert_eq!(probabilidad_ignicion(25.0, 30.0, 18.0, 9), 0); // hcs >= 18
+        assert_eq!(probabilidad_ignicion(20.0, 100.0, 18.0, 0), 0); // modelo_combustible == 0
+        assert_eq!(probabilidad_ignicion(25.0, 90.0, 1.0, 0), 0); // modelo_combustible == 0
+    }
+
+    #[test]
+    fn test_sombreado() {
+        // Test cases from sombreado.txt
+        assert_eq!(sombreado(8.0, 7), 75.0);
+        assert_eq!(sombreado(0.0, 0), 0.0);
+        assert_eq!(sombreado(0.0, 7), 75.0);
+        assert_eq!(sombreado(5.0, 1), 3.75);
+        assert_eq!(sombreado(10.0, 7), 75.0);
+        assert_eq!(sombreado(15.0, 3), 11.25);
+        assert_eq!(sombreado(20.0, 7), 75.0);
+        assert_eq!(sombreado(25.0, 5), 18.75);
+        assert_eq!(sombreado(30.0, 8), 75.0);
+        assert_eq!(sombreado(35.0, 6), 26.25);
+        assert_eq!(sombreado(40.0, 9), 75.0);
+        assert_eq!(sombreado(45.0, 4), 33.75);
+        assert_eq!(sombreado(50.0, 10), 75.0);
+        assert_eq!(sombreado(55.0, 2), 41.25);
+        assert_eq!(sombreado(60.0, 11), 75.0);
+        assert_eq!(sombreado(65.0, 1), 48.75);
+        assert_eq!(sombreado(70.0, 7), 100.0); // >= 50 && modelo 7-12
+        assert_eq!(sombreado(75.0, 8), 100.0); // >= 50 && modelo 7-12
+        assert_eq!(sombreado(100.0, 1), 75.0);
+        assert_eq!(sombreado(105.0, 1), 78.75);
+    }
+
+    #[test]
+    fn test_basic_functions() {
+        // Test max and min functions
+        assert_eq!(max(5.0, 3.0), 5.0);
+        assert_eq!(max(3.0, 5.0), 5.0);
+        assert_eq!(min(5.0, 3.0), 3.0);
+        assert_eq!(min(3.0, 5.0), 3.0);
+    }
+
+    #[test]
+    fn test_edge_cases() {
+        // Test modelo_combustible == 0 cases
+        assert_eq!(probabilidad_ignicion(25.0, 50.0, 10.0, 0), 0);
+        assert_eq!(
+            corrige_hcb_por_sombreado(15, 50.0, 6, 180.0, 30.0, 0, 12),
+            0
+        );
+
+        // Test zero precipitation
+        assert_eq!(_efecto_precipitacion(5, 0.0, 1), 0.0);
+
+        // Test zero humidity in hco_x10hr
+        assert_eq!(hco_x10hr(12, 0.0, 10.0, 20.0), 0.0);
+
+        // Test invalid months
+        assert!(humedad_vivo(0).is_nan());
+        assert!(humedad_vivo(13).is_nan());
+    }
+}

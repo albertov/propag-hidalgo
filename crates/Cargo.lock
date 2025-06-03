@@ -429,6 +429,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dmoist"
+version = "0.1.0"
+dependencies = [
+ "cuda_std",
+ "cust_core",
+ "min_max_traits",
+ "num-traits",
+ "quickcheck",
+ "rand 0.9.1",
+ "soa_derive",
+ "uom",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

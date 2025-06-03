@@ -1,0 +1,13 @@
+# mes, pp0, ..., pp5 -> efecto pp
+[1] + range(6) -> 3
+[2] + range(6) -> 3
+[3] + range(6) -> 3
+[4] + range(6) -> 1
+[5] + range(6) -> 1
+[6] + range(6) -> 1
+[7] + range(6) -> 1
+[8] + range(6) -> 1
+[9] + range(6) -> 1
+[10] + range(6) -> 1
+[11] + range(6) -> 3
+[12] + range(6) -> 3

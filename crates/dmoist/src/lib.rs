@@ -44,11 +44,11 @@ fn _efecto_precipitacion(mes: i32, pp: f64, offset: usize) -> f64 {
 
     if pp > 0.0 {
         let indice_mes = if (4..=10).contains(&mes) { 0 } else { 1 };
-        let indice_pp = if pp >= 1.0 && pp < 5.0 {
+        let indice_pp = if (1.0..5.0).contains(&pp) {
             0
-        } else if pp >= 5.0 && pp < 15.0 {
+        } else if (5.0..15.0).contains(&pp) {
             1
-        } else if pp >= 15.0 && pp < 35.0 {
+        } else if (15.0..35.0).contains(&pp) {
             2
         } else {
             3
@@ -126,7 +126,7 @@ pub fn hcb(temperatura: f64, humedad_relativa: f64, _hora: i32) -> i32 {
     let humedad_idx = max(0.0, min(20.0, (humedad_relativa / 5.0).floor())) as usize;
     let temperatura_idx = if temperatura < 0.0 {
         0
-    } else if temperatura >= 0.0 && temperatura <= 9.0 {
+    } else if (0.0..=9.0).contains(&temperatura) {
         1
     } else if temperatura > 9.0 && temperatura <= 20.0 {
         2
@@ -313,14 +313,14 @@ pub fn probabilidad_ignicion(
     ];
 
     if modelo_combustible == 0 {
-        return 0;
+        0
     } else if hcs > 0.0 && hcs < 18.0 {
         let sombreado_val = sombreado(nubosidad, modelo_combustible);
-        let sombreado_idx = if sombreado_val >= 0.0 && sombreado_val < 10.0 {
+        let sombreado_idx = if (0.0..10.0).contains(&sombreado_val) {
             0
-        } else if sombreado_val >= 10.0 && sombreado_val < 50.0 {
+        } else if (10.0..50.0).contains(&sombreado_val) {
             1
-        } else if sombreado_val >= 50.0 && sombreado_val < 90.0 {
+        } else if (50.0..90.0).contains(&sombreado_val) {
             2
         } else {
             3
@@ -362,7 +362,7 @@ fn _corrector_por_sombreado(
     // between 6 and 8. It's an attempt to make the variation come out
     // continuous since the tables don't contemplate correction at night but
     // they are wrong
-    let (hora, sombreado) = if hora_param > 19 || hora_param < 6 {
+    let (hora, sombreado) = if !(6..=19).contains(&hora_param) {
         (19, 100.0)
     } else if hora_param < 8 {
         (8, 100.0)
@@ -378,7 +378,7 @@ fn _corrector_por_sombreado(
 
     // Index month
     let mes_idx = match mes {
-        5 | 6 | 7 | 8 => 0,
+        5..=8 => 0,
         2 | 3 | 4 | 9 | 10 => 1,
         11 | 12 | 1 => 2,
         _ => return 0, // invalid month
@@ -522,9 +522,9 @@ pub fn corrige_prob_por_pp(prob: i32, efecto_precipitacion: f64) -> i32 {
         let prob_ajustada = prob as f64
             + if efecto_precipitacion > 0.0 && efecto_precipitacion < 5.0 {
                 -5.0
-            } else if efecto_precipitacion >= 5.0 && efecto_precipitacion < 15.0 {
+            } else if (5.0..15.0).contains(&efecto_precipitacion) {
                 -10.0
-            } else if efecto_precipitacion >= 15.0 && efecto_precipitacion < 35.0 {
+            } else if (15.0..35.0).contains(&efecto_precipitacion) {
                 -20.0
             } else if efecto_precipitacion >= 35.0 {
                 -30.0
@@ -570,11 +570,11 @@ pub fn hco_x10hr(hora: i32, humedad: f64, humedad_6: f64, humedad_15: f64) -> f6
             }
         } else {
             // interpolate the value based on the hour of the day
-            if hora >= 0 && hora < 6 {
+            if (0..6).contains(&hora) {
                 a_las_15 + (((a_las_6 - a_las_15) / 15.0) * ((hora + 15) as f64))
-            } else if hora >= 6 && hora < 15 {
+            } else if (6..15).contains(&hora) {
                 a_las_6 + (((a_las_15 - a_las_6) / 9.0) * ((hora - 6) as f64))
-            } else if hora >= 15 && hora < 24 {
+            } else if (15..24).contains(&hora) {
                 a_las_15 + (((a_las_6 - a_las_15) / 15.0) * ((hora - 15) as f64))
             } else {
                 humedad // fallback for invalid hour
@@ -587,7 +587,7 @@ pub fn hco_x10hr(hora: i32, humedad: f64, humedad_6: f64, humedad_15: f64) -> f6
 pub fn humedad_vivo(mes: i32) -> f64 {
     match mes {
         1 | 2 => 100.0,
-        3 | 4 | 5 => 200.0,
+        3..=5 => 200.0,
         6 => 100.0,
         7 | 8 => 80.0,
         9 | 10 => 90.0,
@@ -612,7 +612,6 @@ pub fn mod_viento(u: f64, v: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::f64::consts::PI;
 
     const EPSILON: f64 = 1e-10;
 
@@ -620,287 +619,407 @@ mod tests {
         (a - b).abs() < EPSILON
     }
 
+    // Parser for simple tuple -> value mappings
+    fn parse_simple_fixtures(content: &str) -> Vec<(Vec<f64>, f64)> {
+        let mut fixtures = Vec::new();
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with('#') || line.is_empty() {
+                continue;
+            }
+
+            if let Some((left, right)) = line.split_once(" -> ") {
+                let left = left.trim();
+                let right = right.trim();
+
+                // Parse tuple like "(1, 2, 3)"
+                if left.starts_with('(') && left.ends_with(')') {
+                    let inner = &left[1..left.len() - 1];
+                    let params: Vec<f64> = inner
+                        .split(',')
+                        .map(|s| s.trim().parse().unwrap_or(0.0))
+                        .collect();
+                    let result: f64 = right.parse().unwrap_or(0.0);
+                    fixtures.push((params, result));
+                }
+            }
+        }
+
+        fixtures
+    }
+
+    // Parser for month + range fixtures like "[1] + range(6) -> 3"
+    fn parse_precipitation_fixtures(content: &str) -> Vec<(i32, f64)> {
+        let mut fixtures = Vec::new();
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with('#') || line.is_empty() {
+                continue;
+            }
+
+            if let Some((left, right)) = line.split_once(" -> ") {
+                let left = left.trim();
+                let right = right.trim();
+
+                // Parse "[1] + range(6)" format
+                if left.starts_with('[') && left.contains("] + range(6)") {
+                    if let Some(bracket_end) = left.find(']') {
+                        let month_str = &left[1..bracket_end];
+                        if let Ok(month) = month_str.parse::<i32>() {
+                            if let Ok(expected) = right.parse::<f64>() {
+                                fixtures.push((month, expected));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        fixtures
+    }
+
+    // Parser for wind direction fixtures like "0, 0 -> 0"
+    fn parse_wind_fixtures(content: &str) -> Vec<((f64, f64), f64)> {
+        let mut fixtures = Vec::new();
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with('#') || line.is_empty() {
+                continue;
+            }
+
+            if let Some((left, right)) = line.split_once(" -> ") {
+                let left = left.trim();
+                let right = right.trim();
+
+                // Parse "u, v" format
+                if let Some(comma_pos) = left.find(',') {
+                    let u_str = left[..comma_pos].trim();
+                    let v_str = left[comma_pos + 1..].trim();
+
+                    if let (Ok(u), Ok(v), Ok(result)) = (
+                        u_str.parse::<f64>(),
+                        v_str.parse::<f64>(),
+                        right.parse::<f64>(),
+                    ) {
+                        fixtures.push(((u, v), result));
+                    }
+                }
+            }
+        }
+
+        fixtures
+    }
+
+    // Parser for month-only fixtures like "(1,) -> 100"
+    fn parse_month_fixtures(content: &str) -> Vec<(i32, f64)> {
+        let mut fixtures = Vec::new();
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with('#') || line.is_empty() {
+                continue;
+            }
+
+            if let Some((left, right)) = line.split_once(" -> ") {
+                let left = left.trim();
+                let right = right.trim();
+
+                // Parse "(month,)" format
+                if left.starts_with('(') && left.ends_with(",)") {
+                    let month_str = &left[1..left.len() - 2];
+                    if let (Ok(month), Ok(result)) =
+                        (month_str.parse::<i32>(), right.parse::<f64>())
+                    {
+                        fixtures.push((month, result));
+                    }
+                }
+            }
+        }
+
+        fixtures
+    }
+
     #[test]
     fn test_corrige_hcb_por_sombreado() {
-        // Test cases from corrige_hcb_por_sombreado.txt
-        assert_eq!(corrige_hcb_por_sombreado(15, 100.0, 4, 0.0, 60.0, 0, 0), 0);
-        assert_eq!(
-            corrige_hcb_por_sombreado(15, 100.0, 12, 315.0, 45.0, 9, 0),
-            20
-        );
-        assert_eq!(
-            corrige_hcb_por_sombreado(0, 100.0, 10, 315.0, 15.0, 1, 0),
-            5
-        );
-        assert_eq!(
-            corrige_hcb_por_sombreado(20, 40.0, 5, 225.0, 60.0, 3, 6),
-            25
-        );
-        assert_eq!(
-            corrige_hcb_por_sombreado(15, 0.0, 10, 135.0, 45.0, 1, 6),
-            20
-        );
-        assert_eq!(corrige_hcb_por_sombreado(5, 20.0, 9, 90.0, 45.0, 5, 12), 6);
-        assert_eq!(corrige_hcb_por_sombreado(0, 60.0, 11, 0.0, 0.0, 3, 6), 5);
-        assert_eq!(
-            corrige_hcb_por_sombreado(20, 60.0, 3, 0.0, 15.0, 11, 12),
-            24
-        );
-        assert_eq!(corrige_hcb_por_sombreado(15, 20.0, 3, 90.0, 60.0, 6, 6), 20);
-        assert_eq!(
-            corrige_hcb_por_sombreado(5, 100.0, 6, 315.0, 30.0, 5, 12),
-            8
-        );
-        assert_eq!(
-            corrige_hcb_por_sombreado(10, 0.0, 4, 135.0, 15.0, 10, 0),
-            15
-        );
-        assert_eq!(
-            corrige_hcb_por_sombreado(10, 60.0, 11, 45.0, 30.0, 2, 12),
-            13
-        );
-        assert_eq!(
-            corrige_hcb_por_sombreado(20, 80.0, 5, 135.0, 45.0, 7, 12),
-            23
-        );
-        assert_eq!(
-            corrige_hcb_por_sombreado(15, 100.0, 6, 90.0, 30.0, 3, 0),
-            20
-        );
-        assert_eq!(
-            corrige_hcb_por_sombreado(10, 20.0, 2, 90.0, 30.0, 4, 18),
-            14
-        );
+        let content = include_str!("../fixtures/corrige_hcb_por_sombreado.txt");
+        let fixtures = parse_simple_fixtures(content);
 
-        // Test hour out of range - should clamp
-        assert_eq!(
-            corrige_hcb_por_sombreado(10, 60.0, 11, 135.0, 45.0, 0, 25),
-            0
-        );
+        for (params, expected) in fixtures {
+            if params.len() == 7 {
+                let result = corrige_hcb_por_sombreado(
+                    params[0] as i32, // hcb
+                    params[1],        // nubosidad
+                    params[2] as i32, // mes
+                    params[3],        // orientacion
+                    params[4],        // pendiente
+                    params[5] as i32, // modelo_combustible
+                    params[6] as i32, // hora
+                );
+                assert_eq!(
+                    result as f64,
+                    expected,
+                    "corrige_hcb_por_sombreado({}, {}, {}, {}, {}, {}, {}) = {} != {}",
+                    params[0],
+                    params[1],
+                    params[2],
+                    params[3],
+                    params[4],
+                    params[5],
+                    params[6],
+                    result,
+                    expected
+                );
+            }
+        }
     }
 
     #[test]
     fn test_corrige_prob_por_pp() {
-        // Test cases from corrige_prob_por_pp.txt
-        assert_eq!(corrige_prob_por_pp(100, 0.0), 100);
-        assert_eq!(corrige_prob_por_pp(100, 1.0), 95);
-        assert_eq!(corrige_prob_por_pp(100, 2.0), 95);
-        assert_eq!(corrige_prob_por_pp(100, 3.0), 95);
-        assert_eq!(corrige_prob_por_pp(100, 4.0), 95);
-        assert_eq!(corrige_prob_por_pp(100, 5.0), 90);
-        assert_eq!(corrige_prob_por_pp(100, 6.0), 90);
-        assert_eq!(corrige_prob_por_pp(100, 15.0), 80);
-        assert_eq!(corrige_prob_por_pp(100, 35.0), 70);
-        assert_eq!(corrige_prob_por_pp(100, 36.0), 70);
-        assert_eq!(corrige_prob_por_pp(0, 15.0), 0);
-        assert_eq!(corrige_prob_por_pp(0, 40.0), 0);
-        assert_eq!(corrige_prob_por_pp(101, 0.0), 100); // Clamped to 100
+        let content = include_str!("../fixtures/corrige_prob_por_pp.txt");
+        let fixtures = parse_simple_fixtures(content);
+
+        for (params, expected) in fixtures {
+            if params.len() == 2 {
+                let result = corrige_prob_por_pp(
+                    params[0] as i32, // prob
+                    params[1],        // efecto_pp
+                );
+                assert_eq!(
+                    result as f64, expected,
+                    "corrige_prob_por_pp({}, {}) = {} != {}",
+                    params[0], params[1], result, expected
+                );
+            }
+        }
     }
 
     #[test]
     fn test_d1hr() {
-        // Test cases from d1hr.txt
-        assert_eq!(d1hr(0.0, 0.0, 0.0).round(), 0.0);
-        assert_eq!(d1hr(0.0, 0.0, -5.0).round(), 0.0);
-        assert_eq!(d1hr(0.0, 10.0, 10.0).round(), 0.0);
-        assert_eq!(d1hr(5.0, 0.0, 0.0).round(), 30.0);
-        assert_eq!(d1hr(5.0, 10.0, 10.0).round(), 5.0);
-        assert_eq!(d1hr(5.0, 10.0, 5.0).round(), 10.0);
-        assert_eq!(d1hr(5.0, 20.0, 20.0).round(), 5.0);
-        assert_eq!(d1hr(5.0, 20.0, 15.0).round(), 7.0);
-        assert_eq!(d1hr(10.0, 10.0, 10.0).round(), 10.0);
-        assert_eq!(d1hr(10.0, 20.0, 15.0).round(), 13.0);
-        assert_eq!(d1hr(15.0, 20.0, 20.0).round(), 15.0);
-        assert_eq!(d1hr(20.0, 20.0, 20.0).round(), 20.0);
-        assert_eq!(d1hr(25.0, 20.0, 20.0).round(), 25.0);
-        assert_eq!(d1hr(30.0, 30.0, 30.0).round(), 30.0);
-        assert_eq!(d1hr(35.0, 40.0, 40.0).round(), 35.0);
+        let content = include_str!("../fixtures/d1hr.txt");
+        let fixtures = parse_simple_fixtures(content);
+
+        for (params, expected) in fixtures {
+            if params.len() == 3 {
+                let result = d1hr(
+                    params[0], // hcs
+                    params[1], // prob_ign_sc
+                    params[2], // prob_ign
+                );
+                assert_eq!(
+                    result.round(),
+                    expected,
+                    "d1hr({}, {}, {}) = {} != {}",
+                    params[0],
+                    params[1],
+                    params[2],
+                    result,
+                    expected
+                );
+            }
+        }
     }
 
     #[test]
     fn test_dir_viento() {
-        // Test cases from dir_viento.txt
-        assert!(approx_eq(dir_viento(0.0, 0.0), 0.0));
-        assert!(approx_eq(dir_viento(1.0, 0.0), 90.0));
-        assert!(approx_eq(dir_viento(1.0, 1.0), 45.0));
-        assert!(approx_eq(dir_viento(0.0, 1.0), 0.0));
-        assert!(approx_eq(dir_viento(0.0, -1.0), 180.0));
-        assert!(approx_eq(dir_viento(-1.0, 1.0), 315.0));
-        assert!(approx_eq(dir_viento(-1.0, 0.0), 270.0));
+        let content = include_str!("../fixtures/dir_viento.txt");
+        let fixtures = parse_wind_fixtures(content);
+
+        for ((u, v), expected) in fixtures {
+            let result = dir_viento(u, v);
+            assert!(
+                approx_eq(result, expected),
+                "dir_viento({}, {}) = {} != {}",
+                u,
+                v,
+                result,
+                expected
+            );
+        }
     }
 
     #[test]
     fn test_efecto_precipitacion_maximo() {
-        // Test cases from efecto_precipitacion_maximo.txt
-        // Testing with [1] + range(6) which means month 1 with values 0,1,2,3,4,5
-        assert_eq!(
-            efecto_precipitacion_maximo(1, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
-            3.0
-        );
-        assert_eq!(
-            efecto_precipitacion_maximo(2, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
-            3.0
-        );
-        assert_eq!(
-            efecto_precipitacion_maximo(3, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
-            3.0
-        );
-        assert_eq!(
-            efecto_precipitacion_maximo(4, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
-            1.0
-        );
-        assert_eq!(
-            efecto_precipitacion_maximo(5, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
-            1.0
-        );
-        assert_eq!(
-            efecto_precipitacion_maximo(6, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
-            1.0
-        );
-        assert_eq!(
-            efecto_precipitacion_maximo(7, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
-            1.0
-        );
-        assert_eq!(
-            efecto_precipitacion_maximo(8, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
-            1.0
-        );
-        assert_eq!(
-            efecto_precipitacion_maximo(9, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
-            1.0
-        );
-        assert_eq!(
-            efecto_precipitacion_maximo(10, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
-            1.0
-        );
-        assert_eq!(
-            efecto_precipitacion_maximo(11, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
-            3.0
-        );
-        assert_eq!(
-            efecto_precipitacion_maximo(12, &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
-            3.0
-        );
+        let content = include_str!("../fixtures/efecto_precipitacion_maximo.txt");
+        let fixtures = parse_precipitation_fixtures(content);
+
+        for (mes, expected) in fixtures {
+            // Create test array [0,1,2,3,4,5] as indicated by "range(6)"
+            let pp = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
+            let result = efecto_precipitacion_maximo(mes, &pp);
+            assert_eq!(
+                result, expected,
+                "efecto_precipitacion_maximo({}, {:?}) = {} != {}",
+                mes, pp, result, expected
+            );
+        }
     }
 
     #[test]
     fn test_hcb() {
-        // Test cases from hcb.txt
-        assert_eq!(hcb(-20.0, 0.0, 0), 1);
-        assert_eq!(hcb(-20.0, 5.0, 0), 2);
-        assert_eq!(hcb(-20.0, 10.0, 0), 2);
-        assert_eq!(hcb(-20.0, 15.0, 0), 3);
-        assert_eq!(hcb(-20.0, 20.0, 0), 4);
-        assert_eq!(hcb(-20.0, 25.0, 0), 5);
-        assert_eq!(hcb(-20.0, 100.0, 0), 14);
-        assert_eq!(hcb(0.0, 0.0, 0), 1);
-        assert_eq!(hcb(5.0, 0.0, 0), 1);
-        assert_eq!(hcb(10.0, 0.0, 0), 1);
-        assert_eq!(hcb(15.0, 0.0, 0), 1);
-        assert_eq!(hcb(20.0, 0.0, 0), 1);
-        assert_eq!(hcb(25.0, 10.0, 0), 2);
-        assert_eq!(hcb(30.0, 100.0, 0), 13);
-        assert_eq!(hcb(35.0, 100.0, 0), 13);
-        assert_eq!(hcb(40.0, 100.0, 0), 13);
-        assert_eq!(hcb(45.0, 100.0, 0), 12);
+        let content = include_str!("../fixtures/hcb.txt");
+        let fixtures = parse_simple_fixtures(content);
+
+        for (params, expected) in fixtures {
+            if params.len() == 3 {
+                let result = hcb(
+                    params[0],        // temperatura
+                    params[1],        // humedad_relativa
+                    params[2] as i32, // hora
+                );
+                assert_eq!(
+                    result as f64, expected,
+                    "hcb({}, {}, {}) = {} != {}",
+                    params[0], params[1], params[2], result, expected
+                );
+            }
+        }
     }
 
     #[test]
     fn test_hco_x10hr() {
-        // Test cases from hco_x10hr.txt
-        assert_eq!(hco_x10hr(1, 10.0, 25.0, 25.0).round(), 25.0);
-        assert_eq!(hco_x10hr(6, 10.0, 5.0, 0.0).round(), 2.0);
-        assert_eq!(hco_x10hr(23, 10.0, 0.0, 25.0).round(), 14.0);
-        assert_eq!(hco_x10hr(19, 5.0, 20.0, 25.0).round(), 23.0);
-        assert_eq!(hco_x10hr(8, 20.0, 20.0, 0.0).round(), 8.0);
-        assert_eq!(hco_x10hr(15, 25.0, 0.0, 25.0).round(), 14.0);
-        assert_eq!(hco_x10hr(1, 20.0, 15.0, 20.0).round(), 18.0);
-        assert_eq!(hco_x10hr(3, 15.0, 5.0, 25.0).round(), 17.0);
-        assert_eq!(hco_x10hr(6, 10.0, 0.0, 20.0).round(), 12.0);
-        assert_eq!(hco_x10hr(22, 5.0, 25.0, 20.0).round(), 22.0);
-        assert_eq!(hco_x10hr(9, 0.0, 20.0, 25.0).round(), 0.0);
-        assert_eq!(hco_x10hr(0, 5.0, 0.0, 5.0).round(), 3.0);
+        let content = include_str!("../fixtures/hco_x10hr.txt");
+        let fixtures = parse_simple_fixtures(content);
+
+        for (params, expected) in fixtures {
+            if params.len() == 4 {
+                let result = hco_x10hr(
+                    params[0] as i32, // hora
+                    params[1],        // humedad
+                    params[2],        // humedad_6
+                    params[3],        // humedad_15
+                );
+                assert_eq!(
+                    result.round(),
+                    expected,
+                    "hco_x10hr({}, {}, {}, {}) = {} != {}",
+                    params[0],
+                    params[1],
+                    params[2],
+                    params[3],
+                    result,
+                    expected
+                );
+            }
+        }
     }
 
     #[test]
     fn test_humedad_vivo() {
-        // Test cases from humedad_vivo.txt
-        assert_eq!(humedad_vivo(1), 100.0);
-        assert_eq!(humedad_vivo(2), 100.0);
-        assert_eq!(humedad_vivo(3), 200.0);
-        assert_eq!(humedad_vivo(4), 200.0);
-        assert_eq!(humedad_vivo(5), 200.0);
-        assert_eq!(humedad_vivo(6), 100.0);
-        assert_eq!(humedad_vivo(7), 80.0);
-        assert_eq!(humedad_vivo(8), 80.0);
-        assert_eq!(humedad_vivo(9), 90.0);
-        assert_eq!(humedad_vivo(10), 90.0);
-        assert_eq!(humedad_vivo(11), 100.0);
-        assert_eq!(humedad_vivo(12), 100.0);
-        assert!(humedad_vivo(13).is_nan()); // Invalid month
+        let content = include_str!("../fixtures/humedad_vivo.txt");
+        let fixtures = parse_month_fixtures(content);
+
+        for (mes, expected) in fixtures {
+            let result = humedad_vivo(mes);
+            assert_eq!(
+                result, expected,
+                "humedad_vivo({}) = {} != {}",
+                mes, result, expected
+            );
+        }
     }
 
     #[test]
     fn test_mod_viento() {
-        // Test cases from mod_viento.txt
-        let test_cases = [
-            ((-3.0, -3.0), 4.2426406871192848),
-            ((-3.0, -2.0), 3.6055512754639891),
-            ((-3.0, -1.0), 3.1622776601683795),
-            ((-3.0, 0.0), 3.0),
-            ((-3.0, 1.0), 3.1622776601683795),
-            ((-2.0, -2.0), 2.8284271247461903),
-            ((-1.0, -1.0), 1.4142135623730951),
-            ((0.0, 0.0), 0.0),
-            ((1.0, 1.0), 1.4142135623730951),
-            ((2.0, 2.0), 2.8284271247461903),
-        ];
+        let content = include_str!("../fixtures/mod_viento.txt");
+        let fixtures = parse_simple_fixtures(content);
 
-        for ((u, v), expected) in test_cases.iter() {
-            assert!(approx_eq(mod_viento(*u, *v), *expected));
+        for (params, expected) in fixtures {
+            if params.len() == 2 {
+                let result = mod_viento(params[0], params[1]);
+                assert!(
+                    approx_eq(result, expected),
+                    "mod_viento({}, {}) = {} != {}",
+                    params[0],
+                    params[1],
+                    result,
+                    expected
+                );
+            }
         }
     }
 
     #[test]
     fn test_probabilidad_ignicion() {
-        // Test cases from probabilidad_ignicion.txt
-        assert_eq!(probabilidad_ignicion(0.0, 40.0, 7.0, 1), 40);
-        assert_eq!(probabilidad_ignicion(0.0, 0.0, 8.0, 9), 30);
-        assert_eq!(probabilidad_ignicion(20.0, 20.0, 23.0, 8), 0); // hcs >= 18
-        assert_eq!(probabilidad_ignicion(20.0, 60.0, 11.0, 4), 20);
-        assert_eq!(probabilidad_ignicion(35.0, 70.0, 18.0, 7), 0); // hcs >= 18
-        assert_eq!(probabilidad_ignicion(-10.0, 100.0, 24.0, 12), 0); // hcs >= 18
-        assert_eq!(probabilidad_ignicion(15.0, 30.0, 8.0, 11), 40);
-        assert_eq!(probabilidad_ignicion(45.0, 20.0, 20.0, 8), 0); // hcs >= 18
-        assert_eq!(probabilidad_ignicion(0.0, 20.0, 11.0, 3), 20);
-        assert_eq!(probabilidad_ignicion(25.0, 30.0, 18.0, 9), 0); // hcs >= 18
-        assert_eq!(probabilidad_ignicion(20.0, 100.0, 18.0, 0), 0); // modelo_combustible == 0
-        assert_eq!(probabilidad_ignicion(25.0, 90.0, 1.0, 0), 0); // modelo_combustible == 0
+        let content = include_str!("../fixtures/probabilidad_ignicion.txt");
+        let fixtures = parse_simple_fixtures(content);
+
+        for (params, expected) in fixtures {
+            if params.len() == 4 {
+                let result = probabilidad_ignicion(
+                    params[0],        // temperatura
+                    params[1],        // nubosidad
+                    params[2],        // hcs
+                    params[3] as i32, // modelo_combustible
+                );
+                assert_eq!(
+                    result as f64, expected,
+                    "probabilidad_ignicion({}, {}, {}, {}) = {} != {}",
+                    params[0], params[1], params[2], params[3], result, expected
+                );
+            }
+        }
     }
 
     #[test]
     fn test_sombreado() {
-        // Test cases from sombreado.txt
-        assert_eq!(sombreado(8.0, 7), 75.0);
-        assert_eq!(sombreado(0.0, 0), 0.0);
-        assert_eq!(sombreado(0.0, 7), 75.0);
-        assert_eq!(sombreado(5.0, 1), 3.75);
-        assert_eq!(sombreado(10.0, 7), 75.0);
-        assert_eq!(sombreado(15.0, 3), 11.25);
-        assert_eq!(sombreado(20.0, 7), 75.0);
-        assert_eq!(sombreado(25.0, 5), 18.75);
-        assert_eq!(sombreado(30.0, 8), 75.0);
-        assert_eq!(sombreado(35.0, 6), 26.25);
-        assert_eq!(sombreado(40.0, 9), 75.0);
-        assert_eq!(sombreado(45.0, 4), 33.75);
-        assert_eq!(sombreado(50.0, 10), 75.0);
-        assert_eq!(sombreado(55.0, 2), 41.25);
-        assert_eq!(sombreado(60.0, 11), 75.0);
-        assert_eq!(sombreado(65.0, 1), 48.75);
-        assert_eq!(sombreado(70.0, 7), 100.0); // >= 50 && modelo 7-12
-        assert_eq!(sombreado(75.0, 8), 100.0); // >= 50 && modelo 7-12
-        assert_eq!(sombreado(100.0, 1), 75.0);
-        assert_eq!(sombreado(105.0, 1), 78.75);
+        let content = include_str!("../fixtures/sombreado.txt");
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with('#') || line.is_empty() {
+                continue;
+            }
+
+            if let Some((left, right)) = line.split_once(" -> ") {
+                let left = left.trim();
+                let right = right.trim();
+
+                // Handle special case "8, 7 -> 75" (without parentheses)
+                if left.contains(", ") && !left.starts_with('(') {
+                    if let Some(comma_pos) = left.find(", ") {
+                        let nub_str = left[..comma_pos].trim();
+                        let mod_str = left[comma_pos + 2..].trim();
+
+                        if let (Ok(nubosidad), Ok(modelo), Ok(expected)) = (
+                            nub_str.parse::<f64>(),
+                            mod_str.parse::<i32>(),
+                            right.parse::<f64>(),
+                        ) {
+                            let result = sombreado(nubosidad, modelo);
+                            assert_eq!(
+                                result, expected,
+                                "sombreado({}, {}) = {} != {}",
+                                nubosidad, modelo, result, expected
+                            );
+                        }
+                    }
+                }
+                // Handle normal tuple format "(nub, mod) -> result"
+                else if left.starts_with('(') && left.ends_with(')') {
+                    let inner = &left[1..left.len() - 1];
+                    if let Some(comma_pos) = inner.find(',') {
+                        let nub_str = inner[..comma_pos].trim();
+                        let mod_str = inner[comma_pos + 1..].trim();
+
+                        if let (Ok(nubosidad), Ok(modelo), Ok(expected)) = (
+                            nub_str.parse::<f64>(),
+                            mod_str.parse::<i32>(),
+                            right.parse::<f64>(),
+                        ) {
+                            let result = sombreado(nubosidad, modelo);
+                            assert_eq!(
+                                result, expected,
+                                "sombreado({}, {}) = {} != {}",
+                                nubosidad, modelo, result, expected
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

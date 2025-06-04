@@ -3,22 +3,14 @@ name = "dmoist"
 version = "0.1.0"
 edition = "2024"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
-uom = { version = "0.36.0", default-features = false, features=["f64", "f32", "si", "serde"] }
 cust_core = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12_2" }
 cuda_std = { git = "https://github.com/albertov/Rust-CUDA/", branch = "cuda_12_2" }
-num-traits = { version = "0.2.19", default-features = false }
-min_max_traits = "0.1.0"
+num = { version = "0.4.3", default-features = false, features=["libm"] }
 
 [target.'cfg(not(target_os = "cuda"))'.dependencies]
 rand = "0.9.0"
 soa_derive = "0.14.0"
-
-[dev-dependencies]
-quickcheck = "1.0.3"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(test)'] }

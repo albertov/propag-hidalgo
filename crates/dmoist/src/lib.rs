@@ -1,20 +1,8 @@
-use std::f64::consts::PI;
-
-fn max(a: f64, b: f64) -> f64 {
-    if a > b {
-        a
-    } else {
-        b
-    }
-}
-
-fn min(a: f64, b: f64) -> f64 {
-    if a < b {
-        a
-    } else {
-        b
-    }
-}
+#![feature(import_trait_associated_functions)]
+#![no_std]
+#[allow(unused_imports)]
+use num::Float;
+use num::Float::nan;
 
 /// Returns the effect of a certain precipitation as a function
 /// of the month and how many days have passed since the day being
@@ -123,7 +111,7 @@ pub fn hcb(temperatura: f64, humedad_relativa: f64, _hora: i32) -> i32 {
     ];
 
     let hora_idx = 0; // Only use day table if (8 <= hora < 20) else 1
-    let humedad_idx = max(0.0, min(20.0, (humedad_relativa / 5.0).floor())) as usize;
+    let humedad_idx = (humedad_relativa / 5.0).floor().clamp(0.0, 20.0) as usize;
     let temperatura_idx = if temperatura < 0.0 {
         0
     } else if (0.0..=9.0).contains(&temperatura) {
@@ -134,10 +122,8 @@ pub fn hcb(temperatura: f64, humedad_relativa: f64, _hora: i32) -> i32 {
         3
     } else if temperatura > 31.0 && temperatura <= 42.0 {
         4
-    } else if temperatura > 42.0 {
-        5
     } else {
-        0 // fallback
+        5
     };
 
     tabla[hora_idx][temperatura_idx][humedad_idx]
@@ -156,7 +142,7 @@ pub fn probabilidad_ignicion(
     nubosidad: f64,
     hcs: f64,
     modelo_combustible: i32,
-) -> i32 {
+) -> f64 {
     let tabla = [
         [
             // Class_SOMB=1 (SOMB=0-10) and Class_TSECA=1 (TSECA>40)
@@ -313,7 +299,7 @@ pub fn probabilidad_ignicion(
     ];
 
     if modelo_combustible == 0 {
-        0
+        0.0
     } else if hcs > 0.0 && hcs < 18.0 {
         let sombreado_val = sombreado(nubosidad, modelo_combustible);
         let sombreado_idx = if (0.0..10.0).contains(&sombreado_val) {
@@ -326,12 +312,12 @@ pub fn probabilidad_ignicion(
             3
         };
 
-        let temperatura_idx = max(0.0, min(8.0, 9.0 - (temperatura / 5.0).ceil())) as usize;
+        let temperatura_idx = (9.0 - (temperatura / 5.0).ceil()).clamp(0.0, 8.0) as usize;
         let hcs_idx = (hcs.floor() as usize) - 1;
 
-        return tabla[sombreado_idx][temperatura_idx][hcs_idx];
+        return tabla[sombreado_idx][temperatura_idx][hcs_idx] as _;
     } else {
-        return 0;
+        return 0.0;
     }
 }
 
@@ -357,7 +343,7 @@ fn _corrector_por_sombreado(
     sombreado_val: f64,
     mes: i32,
     hora_param: i32,
-) -> i32 {
+) -> f64 {
     // Between 20 and 6 (pseudo-dawn) apply values of 20,
     // between 6 and 8. It's an attempt to make the variation come out
     // continuous since the tables don't contemplate correction at night but
@@ -374,14 +360,14 @@ fn _corrector_por_sombreado(
     let sombreado_idx = if sombreado < 50.0 { 0 } else { 1 };
 
     // index hour
-    let hora_idx = min(5.0, ((hora - 8) / 2).into()) as usize;
+    let hora_idx = ((hora - 8) / 2).clamp(0, 5) as usize;
 
     // Index month
     let mes_idx = match mes {
         5..=8 => 0,
         2 | 3 | 4 | 9 | 10 => 1,
         11 | 12 | 1 => 2,
-        _ => return 0, // invalid month
+        _ => return nan(), // invalid month
     };
 
     // Flat terrain is south orientation
@@ -413,7 +399,7 @@ fn _corrector_por_sombreado(
             7
         }
     } else {
-        return 0; // invalid orientation
+        return nan();
     };
 
     let tabla = [
@@ -492,48 +478,43 @@ fn _corrector_por_sombreado(
         ],
     ];
 
-    tabla[mes_idx][sombreado_idx][orientacion_pendiente_idx][hora_idx]
+    tabla[mes_idx][sombreado_idx][orientacion_pendiente_idx][hora_idx] as _
 }
 
 pub fn corrige_hcb_por_sombreado(
-    hcb: i32,
+    hcb: f64,
     nubosidad: f64,
     mes: i32,
     orientacion: f64,
     pendiente: f64,
     modelo_combustible: i32,
     hora: i32,
-) -> i32 {
+) -> f64 {
     if modelo_combustible == 0 {
-        0
+        0.0
     } else {
         let sombreado_val = sombreado(nubosidad, modelo_combustible);
         hcb + _corrector_por_sombreado(orientacion, pendiente, sombreado_val, mes, hora)
     }
 }
 
-pub fn corrige_prob_por_pp(prob: i32, efecto_precipitacion: f64) -> i32 {
+pub fn corrige_prob_por_pp(prob: f64, efecto_precipitacion: f64) -> f64 {
     // Corrects probability by precipitation effect
     // The following if-elif with formula is:
     // PROBIG - Int(2.61863 + (0.988897 * PP6) - (0.00632351 * ((PP6) ^ 2)))
-    if prob == 0 {
-        0
+    let adjustment = if efecto_precipitacion > 0.0 && efecto_precipitacion < 5.0 {
+        -5.0
+    } else if (5.0..15.0).contains(&efecto_precipitacion) {
+        -10.0
+    } else if (15.0..35.0).contains(&efecto_precipitacion) {
+        -20.0
+    } else if efecto_precipitacion >= 35.0 {
+        -30.0
     } else {
-        let prob_ajustada = prob as f64
-            + if efecto_precipitacion > 0.0 && efecto_precipitacion < 5.0 {
-                -5.0
-            } else if (5.0..15.0).contains(&efecto_precipitacion) {
-                -10.0
-            } else if (15.0..35.0).contains(&efecto_precipitacion) {
-                -20.0
-            } else if efecto_precipitacion >= 35.0 {
-                -30.0
-            } else {
-                0.0
-            };
+        0.0
+    };
 
-        max(0.0, min(100.0, prob_ajustada)) as i32
-    }
+    (prob + adjustment).clamp(0.0, 100.0)
 }
 
 pub fn d1hr(hcs: f64, prob_ign_sc: f64, prob_ign: f64) -> f64 {
@@ -592,32 +573,16 @@ pub fn humedad_vivo(mes: i32) -> f64 {
         7 | 8 => 80.0,
         9 | 10 => 90.0,
         11 | 12 => 100.0,
-        _ => f64::NAN,
+        _ => nan(),
     }
-}
-
-pub fn dir_viento(u: f64, v: f64) -> f64 {
-    let dir = u.atan2(v) * 180.0 / PI;
-    if dir >= 0.0 {
-        dir
-    } else {
-        dir + 360.0
-    }
-}
-
-pub fn mod_viento(u: f64, v: f64) -> f64 {
-    (u * u + v * v).sqrt()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const EPSILON: f64 = 1e-10;
-
-    fn approx_eq(a: f64, b: f64) -> bool {
-        (a - b).abs() < EPSILON
-    }
+    extern crate std;
+    use std::vec::Vec;
 
     // Parser for simple tuple -> value mappings
     fn parse_simple_fixtures(content: &str) -> Vec<(Vec<f64>, f64)> {
@@ -680,39 +645,6 @@ mod tests {
         fixtures
     }
 
-    // Parser for wind direction fixtures like "0, 0 -> 0"
-    fn parse_wind_fixtures(content: &str) -> Vec<((f64, f64), f64)> {
-        let mut fixtures = Vec::new();
-
-        for line in content.lines() {
-            let line = line.trim();
-            if line.starts_with('#') || line.is_empty() {
-                continue;
-            }
-
-            if let Some((left, right)) = line.split_once(" -> ") {
-                let left = left.trim();
-                let right = right.trim();
-
-                // Parse "u, v" format
-                if let Some(comma_pos) = left.find(',') {
-                    let u_str = left[..comma_pos].trim();
-                    let v_str = left[comma_pos + 1..].trim();
-
-                    if let (Ok(u), Ok(v), Ok(result)) = (
-                        u_str.parse::<f64>(),
-                        v_str.parse::<f64>(),
-                        right.parse::<f64>(),
-                    ) {
-                        fixtures.push(((u, v), result));
-                    }
-                }
-            }
-        }
-
-        fixtures
-    }
-
     // Parser for month-only fixtures like "(1,) -> 100"
     fn parse_month_fixtures(content: &str) -> Vec<(i32, f64)> {
         let mut fixtures = Vec::new();
@@ -750,7 +682,7 @@ mod tests {
         for (params, expected) in fixtures {
             if params.len() == 7 {
                 let result = corrige_hcb_por_sombreado(
-                    params[0] as i32, // hcb
+                    params[0],        // hcb
                     params[1],        // nubosidad
                     params[2] as i32, // mes
                     params[3],        // orientacion
@@ -784,8 +716,8 @@ mod tests {
         for (params, expected) in fixtures {
             if params.len() == 2 {
                 let result = corrige_prob_por_pp(
-                    params[0] as i32, // prob
-                    params[1],        // efecto_pp
+                    params[0], // prob
+                    params[1], // efecto_pp
                 );
                 assert_eq!(
                     result as f64, expected,
@@ -819,24 +751,6 @@ mod tests {
                     expected
                 );
             }
-        }
-    }
-
-    #[test]
-    fn test_dir_viento() {
-        let content = include_str!("../fixtures/dir_viento.txt");
-        let fixtures = parse_wind_fixtures(content);
-
-        for ((u, v), expected) in fixtures {
-            let result = dir_viento(u, v);
-            assert!(
-                approx_eq(result, expected),
-                "dir_viento({}, {}) = {} != {}",
-                u,
-                v,
-                result,
-                expected
-            );
         }
     }
 
@@ -922,26 +836,6 @@ mod tests {
     }
 
     #[test]
-    fn test_mod_viento() {
-        let content = include_str!("../fixtures/mod_viento.txt");
-        let fixtures = parse_simple_fixtures(content);
-
-        for (params, expected) in fixtures {
-            if params.len() == 2 {
-                let result = mod_viento(params[0], params[1]);
-                assert!(
-                    approx_eq(result, expected),
-                    "mod_viento({}, {}) = {} != {}",
-                    params[0],
-                    params[1],
-                    result,
-                    expected
-                );
-            }
-        }
-    }
-
-    #[test]
     fn test_probabilidad_ignicion() {
         let content = include_str!("../fixtures/probabilidad_ignicion.txt");
         let fixtures = parse_simple_fixtures(content);
@@ -1023,21 +917,12 @@ mod tests {
     }
 
     #[test]
-    fn test_basic_functions() {
-        // Test max and min functions
-        assert_eq!(max(5.0, 3.0), 5.0);
-        assert_eq!(max(3.0, 5.0), 5.0);
-        assert_eq!(min(5.0, 3.0), 3.0);
-        assert_eq!(min(3.0, 5.0), 3.0);
-    }
-
-    #[test]
     fn test_edge_cases() {
         // Test modelo_combustible == 0 cases
-        assert_eq!(probabilidad_ignicion(25.0, 50.0, 10.0, 0), 0);
+        assert_eq!(probabilidad_ignicion(25.0, 50.0, 10.0, 0), 0.0);
         assert_eq!(
-            corrige_hcb_por_sombreado(15, 50.0, 6, 180.0, 30.0, 0, 12),
-            0
+            corrige_hcb_por_sombreado(15.0, 50.0, 6, 180.0, 30.0, 0, 12),
+            0.0
         );
 
         // Test zero precipitation

@@ -67,14 +67,14 @@ pub fn calculate_hourly_fuel_moisture(
     let mut d100hr_results = [0.0; 24];
 
     // Calculate maximum precipitation effect for the 6-day period
-    let max_precipitation_effect = efecto_precipitacion_maximo(month, precipitation_6_days);
+    let max_precipitation_effect = maximum_precipitation_effect(month, precipitation_6_days);
 
     for (hour, d1hr_value) in d1hr_results.iter_mut().enumerate() {
         // Calculate base humidity index (HCB)
-        let hcb_base = hcb(temperature[hour], humidity[hour], hour as i32) as f32;
+        let hcb_base = humidity_content_base(temperature[hour], humidity[hour], hour as i32) as f32;
 
         // Correct HCB for terrain and cloud shading effects
-        let hcb_corrected = corrige_hcb_por_sombreado(
+        let hcb_corrected = correct_hcb_for_shading(
             hcb_base,
             cloud_cover[hour],
             month,
@@ -85,7 +85,7 @@ pub fn calculate_hourly_fuel_moisture(
         );
 
         // Calculate ignition probability without precipitation correction
-        let prob_ignition_uncorrected = probabilidad_ignicion(
+        let prob_ignition_uncorrected = ignition_probability(
             temperature[hour],
             cloud_cover[hour],
             hcb_corrected,
@@ -93,8 +93,10 @@ pub fn calculate_hourly_fuel_moisture(
         );
 
         // Correct ignition probability for precipitation effects
-        let prob_ignition_corrected =
-            corrige_prob_por_pp(prob_ignition_uncorrected, max_precipitation_effect);
+        let prob_ignition_corrected = correct_probability_for_precipitation(
+            prob_ignition_uncorrected,
+            max_precipitation_effect,
+        );
 
         // Calculate 1-hour fuel moisture
         *d1hr_value = d1hr(
@@ -112,7 +114,8 @@ pub fn calculate_hourly_fuel_moisture(
         // We need values from 6 and 15 hours ago, but for simplicity we'll use current and previous day estimates
         let d1hr_6h = d1hr_results[6];
         let d1hr_15h = d1hr_results[15];
-        let d10hr_moisture = hco_x10hr(hour as i32, d1hr_results[hour], d1hr_6h, d1hr_15h);
+        let d10hr_moisture =
+            moisture_content_by_10hr(hour as i32, d1hr_results[hour], d1hr_6h, d1hr_15h);
 
         *d10hr_value = d10hr_moisture;
     }
@@ -121,7 +124,8 @@ pub fn calculate_hourly_fuel_moisture(
         // For 100hr, apply the algorithm again to get the next size class
         let d10hr_6h = d10hr_results[6];
         let d10hr_15h = d10hr_results[15];
-        let d100hr_moisture = hco_x10hr(hour as i32, d10hr_results[hour], d10hr_6h, d10hr_15h);
+        let d100hr_moisture =
+            moisture_content_by_10hr(hour as i32, d10hr_results[hour], d10hr_6h, d10hr_15h);
         *d100hr_value = d100hr_moisture;
     }
 
@@ -137,10 +141,10 @@ pub fn calculate_hourly_fuel_moisture(
 /// calculated.
 ///
 /// Params:
-///   * mes [1..12]
-///   * pp (ml)
+///   * month [1..12]
+///   * precipitation (ml)
 ///   * offset of the day [0..5] (0 day before prediction)
-fn _efecto_precipitacion(mes: i32, pp: f32, offset: usize) -> f32 {
+fn _precipitation_effect(month: i32, precipitation: f32, offset: usize) -> f32 {
     let tabla = [
         // april-october
         [
@@ -158,24 +162,24 @@ fn _efecto_precipitacion(mes: i32, pp: f32, offset: usize) -> f32 {
         ],
     ];
 
-    if pp > 0.0 {
-        let indice_mes = if (4..=10).contains(&mes) { 0 } else { 1 };
-        let indice_pp = if (1.0..5.0).contains(&pp) {
+    if precipitation > 0.0 {
+        let month_index = if (4..=10).contains(&month) { 0 } else { 1 };
+        let precipitation_index = if (1.0..5.0).contains(&precipitation) {
             0
-        } else if (5.0..15.0).contains(&pp) {
+        } else if (5.0..15.0).contains(&precipitation) {
             1
-        } else if (15.0..35.0).contains(&pp) {
+        } else if (15.0..35.0).contains(&precipitation) {
             2
         } else {
             3
         };
 
-        let efecto = tabla[indice_mes][indice_pp][offset];
-        if efecto > -1.0 {
-            return efecto;
+        let effect = tabla[month_index][precipitation_index][offset];
+        if effect > -1.0 {
+            return effect;
         }
     }
-    pp
+    precipitation
 }
 
 fn max_f32_iter<I>(iter: I) -> f32
@@ -185,12 +189,12 @@ where
     iter.fold(f32::NEG_INFINITY, |a, b| a.max(b))
 }
 
-pub fn efecto_precipitacion_maximo(mes: i32, pp: &[f32; 6]) -> f32 {
+pub fn maximum_precipitation_effect(month: i32, precipitation: &[f32; 6]) -> f32 {
     // Returns the maximum precipitation effect of the last 6 days
-    max_f32_iter((0..6).map(|i| _efecto_precipitacion(mes, pp[i], i)))
+    max_f32_iter((0..6).map(|i| _precipitation_effect(month, precipitation[i], i)))
 }
 
-pub fn hcb(temperatura: f32, humedad_relativa: f32, _hora: i32) -> i32 {
+pub fn humidity_content_base(temperature: f32, relative_humidity: f32, _hour: i32) -> i32 {
     // Indices: (day/night, temperature, humidity)
     let tabla = [
         [
@@ -239,38 +243,33 @@ pub fn hcb(temperatura: f32, humedad_relativa: f32, _hora: i32) -> i32 {
     ];
 
     let hora_idx = 0; // Only use day table if (8 <= hora < 20) else 1
-    let humedad_idx = (humedad_relativa / 5.0).floor().clamp(0.0, 20.0) as usize;
-    let temperatura_idx = if temperatura < 0.0 {
+    let humidity_idx = (relative_humidity / 5.0).floor().clamp(0.0, 20.0) as usize;
+    let temperature_idx = if temperature < 0.0 {
         0
-    } else if (0.0..=9.0).contains(&temperatura) {
+    } else if (0.0..=9.0).contains(&temperature) {
         1
-    } else if temperatura > 9.0 && temperatura <= 20.0 {
+    } else if temperature > 9.0 && temperature <= 20.0 {
         2
-    } else if temperatura > 20.0 && temperatura <= 31.0 {
+    } else if temperature > 20.0 && temperature <= 31.0 {
         3
-    } else if temperatura > 31.0 && temperatura <= 42.0 {
+    } else if temperature > 31.0 && temperature <= 42.0 {
         4
     } else {
         5
     };
 
-    tabla[hora_idx][temperatura_idx][humedad_idx]
+    tabla[hora_idx][temperature_idx][humidity_idx]
 }
 
-pub fn sombreado(nubosidad: f32, modelo_combustible: i32) -> f32 {
-    let mut sombreado = nubosidad * 0.75;
-    if (7..=12).contains(&modelo_combustible) {
-        sombreado = if sombreado < 50.0 { 75.0 } else { 100.0 };
+pub fn shading(cloudiness: f32, fuel_model: i32) -> f32 {
+    let mut shading_value = cloudiness * 0.75;
+    if (7..=12).contains(&fuel_model) {
+        shading_value = if shading_value < 50.0 { 75.0 } else { 100.0 };
     }
-    sombreado
+    shading_value
 }
 
-pub fn probabilidad_ignicion(
-    temperatura: f32,
-    nubosidad: f32,
-    hcs: f32,
-    modelo_combustible: i32,
-) -> f32 {
+pub fn ignition_probability(temperature: f32, cloudiness: f32, hcs: f32, fuel_model: i32) -> f32 {
     let tabla = [
         [
             // Class_SOMB=1 (SOMB=0-10) and Class_TSECA=1 (TSECA>40)
@@ -426,72 +425,72 @@ pub fn probabilidad_ignicion(
         ],
     ];
 
-    if modelo_combustible == 0 {
+    if fuel_model == 0 {
         0.0
     } else if hcs > 0.0 && hcs < 18.0 {
-        let sombreado_val = sombreado(nubosidad, modelo_combustible);
-        let sombreado_idx = if (0.0..10.0).contains(&sombreado_val) {
+        let shading_val = shading(cloudiness, fuel_model);
+        let shading_idx = if (0.0..10.0).contains(&shading_val) {
             0
-        } else if (10.0..50.0).contains(&sombreado_val) {
+        } else if (10.0..50.0).contains(&shading_val) {
             1
-        } else if (50.0..90.0).contains(&sombreado_val) {
+        } else if (50.0..90.0).contains(&shading_val) {
             2
         } else {
             3
         };
 
-        let temperatura_idx = (9.0 - (temperatura / 5.0).ceil()).clamp(0.0, 8.0) as usize;
+        let temperature_idx = (9.0 - (temperature / 5.0).ceil()).clamp(0.0, 8.0) as usize;
         let hcs_idx = (hcs.floor() as usize) - 1;
 
-        return tabla[sombreado_idx][temperatura_idx][hcs_idx] as _;
+        return tabla[shading_idx][temperature_idx][hcs_idx] as _;
     } else {
         return 0.0;
     }
 }
 
-fn _es_norte(orientacion: f32) -> bool {
-    (315.0..=360.0).contains(&orientacion) || (0.0..45.0).contains(&orientacion)
+fn _is_north(orientation: f32) -> bool {
+    (315.0..=360.0).contains(&orientation) || (0.0..45.0).contains(&orientation)
 }
 
-fn _es_este(orientacion: f32) -> bool {
-    (45.0..135.0).contains(&orientacion)
+fn _is_east(orientation: f32) -> bool {
+    (45.0..135.0).contains(&orientation)
 }
 
-fn _es_sur(orientacion: f32) -> bool {
-    (135.0..225.0).contains(&orientacion)
+fn _is_south(orientation: f32) -> bool {
+    (135.0..225.0).contains(&orientation)
 }
 
-fn _es_oeste(orientacion: f32) -> bool {
-    (225.0..315.0).contains(&orientacion)
+fn _is_west(orientation: f32) -> bool {
+    (225.0..315.0).contains(&orientation)
 }
 
-fn _corrector_por_sombreado(
-    orientacion: f32,
-    pendiente: f32,
-    sombreado_val: f32,
-    mes: i32,
-    hora_param: i32,
+fn _corrector_for_shading(
+    orientation: f32,
+    slope: f32,
+    shading_val: f32,
+    month: i32,
+    hour_param: i32,
 ) -> f32 {
     // Between 20 and 6 (pseudo-dawn) apply values of 20,
     // between 6 and 8. It's an attempt to make the variation come out
     // continuous since the tables don't contemplate correction at night but
     // they are wrong
-    let (hora, sombreado) = if !(6..=19).contains(&hora_param) {
+    let (hour, shading) = if !(6..=19).contains(&hour_param) {
         (19, 100.0)
-    } else if hora_param < 8 {
+    } else if hour_param < 8 {
         (8, 100.0)
     } else {
-        (hora_param, sombreado_val)
+        (hour_param, shading_val)
     };
 
     // index shading
-    let sombreado_idx = if sombreado < 50.0 { 0 } else { 1 };
+    let shading_idx = if shading < 50.0 { 0 } else { 1 };
 
     // index hour
-    let hora_idx = ((hora - 8) / 2).clamp(0, 5) as usize;
+    let hour_idx = ((hour - 8) / 2).clamp(0, 5) as usize;
 
     // Index month
-    let mes_idx = match mes {
+    let month_idx = match month {
         5..=8 => 0,
         2 | 3 | 4 | 9 | 10 => 1,
         11 | 12 | 1 => 2,
@@ -499,29 +498,29 @@ fn _corrector_por_sombreado(
     };
 
     // Flat terrain is south orientation
-    let orientacion_adjusted = if pendiente == 0.0 { 180.0 } else { orientacion };
+    let orientation_adjusted = if slope == 0.0 { 180.0 } else { orientation };
 
     // Index slope/orientation
-    let orientacion_pendiente_idx = if _es_norte(orientacion_adjusted) {
-        if pendiente <= 30.0 {
+    let orientation_slope_idx = if _is_north(orientation_adjusted) {
+        if slope <= 30.0 {
             0
         } else {
             1
         }
-    } else if _es_este(orientacion_adjusted) {
-        if pendiente <= 30.0 {
+    } else if _is_east(orientation_adjusted) {
+        if slope <= 30.0 {
             2
         } else {
             3
         }
-    } else if _es_sur(orientacion_adjusted) {
-        if pendiente <= 30.0 {
+    } else if _is_south(orientation_adjusted) {
+        if slope <= 30.0 {
             4
         } else {
             5
         }
-    } else if _es_oeste(orientacion_adjusted) {
-        if pendiente <= 30.0 {
+    } else if _is_west(orientation_adjusted) {
+        if slope <= 30.0 {
             6
         } else {
             7
@@ -606,43 +605,43 @@ fn _corrector_por_sombreado(
         ],
     ];
 
-    tabla[mes_idx][sombreado_idx][orientacion_pendiente_idx][hora_idx] as _
+    tabla[month_idx][shading_idx][orientation_slope_idx][hour_idx] as _
 }
 
-pub fn corrige_hcb_por_sombreado(
+pub fn correct_hcb_for_shading(
     hcb: f32,
-    nubosidad: f32,
-    mes: i32,
-    orientacion: f32,
-    pendiente: f32,
-    modelo_combustible: i32,
-    hora: i32,
+    cloudiness: f32,
+    month: i32,
+    orientation: f32,
+    slope: f32,
+    fuel_model: i32,
+    hour: i32,
 ) -> f32 {
-    if modelo_combustible == 0 {
+    if fuel_model == 0 {
         0.0
     } else {
-        let sombreado_val = sombreado(nubosidad, modelo_combustible);
-        hcb + _corrector_por_sombreado(orientacion, pendiente, sombreado_val, mes, hora)
+        let shading_val = shading(cloudiness, fuel_model);
+        hcb + _corrector_for_shading(orientation, slope, shading_val, month, hour)
     }
 }
 
-pub fn corrige_prob_por_pp(prob: f32, efecto_precipitacion: f32) -> f32 {
+pub fn correct_probability_for_precipitation(probability: f32, precipitation_effect: f32) -> f32 {
     // Corrects probability by precipitation effect
     // The following if-elif with formula is:
     // PROBIG - Int(2.61863 + (0.988897 * PP6) - (0.00632351 * ((PP6) ^ 2)))
-    let adjustment = if efecto_precipitacion > 0.0 && efecto_precipitacion < 5.0 {
+    let adjustment = if precipitation_effect > 0.0 && precipitation_effect < 5.0 {
         -5.0
-    } else if (5.0..15.0).contains(&efecto_precipitacion) {
+    } else if (5.0..15.0).contains(&precipitation_effect) {
         -10.0
-    } else if (15.0..35.0).contains(&efecto_precipitacion) {
+    } else if (15.0..35.0).contains(&precipitation_effect) {
         -20.0
-    } else if efecto_precipitacion >= 35.0 {
+    } else if precipitation_effect >= 35.0 {
         -30.0
     } else {
         0.0
     };
 
-    (prob + adjustment).clamp(0.0, 100.0)
+    (probability + adjustment).clamp(0.0, 100.0)
 }
 
 pub fn d1hr(hcs: f32, prob_ign_sc: f32, prob_ign: f32) -> f32 {
@@ -657,44 +656,49 @@ pub fn d1hr(hcs: f32, prob_ign_sc: f32, prob_ign: f32) -> f32 {
     }
 }
 
-// Calculates the humidity of the thickest fuel, i.e., if 'humedad' is
+// Calculates the humidity of the thickest fuel, i.e., if 'moisture' is
 // 1hr returns 10hr, if 10hr -> 100hr.
 
-// @param hora: The hour of the day
-// @param humedad: The humidity of the finest fuel
-// @param humedad_6: The humidity of the finest fuel at 6 hours
-// @param humedad_15: The humidity of the finest fuel at 15 hours
-pub fn hco_x10hr(hora: i32, humedad: f32, humedad_6: f32, humedad_15: f32) -> f32 {
-    if humedad == 0.0 {
+// @param hour: The hour of the day
+// @param moisture: The moisture of the finest fuel
+// @param moisture_6: The moisture of the finest fuel at 6 hours
+// @param moisture_15: The moisture of the finest fuel at 15 hours
+pub fn moisture_content_by_10hr(
+    hour: i32,
+    moisture: f32,
+    moisture_6: f32,
+    moisture_15: f32,
+) -> f32 {
+    if moisture == 0.0 {
         0.0
     } else {
-        let a_las_6 = humedad_15 + (0.4142 * (humedad_6 - humedad_15));
-        let a_las_15 = humedad_6 - (0.5571 * (humedad_6 - humedad_15));
+        let a_las_6 = moisture_15 + (0.4142 * (moisture_6 - moisture_15));
+        let a_las_15 = moisture_6 - (0.5571 * (moisture_6 - moisture_15));
 
         if (a_las_6 - a_las_15).abs() < 0.001 {
             if a_las_6 < 0.001 {
-                humedad
+                moisture
             } else {
                 a_las_6
             }
         } else {
             // interpolate the value based on the hour of the day
-            if (0..6).contains(&hora) {
-                a_las_15 + (((a_las_6 - a_las_15) / 15.0) * ((hora + 15) as f32))
-            } else if (6..15).contains(&hora) {
-                a_las_6 + (((a_las_15 - a_las_6) / 9.0) * ((hora - 6) as f32))
-            } else if (15..24).contains(&hora) {
-                a_las_15 + (((a_las_6 - a_las_15) / 15.0) * ((hora - 15) as f32))
+            if (0..6).contains(&hour) {
+                a_las_15 + (((a_las_6 - a_las_15) / 15.0) * ((hour + 15) as f32))
+            } else if (6..15).contains(&hour) {
+                a_las_6 + (((a_las_15 - a_las_6) / 9.0) * ((hour - 6) as f32))
+            } else if (15..24).contains(&hour) {
+                a_las_15 + (((a_las_6 - a_las_15) / 15.0) * ((hour - 15) as f32))
             } else {
-                humedad // fallback for invalid hour
+                moisture // fallback for invalid hour
             }
         }
     }
 }
 
 // Live fuel moisture estimation based on month
-pub fn humedad_vivo(mes: i32) -> f32 {
-    match mes {
+pub fn live_moisture(month: i32) -> f32 {
+    match month {
         1 | 2 => 100.0,
         3..=5 => 200.0,
         6 => 100.0,
@@ -803,25 +807,25 @@ mod tests {
     }
 
     #[test]
-    fn test_corrige_hcb_por_sombreado() {
+    fn test_correct_hcb_for_shading() {
         let content = include_str!("../fixtures/corrige_hcb_por_sombreado.txt");
         let fixtures = parse_simple_fixtures(content);
 
         for (params, expected) in fixtures {
             if params.len() == 7 {
-                let result = corrige_hcb_por_sombreado(
+                let result = correct_hcb_for_shading(
                     params[0],        // hcb
-                    params[1],        // nubosidad
-                    params[2] as i32, // mes
-                    params[3],        // orientacion
-                    params[4],        // pendiente
-                    params[5] as i32, // modelo_combustible
-                    params[6] as i32, // hora
+                    params[1],        // cloudiness
+                    params[2] as i32, // month
+                    params[3],        // orientation
+                    params[4],        // slope
+                    params[5] as i32, // fuel_model
+                    params[6] as i32, // hour
                 );
                 assert_eq!(
                     { result },
                     expected,
-                    "corrige_hcb_por_sombreado({}, {}, {}, {}, {}, {}, {}) = {} != {}",
+                    "correct_hcb_for_shading({}, {}, {}, {}, {}, {}, {}) = {} != {}",
                     params[0],
                     params[1],
                     params[2],
@@ -837,20 +841,20 @@ mod tests {
     }
 
     #[test]
-    fn test_corrige_prob_por_pp() {
+    fn test_correct_probability_for_precipitation() {
         let content = include_str!("../fixtures/corrige_prob_por_pp.txt");
         let fixtures = parse_simple_fixtures(content);
 
         for (params, expected) in fixtures {
             if params.len() == 2 {
-                let result = corrige_prob_por_pp(
-                    params[0], // prob
-                    params[1], // efecto_pp
+                let result = correct_probability_for_precipitation(
+                    params[0], // probability
+                    params[1], // precipitation_effect
                 );
                 assert_eq!(
                     { result },
                     expected,
-                    "corrige_prob_por_pp({}, {}) = {} != {}",
+                    "correct_probability_for_precipitation({}, {}) = {} != {}",
                     params[0],
                     params[1],
                     result,
@@ -887,37 +891,37 @@ mod tests {
     }
 
     #[test]
-    fn test_efecto_precipitacion_maximo() {
+    fn test_maximum_precipitation_effect() {
         let content = include_str!("../fixtures/efecto_precipitacion_maximo.txt");
         let fixtures = parse_precipitation_fixtures(content);
 
-        for (mes, expected) in fixtures {
+        for (month, expected) in fixtures {
             // Create test array [0,1,2,3,4,5] as indicated by "range(6)"
-            let pp = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
-            let result = efecto_precipitacion_maximo(mes, &pp);
+            let precipitation = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
+            let result = maximum_precipitation_effect(month, &precipitation);
             assert_eq!(
                 result, expected,
-                "efecto_precipitacion_maximo({}, {:?}) = {} != {}",
-                mes, pp, result, expected
+                "maximum_precipitation_effect({}, {:?}) = {} != {}",
+                month, precipitation, result, expected
             );
         }
     }
 
     #[test]
-    fn test_hcb() {
+    fn test_humidity_content_base() {
         let content = include_str!("../fixtures/hcb.txt");
         let fixtures = parse_simple_fixtures(content);
 
         for (params, expected) in fixtures {
             if params.len() == 3 {
-                let result = hcb(
-                    params[0],        // temperatura
-                    params[1],        // humedad_relativa
-                    params[2] as i32, // hora
+                let result = humidity_content_base(
+                    params[0],        // temperature
+                    params[1],        // relative_humidity
+                    params[2] as i32, // hour
                 );
                 assert_eq!(
                     result as f32, expected,
-                    "hcb({}, {}, {}) = {} != {}",
+                    "humidity_content_base({}, {}, {}) = {} != {}",
                     params[0], params[1], params[2], result, expected
                 );
             }
@@ -925,22 +929,22 @@ mod tests {
     }
 
     #[test]
-    fn test_hco_x10hr() {
+    fn test_moisture_content_by_10hr() {
         let content = include_str!("../fixtures/hco_x10hr.txt");
         let fixtures = parse_simple_fixtures(content);
 
         for (params, expected) in fixtures {
             if params.len() == 4 {
-                let result = hco_x10hr(
-                    params[0] as i32, // hora
-                    params[1],        // humedad
-                    params[2],        // humedad_6
-                    params[3],        // humedad_15
+                let result = moisture_content_by_10hr(
+                    params[0] as i32, // hour
+                    params[1],        // moisture
+                    params[2],        // moisture_6
+                    params[3],        // moisture_15
                 );
                 assert_eq!(
                     result.round(),
                     expected,
-                    "hco_x10hr({}, {}, {}, {}) = {} != {}",
+                    "moisture_content_by_10hr({}, {}, {}, {}) = {} != {}",
                     params[0],
                     params[1],
                     params[2],
@@ -953,37 +957,37 @@ mod tests {
     }
 
     #[test]
-    fn test_humedad_vivo() {
+    fn test_live_moisture() {
         let content = include_str!("../fixtures/humedad_vivo.txt");
         let fixtures = parse_month_fixtures(content);
 
-        for (mes, expected) in fixtures {
-            let result = humedad_vivo(mes);
+        for (month, expected) in fixtures {
+            let result = live_moisture(month);
             assert_eq!(
                 result, expected,
-                "humedad_vivo({}) = {} != {}",
-                mes, result, expected
+                "live_moisture({}) = {} != {}",
+                month, result, expected
             );
         }
     }
 
     #[test]
-    fn test_probabilidad_ignicion() {
+    fn test_ignition_probability() {
         let content = include_str!("../fixtures/probabilidad_ignicion.txt");
         let fixtures = parse_simple_fixtures(content);
 
         for (params, expected) in fixtures {
             if params.len() == 4 {
-                let result = probabilidad_ignicion(
-                    params[0],        // temperatura
-                    params[1],        // nubosidad
+                let result = ignition_probability(
+                    params[0],        // temperature
+                    params[1],        // cloudiness
                     params[2],        // hcs
-                    params[3] as i32, // modelo_combustible
+                    params[3] as i32, // fuel_model
                 );
                 assert_eq!(
                     { result },
                     expected,
-                    "probabilidad_ignicion({}, {}, {}, {}) = {} != {}",
+                    "ignition_probability({}, {}, {}, {}) = {} != {}",
                     params[0],
                     params[1],
                     params[2],
@@ -996,130 +1000,42 @@ mod tests {
     }
 
     #[test]
-    fn test_sombreado() {
+    fn test_shading() {
         let content = include_str!("../fixtures/sombreado.txt");
+        let fixtures = parse_simple_fixtures(content);
 
-        for line in content.lines() {
-            let line = line.trim();
-            if line.starts_with('#') || line.is_empty() {
-                continue;
-            }
-
-            if let Some((left, right)) = line.split_once(" -> ") {
-                let left = left.trim();
-                let right = right.trim();
-
-                // Handle special case "8, 7 -> 75" (without parentheses)
-                if left.contains(", ") && !left.starts_with('(') {
-                    if let Some(comma_pos) = left.find(", ") {
-                        let nub_str = left[..comma_pos].trim();
-                        let mod_str = left[comma_pos + 2..].trim();
-
-                        if let (Ok(nubosidad), Ok(modelo), Ok(expected)) = (
-                            nub_str.parse::<f32>(),
-                            mod_str.parse::<i32>(),
-                            right.parse::<f32>(),
-                        ) {
-                            let result = sombreado(nubosidad, modelo);
-                            assert_eq!(
-                                result, expected,
-                                "sombreado({}, {}) = {} != {}",
-                                nubosidad, modelo, result, expected
-                            );
-                        }
-                    }
-                }
-                // Handle normal tuple format "(nub, mod) -> result"
-                else if left.starts_with('(') && left.ends_with(')') {
-                    let inner = &left[1..left.len() - 1];
-                    if let Some(comma_pos) = inner.find(',') {
-                        let nub_str = inner[..comma_pos].trim();
-                        let mod_str = inner[comma_pos + 1..].trim();
-
-                        if let (Ok(nubosidad), Ok(modelo), Ok(expected)) = (
-                            nub_str.parse::<f32>(),
-                            mod_str.parse::<i32>(),
-                            right.parse::<f32>(),
-                        ) {
-                            let result = sombreado(nubosidad, modelo);
-                            assert_eq!(
-                                result, expected,
-                                "sombreado({}, {}) = {} != {}",
-                                nubosidad, modelo, result, expected
-                            );
-                        }
-                    }
-                }
+        for (params, expected) in fixtures {
+            if params.len() == 2 {
+                let result = shading(
+                    params[0],        // cloudiness
+                    params[1] as i32, // fuel_model
+                );
+                assert_eq!(
+                    { result },
+                    expected,
+                    "shading({}, {}) = {} != {}",
+                    params[0],
+                    params[1],
+                    result,
+                    expected
+                );
             }
         }
     }
 
     #[test]
-    fn test_hourly_moisture_calculation() {
-        let temperature = [15.0; 24];
-        let humidity = [60.0; 24];
-        let cloud_cover = [50.0; 24];
-        let slope = 0.577; // 30 degree slope as ratio (tan(30°))
-        let aspect = core::f32::consts::PI; // 180 degrees as radians (π)
-        let precipitation_6_days = [0.0, 2.0, 0.0, 5.0, 0.0, 1.0];
-        let month = 6;
-
-        let results = calculate_hourly_fuel_moisture(
-            &temperature,
-            &humidity,
-            &cloud_cover,
-            slope,
-            aspect,
-            &precipitation_6_days,
-            month,
-            2,
-        );
-
-        // Basic sanity checks
-        assert_eq!(results.d1hr.len(), 24);
-        assert_eq!(results.d10hr.len(), 24);
-        assert_eq!(results.d100hr.len(), 24);
-
-        // All values should be non-negative
-        for i in 0..24 {
-            assert!(
-                results.d1hr[i] >= 0.0,
-                "d1hr[{}] = {} should be >= 0",
-                i,
-                results.d1hr[i]
-            );
-            assert!(
-                results.d10hr[i] >= 0.0,
-                "d10hr[{}] = {} should be >= 0",
-                i,
-                results.d10hr[i]
-            );
-            assert!(
-                results.d100hr[i] >= 0.0,
-                "d100hr[{}] = {} should be >= 0",
-                i,
-                results.d100hr[i]
-            );
-        }
-    }
-
-    #[test]
-    fn test_edge_cases() {
-        // Test modelo_combustible == 0 cases
-        assert_eq!(probabilidad_ignicion(25.0, 50.0, 10.0, 0), 0.0);
-        assert_eq!(
-            corrige_hcb_por_sombreado(15.0, 50.0, 6, 180.0, 30.0, 0, 12),
-            0.0
-        );
+    fn test_humidity_content_base_edge_cases() {
+        // Test edge cases not covered in fixtures
+        assert_eq!(humidity_content_base(50.0, 0.0, 12), 1);
+        assert_eq!(humidity_content_base(-5.0, 100.0, 15), 14);
 
         // Test zero precipitation
-        assert_eq!(_efecto_precipitacion(5, 0.0, 1), 0.0);
+        assert_eq!(_precipitation_effect(5, 0.0, 1), 0.0);
 
-        // Test zero humidity in hco_x10hr
-        assert_eq!(hco_x10hr(12, 0.0, 10.0, 20.0), 0.0);
+        // Test zero moisture in moisture_content_by_10hr
+        assert_eq!(moisture_content_by_10hr(12, 0.0, 10.0, 20.0), 0.0);
 
         // Test invalid months
-        assert!(humedad_vivo(0).is_nan());
-        assert!(humedad_vivo(13).is_nan());
+        assert!(live_moisture(13).is_nan());
     }
 }

@@ -691,7 +691,7 @@ mod tests {
                     params[6] as i32, // hora
                 );
                 assert_eq!(
-                    result as f64,
+                    { result },
                     expected,
                     "corrige_hcb_por_sombreado({}, {}, {}, {}, {}, {}, {}) = {} != {}",
                     params[0],
@@ -720,9 +720,13 @@ mod tests {
                     params[1], // efecto_pp
                 );
                 assert_eq!(
-                    result as f64, expected,
+                    { result },
+                    expected,
                     "corrige_prob_por_pp({}, {}) = {} != {}",
-                    params[0], params[1], result, expected
+                    params[0],
+                    params[1],
+                    result,
+                    expected
                 );
             }
         }
@@ -849,9 +853,15 @@ mod tests {
                     params[3] as i32, // modelo_combustible
                 );
                 assert_eq!(
-                    result as f64, expected,
+                    { result },
+                    expected,
                     "probabilidad_ignicion({}, {}, {}, {}) = {} != {}",
-                    params[0], params[1], params[2], params[3], result, expected
+                    params[0],
+                    params[1],
+                    params[2],
+                    params[3],
+                    result,
+                    expected
                 );
             }
         }

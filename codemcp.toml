@@ -1,0 +1,4 @@
+# codemcp configuration file
+[commands]
+test = ["./run_test.sh"]
+format = ["./run_fmt.sh"]

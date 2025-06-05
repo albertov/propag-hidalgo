@@ -221,7 +221,7 @@ mod tests {
                 terrain.d1hr.get::<ratio>().into(),
                 terrain.d10hr.get::<ratio>().into(),
                 terrain.d100hr.get::<ratio>().into(),
-                (0.0).into(),
+                (0.0),
                 terrain.herb.get::<ratio>().into(),
                 terrain.wood.get::<ratio>().into(),
             ];

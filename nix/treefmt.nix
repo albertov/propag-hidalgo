@@ -5,6 +5,7 @@
   projectRootFile = "flake.nix";
   programs.nixfmt.enable = true;
   programs.rustfmt.enable = true;
+  programs.rustfmt.package = pkgs.rustfmt;
   programs.clang-format.enable = true;
   programs.clang-format.includes = [
     "*.cu"

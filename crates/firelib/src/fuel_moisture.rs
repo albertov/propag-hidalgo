@@ -47,7 +47,7 @@ pub fn create_terrain_with_fuel_moisture(
     );
 
     // Calculate live fuel moisture based on month
-    let live_moisture = dmoist::humedad_vivo(month) / 100.0; // Convert from percentage to ratio
+    let live_moisture = dmoist::live_moisture(month) / 100.0; // Convert from percentage to ratio
 
     // Create array using core::array::from_fn for each hour
     core::array::from_fn(|hour| TerrainCuda {

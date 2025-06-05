@@ -106,7 +106,7 @@ mod tests {
         assert!(terrain_12.d100hr >= 0.0 && terrain_12.d100hr <= 1.0);
 
         // Test that all hours have the same fuel_code and terrain parameters
-        for (hour, terrain) in terrain_array.iter().enumerate() {
+        for terrain in terrain_array.iter() {
             assert_eq!(terrain.fuel_code, 3);
             assert_eq!(terrain.wind_speed, 5.0); // All hours have same wind in test data
             assert_eq!(terrain.wind_azimuth, 180.0);

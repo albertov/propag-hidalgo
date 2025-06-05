@@ -1060,7 +1060,7 @@ mod tests {
         let humidity = [60.0; 24];
         let cloud_cover = [50.0; 24];
         let slope = 0.577; // 30 degree slope as ratio (tan(30°))
-        let aspect = 3.14159; // 180 degrees as radians (π)
+        let aspect = core::f32::consts::PI; // 180 degrees as radians (π)
         let precipitation_6_days = [0.0, 2.0, 0.0, 5.0, 0.0, 1.0];
         let month = 6;
 

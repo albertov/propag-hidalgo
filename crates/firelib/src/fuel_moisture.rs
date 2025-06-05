@@ -1,17 +1,17 @@
-use crate::float;
 use crate::TerrainCuda;
 #[allow(unused_imports)]
 use num_traits::Float;
+use num_traits::FloatConst;
 
 /// Output data for hourly fuel moisture calculation
 #[derive(Debug, Clone)]
 pub struct HourlyMoistureResults {
     /// 1-hour fuel moisture values for each hour [0-23]
-    pub d1hr: [float::T; 24],
+    pub d1hr: [f32; 24],
     /// 10-hour fuel moisture values for each hour [0-23]
-    pub d10hr: [float::T; 24],
+    pub d10hr: [f32; 24],
     /// 100-hour fuel moisture values for each hour [0-23]
-    pub d100hr: [float::T; 24],
+    pub d100hr: [f32; 24],
 }
 
 // Calculate hourly fuel moisture values using dmoist algorithms
@@ -51,12 +51,12 @@ pub struct HourlyMoistureResults {
 // ```
 #[allow(clippy::too_many_arguments)]
 pub fn calculate_hourly_fuel_moisture(
-    temperature: &[float::T; 24],
-    humidity: &[float::T; 24],
-    cloud_cover: &[float::T; 24],
-    slope: float::T,
-    aspect: float::T,
-    precipitation_6_days: &[float::T; 6],
+    temperature: &[f32; 24],
+    humidity: &[f32; 24],
+    cloud_cover: &[f32; 24],
+    slope: f32,
+    aspect: f32,
+    precipitation_6_days: &[f32; 6],
     month: i32,
     fuel_model: i32,
 ) -> HourlyMoistureResults {
@@ -69,15 +69,15 @@ pub fn calculate_hourly_fuel_moisture(
 
     for (hour, d1hr) in d1hr_results.iter_mut().enumerate() {
         // Calculate base humidity index (HCB)
-        let hcb_base = dmoist::hcb(temperature[hour], humidity[hour], hour as i32) as float::T;
+        let hcb_base = dmoist::hcb(temperature[hour], humidity[hour], hour as i32) as f32;
 
         // Correct HCB for terrain and cloud shading effects
         let hcb_corrected = dmoist::corrige_hcb_por_sombreado(
             hcb_base,
             cloud_cover[hour],
             month,
-            aspect * 180.0 / float::PI,       // Convert radians to degrees
-            slope.atan() * 180.0 / float::PI, // Convert ratio to degrees
+            aspect * 180.0 / f32::PI(),       // Convert radians to degrees
+            slope.atan() * 180.0 / f32::PI(), // Convert ratio to degrees
             fuel_model,
             hour as i32,
         );
@@ -112,7 +112,7 @@ pub fn calculate_hourly_fuel_moisture(
         let d1hr_15h = d1hr_results[15];
         let d10hr_moisture = dmoist::hco_x10hr(hour as i32, d1hr_results[hour], d1hr_6h, d1hr_15h);
 
-        *d10hr = d10hr_moisture as float::T;
+        *d10hr = d10hr_moisture as f32;
     }
 
     for (hour, d100hr) in d100hr_results.iter_mut().enumerate() {
@@ -121,7 +121,7 @@ pub fn calculate_hourly_fuel_moisture(
         let d10hr_15h = d10hr_results[15];
         let d100hr_moisture =
             dmoist::hco_x10hr(hour as i32, d10hr_results[hour], d10hr_6h, d10hr_15h);
-        *d100hr = d100hr_moisture as float::T;
+        *d100hr = d100hr_moisture as f32;
     }
 
     HourlyMoistureResults {
@@ -153,17 +153,17 @@ pub fn calculate_hourly_fuel_moisture(
 /// * `TerrainCuda` instance ready for fire behavior calculations
 #[allow(clippy::too_many_arguments)]
 pub fn create_terrain_with_fuel_moisture(
-    temperature: &[float::T; 24],
-    humidity: &[float::T; 24],
-    cloud_cover: &[float::T; 24],
-    slope: float::T,
-    aspect: float::T,
-    precipitation_6_days: &[float::T; 6],
+    temperature: &[f32; 24],
+    humidity: &[f32; 24],
+    cloud_cover: &[f32; 24],
+    slope: f32,
+    aspect: f32,
+    precipitation_6_days: &[f32; 6],
     month: i32,
     fuel_model: u8,
     hour: usize,
-    wind_speed: float::T,
-    wind_azimuth: float::T,
+    wind_speed: f32,
+    wind_azimuth: f32,
 ) -> TerrainCuda {
     assert!(hour < 24, "Hour must be 0-23");
 
@@ -179,7 +179,7 @@ pub fn create_terrain_with_fuel_moisture(
     );
 
     // Calculate live fuel moisture based on month
-    let live_moisture = dmoist::humedad_vivo(month) as float::T / 100.0; // Convert from percentage to ratio
+    let live_moisture = dmoist::humedad_vivo(month) as f32 / 100.0; // Convert from percentage to ratio
 
     TerrainCuda {
         fuel_code: fuel_model,
@@ -190,8 +190,8 @@ pub fn create_terrain_with_fuel_moisture(
         wood: live_moisture,
         wind_speed,
         wind_azimuth,
-        slope: slope as float::T, // Slope is already a ratio
-        aspect: aspect as float::T,
+        slope,
+        aspect,
     }
 }
 

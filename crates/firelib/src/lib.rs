@@ -26,6 +26,87 @@ pub mod units;
 pub use crate::cuda::*;
 pub use crate::firelib::*;
 
+/// Fuel moisture calculation module
+pub mod fuel_moisture;
+pub use fuel_moisture::*;
+
+// Example of how to use the new fuel moisture functionality
+//
+// # Example: Calculate hourly fuel moisture and create terrain
+//
+// ```no_run
+// use firelib::fuel_moisture::{HourlyMoistureInputs, calculate_hourly_fuel_moisture, create_terrain_with_fuel_moisture};
+// use firelib::Catalog;
+//
+// // Create meteorological inputs for a summer day
+// let inputs = HourlyMoistureInputs {
+//     // Temperature varies from cool morning to warm afternoon
+//     temperature: [
+//         12.0, 11.0, 10.0, 10.0, 11.0, 12.0,  // 00-05: cool night
+//         14.0, 16.0, 18.0, 20.0, 22.0, 24.0,  // 06-11: warming morning
+//         26.0, 27.0, 28.0, 27.0, 25.0, 23.0,  // 12-17: hot afternoon
+//         21.0, 19.0, 17.0, 15.0, 14.0, 13.0   // 18-23: cooling evening
+//     ],
+//     // Humidity inversely related to temperature (typical diurnal pattern)
+//     humidity: [
+//         85.0, 88.0, 90.0, 92.0, 90.0, 85.0,  // 00-05: high humidity at night
+//         80.0, 75.0, 70.0, 65.0, 60.0, 55.0,  // 06-11: decreasing humidity
+//         50.0, 45.0, 40.0, 45.0, 50.0, 55.0,  // 12-17: low humidity midday
+//         60.0, 65.0, 70.0, 75.0, 80.0, 82.0   // 18-23: increasing humidity
+//     ],
+//     // Partly cloudy with some afternoon cloud development
+//     cloud_cover: [
+//         30.0, 25.0, 20.0, 15.0, 10.0, 15.0,  // 00-05: clear night
+//         20.0, 25.0, 30.0, 40.0, 50.0, 60.0,  // 06-11: increasing clouds
+//         70.0, 75.0, 70.0, 65.0, 60.0, 55.0,  // 12-17: afternoon clouds
+//         50.0, 45.0, 40.0, 35.0, 32.0, 30.0   // 18-23: clearing evening
+//     ],
+//     slope: 25.0,              // 25 degree slope
+//     aspect: 225.0,            // Southwest-facing slope
+//     // Precipitation history: light rain 3 days ago, moderate rain 5 days ago
+//     precipitation_6_days: [0.0, 0.0, 3.0, 0.0, 12.0, 0.0],
+//     month: 7,                 // July (summer conditions)
+// };
+//
+// // Calculate fuel moisture for the entire day
+// let moisture_results = calculate_hourly_fuel_moisture(&inputs, 3); // Fuel model 3 (tall grass)
+//
+// // Create terrain for fire simulation at 2 PM (hour 14) - typically the fire danger peak
+// let afternoon_terrain = create_terrain_with_fuel_moisture(
+//     &inputs,
+//     3,        // NFFL fuel model 3
+//     14,       // 2 PM
+//     8.5,      // 8.5 m/s wind speed
+//     225.0     // Southwest wind (upslope)
+// );
+//
+// // Run fire behavior simulation
+// if let Some(fire) = Catalog::STANDARD.burn(&afternoon_terrain.into()) {
+//     println!("Fire behavior at 2 PM:");
+//     println!("  Max spread rate: {:.2} m/min", fire.speed_max.value * 0.3048);
+//     println!("  Flame length: {:.2} m", fire.flame_max().value * 0.3048);
+//     println!("  1hr fuel moisture: {:.1}%", afternoon_terrain.d1hr * 100.0);
+//     println!("  10hr fuel moisture: {:.1}%", afternoon_terrain.d10hr * 100.0);
+//     println!("  100hr fuel moisture: {:.1}%", afternoon_terrain.d100hr * 100.0);
+// }
+//
+// // Compare with morning conditions (hour 6)
+// let morning_terrain = create_terrain_with_fuel_moisture(
+//     &inputs,
+//     3,        // Same fuel model
+//     6,        // 6 AM
+//     3.2,      // Lighter morning wind
+//     180.0     // South wind
+// );
+//
+// if let Some(morning_fire) = Catalog::STANDARD.burn(&morning_terrain.into()) {
+//     println!("\nFire behavior at 6 AM:");
+//     println!("  Max spread rate: {:.2} m/min", morning_fire.speed_max.value * 0.3048);
+//     println!("  Flame length: {:.2} m", morning_fire.flame_max().value * 0.3048);
+//     println!("  1hr fuel moisture: {:.1}%", morning_terrain.d1hr * 100.0);
+// }
+// ```
+
 impl Catalog {
     pub const STANDARD: Catalog = Catalog::make([
         Fuel::standard(b"NoFuel", b"No Combustible Fuel", 0.1, 0.01, []),

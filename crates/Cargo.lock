@@ -502,6 +502,7 @@ dependencies = [
  "const_soft_float",
  "cuda_std",
  "cust_core",
+ "dmoist",
  "firelib-sys",
  "geometry",
  "glam 0.30.3",

@@ -12,7 +12,7 @@ use num::Float::nan;
 ///   * mes [1..12]
 ///   * pp (ml)
 ///   * offset of the day [0..5] (0 day before prediction)
-fn _efecto_precipitacion(mes: i32, pp: f64, offset: usize) -> f64 {
+fn _efecto_precipitacion(mes: i32, pp: f32, offset: usize) -> f32 {
     let tabla = [
         // april-october
         [
@@ -50,19 +50,19 @@ fn _efecto_precipitacion(mes: i32, pp: f64, offset: usize) -> f64 {
     pp
 }
 
-fn max_f64_iter<I>(iter: I) -> f64
+fn max_f32_iter<I>(iter: I) -> f32
 where
-    I: Iterator<Item = f64>,
+    I: Iterator<Item = f32>,
 {
-    iter.fold(f64::NEG_INFINITY, |a, b| a.max(b))
+    iter.fold(f32::NEG_INFINITY, |a, b| a.max(b))
 }
 
-pub fn efecto_precipitacion_maximo(mes: i32, pp: &[f64; 6]) -> f64 {
+pub fn efecto_precipitacion_maximo(mes: i32, pp: &[f32; 6]) -> f32 {
     // Returns the maximum precipitation effect of the last 6 days
-    max_f64_iter((0..6).map(|i| _efecto_precipitacion(mes, pp[i], i)))
+    max_f32_iter((0..6).map(|i| _efecto_precipitacion(mes, pp[i], i)))
 }
 
-pub fn hcb(temperatura: f64, humedad_relativa: f64, _hora: i32) -> i32 {
+pub fn hcb(temperatura: f32, humedad_relativa: f32, _hora: i32) -> i32 {
     // Indices: (day/night, temperature, humidity)
     let tabla = [
         [
@@ -129,7 +129,7 @@ pub fn hcb(temperatura: f64, humedad_relativa: f64, _hora: i32) -> i32 {
     tabla[hora_idx][temperatura_idx][humedad_idx]
 }
 
-pub fn sombreado(nubosidad: f64, modelo_combustible: i32) -> f64 {
+pub fn sombreado(nubosidad: f32, modelo_combustible: i32) -> f32 {
     let mut sombreado = nubosidad * 0.75;
     if (7..=12).contains(&modelo_combustible) {
         sombreado = if sombreado < 50.0 { 75.0 } else { 100.0 };
@@ -138,11 +138,11 @@ pub fn sombreado(nubosidad: f64, modelo_combustible: i32) -> f64 {
 }
 
 pub fn probabilidad_ignicion(
-    temperatura: f64,
-    nubosidad: f64,
-    hcs: f64,
+    temperatura: f32,
+    nubosidad: f32,
+    hcs: f32,
     modelo_combustible: i32,
-) -> f64 {
+) -> f32 {
     let tabla = [
         [
             // Class_SOMB=1 (SOMB=0-10) and Class_TSECA=1 (TSECA>40)
@@ -321,29 +321,29 @@ pub fn probabilidad_ignicion(
     }
 }
 
-fn _es_norte(orientacion: f64) -> bool {
+fn _es_norte(orientacion: f32) -> bool {
     (315.0..=360.0).contains(&orientacion) || (0.0..45.0).contains(&orientacion)
 }
 
-fn _es_este(orientacion: f64) -> bool {
+fn _es_este(orientacion: f32) -> bool {
     (45.0..135.0).contains(&orientacion)
 }
 
-fn _es_sur(orientacion: f64) -> bool {
+fn _es_sur(orientacion: f32) -> bool {
     (135.0..225.0).contains(&orientacion)
 }
 
-fn _es_oeste(orientacion: f64) -> bool {
+fn _es_oeste(orientacion: f32) -> bool {
     (225.0..315.0).contains(&orientacion)
 }
 
 fn _corrector_por_sombreado(
-    orientacion: f64,
-    pendiente: f64,
-    sombreado_val: f64,
+    orientacion: f32,
+    pendiente: f32,
+    sombreado_val: f32,
     mes: i32,
     hora_param: i32,
-) -> f64 {
+) -> f32 {
     // Between 20 and 6 (pseudo-dawn) apply values of 20,
     // between 6 and 8. It's an attempt to make the variation come out
     // continuous since the tables don't contemplate correction at night but
@@ -482,14 +482,14 @@ fn _corrector_por_sombreado(
 }
 
 pub fn corrige_hcb_por_sombreado(
-    hcb: f64,
-    nubosidad: f64,
+    hcb: f32,
+    nubosidad: f32,
     mes: i32,
-    orientacion: f64,
-    pendiente: f64,
+    orientacion: f32,
+    pendiente: f32,
     modelo_combustible: i32,
     hora: i32,
-) -> f64 {
+) -> f32 {
     if modelo_combustible == 0 {
         0.0
     } else {
@@ -498,7 +498,7 @@ pub fn corrige_hcb_por_sombreado(
     }
 }
 
-pub fn corrige_prob_por_pp(prob: f64, efecto_precipitacion: f64) -> f64 {
+pub fn corrige_prob_por_pp(prob: f32, efecto_precipitacion: f32) -> f32 {
     // Corrects probability by precipitation effect
     // The following if-elif with formula is:
     // PROBIG - Int(2.61863 + (0.988897 * PP6) - (0.00632351 * ((PP6) ^ 2)))
@@ -517,7 +517,7 @@ pub fn corrige_prob_por_pp(prob: f64, efecto_precipitacion: f64) -> f64 {
     (prob + adjustment).clamp(0.0, 100.0)
 }
 
-pub fn d1hr(hcs: f64, prob_ign_sc: f64, prob_ign: f64) -> f64 {
+pub fn d1hr(hcs: f32, prob_ign_sc: f32, prob_ign: f32) -> f32 {
     if prob_ign <= 0.0 {
         if hcs > 0.0 {
             30.0 // prob. is not 0 for being non-combustible -> maximum humidity
@@ -536,7 +536,7 @@ pub fn d1hr(hcs: f64, prob_ign_sc: f64, prob_ign: f64) -> f64 {
 // @param humedad: The humidity of the finest fuel
 // @param humedad_6: The humidity of the finest fuel at 6 hours
 // @param humedad_15: The humidity of the finest fuel at 15 hours
-pub fn hco_x10hr(hora: i32, humedad: f64, humedad_6: f64, humedad_15: f64) -> f64 {
+pub fn hco_x10hr(hora: i32, humedad: f32, humedad_6: f32, humedad_15: f32) -> f32 {
     if humedad == 0.0 {
         0.0
     } else {
@@ -552,11 +552,11 @@ pub fn hco_x10hr(hora: i32, humedad: f64, humedad_6: f64, humedad_15: f64) -> f6
         } else {
             // interpolate the value based on the hour of the day
             if (0..6).contains(&hora) {
-                a_las_15 + (((a_las_6 - a_las_15) / 15.0) * ((hora + 15) as f64))
+                a_las_15 + (((a_las_6 - a_las_15) / 15.0) * ((hora + 15) as f32))
             } else if (6..15).contains(&hora) {
-                a_las_6 + (((a_las_15 - a_las_6) / 9.0) * ((hora - 6) as f64))
+                a_las_6 + (((a_las_15 - a_las_6) / 9.0) * ((hora - 6) as f32))
             } else if (15..24).contains(&hora) {
-                a_las_15 + (((a_las_6 - a_las_15) / 15.0) * ((hora - 15) as f64))
+                a_las_15 + (((a_las_6 - a_las_15) / 15.0) * ((hora - 15) as f32))
             } else {
                 humedad // fallback for invalid hour
             }
@@ -565,7 +565,7 @@ pub fn hco_x10hr(hora: i32, humedad: f64, humedad_6: f64, humedad_15: f64) -> f6
 }
 
 // Live fuel moisture estimation based on month
-pub fn humedad_vivo(mes: i32) -> f64 {
+pub fn humedad_vivo(mes: i32) -> f32 {
     match mes {
         1 | 2 => 100.0,
         3..=5 => 200.0,
@@ -585,7 +585,7 @@ mod tests {
     use std::vec::Vec;
 
     // Parser for simple tuple -> value mappings
-    fn parse_simple_fixtures(content: &str) -> Vec<(Vec<f64>, f64)> {
+    fn parse_simple_fixtures(content: &str) -> Vec<(Vec<f32>, f32)> {
         let mut fixtures = Vec::new();
 
         for line in content.lines() {
@@ -601,11 +601,11 @@ mod tests {
                 // Parse tuple like "(1, 2, 3)"
                 if left.starts_with('(') && left.ends_with(')') {
                     let inner = &left[1..left.len() - 1];
-                    let params: Vec<f64> = inner
+                    let params: Vec<f32> = inner
                         .split(',')
                         .map(|s| s.trim().parse().unwrap_or(0.0))
                         .collect();
-                    let result: f64 = right.parse().unwrap_or(0.0);
+                    let result: f32 = right.parse().unwrap_or(0.0);
                     fixtures.push((params, result));
                 }
             }
@@ -615,7 +615,7 @@ mod tests {
     }
 
     // Parser for month + range fixtures like "[1] + range(6) -> 3"
-    fn parse_precipitation_fixtures(content: &str) -> Vec<(i32, f64)> {
+    fn parse_precipitation_fixtures(content: &str) -> Vec<(i32, f32)> {
         let mut fixtures = Vec::new();
 
         for line in content.lines() {
@@ -633,7 +633,7 @@ mod tests {
                     if let Some(bracket_end) = left.find(']') {
                         let month_str = &left[1..bracket_end];
                         if let Ok(month) = month_str.parse::<i32>() {
-                            if let Ok(expected) = right.parse::<f64>() {
+                            if let Ok(expected) = right.parse::<f32>() {
                                 fixtures.push((month, expected));
                             }
                         }
@@ -646,7 +646,7 @@ mod tests {
     }
 
     // Parser for month-only fixtures like "(1,) -> 100"
-    fn parse_month_fixtures(content: &str) -> Vec<(i32, f64)> {
+    fn parse_month_fixtures(content: &str) -> Vec<(i32, f32)> {
         let mut fixtures = Vec::new();
 
         for line in content.lines() {
@@ -663,7 +663,7 @@ mod tests {
                 if left.starts_with('(') && left.ends_with(",)") {
                     let month_str = &left[1..left.len() - 2];
                     if let (Ok(month), Ok(result)) =
-                        (month_str.parse::<i32>(), right.parse::<f64>())
+                        (month_str.parse::<i32>(), right.parse::<f32>())
                     {
                         fixtures.push((month, result));
                     }
@@ -788,7 +788,7 @@ mod tests {
                     params[2] as i32, // hora
                 );
                 assert_eq!(
-                    result as f64, expected,
+                    result as f32, expected,
                     "hcb({}, {}, {}) = {} != {}",
                     params[0], params[1], params[2], result, expected
                 );
@@ -888,9 +888,9 @@ mod tests {
                         let mod_str = left[comma_pos + 2..].trim();
 
                         if let (Ok(nubosidad), Ok(modelo), Ok(expected)) = (
-                            nub_str.parse::<f64>(),
+                            nub_str.parse::<f32>(),
                             mod_str.parse::<i32>(),
-                            right.parse::<f64>(),
+                            right.parse::<f32>(),
                         ) {
                             let result = sombreado(nubosidad, modelo);
                             assert_eq!(
@@ -909,9 +909,9 @@ mod tests {
                         let mod_str = inner[comma_pos + 1..].trim();
 
                         if let (Ok(nubosidad), Ok(modelo), Ok(expected)) = (
-                            nub_str.parse::<f64>(),
+                            nub_str.parse::<f32>(),
                             mod_str.parse::<i32>(),
-                            right.parse::<f64>(),
+                            right.parse::<f32>(),
                         ) {
                             let result = sombreado(nubosidad, modelo);
                             assert_eq!(

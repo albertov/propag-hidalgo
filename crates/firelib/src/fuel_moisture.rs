@@ -1,9 +1,7 @@
-#[cfg(not(target_os = "cuda"))]
-extern crate std;
-
 use crate::float;
 use crate::TerrainCuda;
 use float::PI;
+#[allow(unused_imports)]
 use num_traits::Float;
 
 /// Output data for hourly fuel moisture calculation
@@ -17,41 +15,42 @@ pub struct HourlyMoistureResults {
     pub d100hr: [float::T; 24],
 }
 
-/// Calculate hourly fuel moisture values using dmoist algorithms
-///
-/// This function takes meteorological inputs and returns calculated fuel moisture
-/// values for each hour of the day (0-23) that can be used with TerrainCuda structures.
-///
-/// # Arguments
-/// * `temperature` - Hourly temperature in degrees Celsius [0-23]
-/// * `humidity` - Hourly relative humidity in percentage [0-23]
-/// * `cloud_cover` - Hourly cloud cover in percentage [0-23]
-/// * `slope` - Fixed slope value in degrees
-/// * `aspect` - Fixed aspect value in degrees
-/// * `precipitation_6_days` - Daily total precipitation for the last 6 days in mm [day-6 to day-1]
-/// * `month` - Month (1-12) for seasonal adjustments
-/// * `fuel_model` - Fuel model code (0-13) for model-specific adjustments
-///
-/// # Returns
-/// * `HourlyMoistureResults` containing d1hr, d10hr, and d100hr values for each hour
-///
-/// # Example
-/// ```no_run
-/// use firelib::fuel_moisture::calculate_hourly_fuel_moisture;
-///
-/// let temperature = [15.0; 24]; // 15°C for all hours
-/// let humidity = [60.0; 24];    // 60% RH for all hours
-/// let cloud_cover = [50.0; 24]; // 50% cloud cover for all hours
-/// let slope = 30.0;             // 30 degree slope
-/// let aspect = 180.0;           // South-facing
-/// let precipitation_6_days = [0.0, 2.0, 0.0, 5.0, 0.0, 1.0]; // mm for last 6 days
-/// let month = 6;                // June
-///
-/// let results = calculate_hourly_fuel_moisture(
-///     &temperature, &humidity, &cloud_cover, slope, aspect,
-///     &precipitation_6_days, month, 2
-/// );
-/// ```
+// Calculate hourly fuel moisture values using dmoist algorithms
+//
+// This function takes meteorological inputs and returns calculated fuel moisture
+// values for each hour of the day (0-23) that can be used with TerrainCuda structures.
+//
+// # Arguments
+// * `temperature` - Hourly temperature in degrees Celsius [0-23]
+// * `humidity` - Hourly relative humidity in percentage [0-23]
+// * `cloud_cover` - Hourly cloud cover in percentage [0-23]
+// * `slope` - Fixed slope value in degrees
+// * `aspect` - Fixed aspect value in degrees
+// * `precipitation_6_days` - Daily total precipitation for the last 6 days in mm [day-6 to day-1]
+// * `month` - Month (1-12) for seasonal adjustments
+// * `fuel_model` - Fuel model code (0-13) for model-specific adjustments
+//
+// # Returns
+// * `HourlyMoistureResults` containing d1hr, d10hr, and d100hr values for each hour
+//
+// # Example
+// ```no_run
+// use firelib::fuel_moisture::calculate_hourly_fuel_moisture;
+//
+// let temperature = [15.0; 24]; // 15°C for all hours
+// let humidity = [60.0; 24];    // 60% RH for all hours
+// let cloud_cover = [50.0; 24]; // 50% cloud cover for all hours
+// let slope = 30.0;             // 30 degree slope
+// let aspect = 180.0;           // South-facing
+// let precipitation_6_days = [0.0, 2.0, 0.0, 5.0, 0.0, 1.0]; // mm for last 6 days
+// let month = 6;                // June
+//
+// let results = calculate_hourly_fuel_moisture(
+//     &temperature, &humidity, &cloud_cover, slope, aspect,
+//     &precipitation_6_days, month, 2
+// );
+// ```
+#[allow(clippy::too_many_arguments)]
 pub fn calculate_hourly_fuel_moisture(
     temperature: &[float::T; 24],
     humidity: &[float::T; 24],
@@ -153,6 +152,7 @@ pub fn calculate_hourly_fuel_moisture(
 ///
 /// # Returns
 /// * `TerrainCuda` instance ready for fire behavior calculations
+#[allow(clippy::too_many_arguments)]
 pub fn create_terrain_with_fuel_moisture(
     temperature: &[float::T; 24],
     humidity: &[float::T; 24],

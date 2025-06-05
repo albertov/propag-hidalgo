@@ -34,8 +34,8 @@ pub fn create_terrain_with_fuel_moisture(
     month: i32,
     fuel_model: u8,
     hour: usize,
-    wind_speed: f32,
-    wind_azimuth: f32,
+    wind_speed: &[f32; 24],
+    wind_azimuth: &[f32; 24],
 ) -> TerrainCuda {
     assert!(hour < 24, "Hour must be 0-23");
 
@@ -60,8 +60,8 @@ pub fn create_terrain_with_fuel_moisture(
         d100hr: moisture_results.d100hr[hour] / 100.0,
         herb: live_moisture,
         wood: live_moisture,
-        wind_speed,
-        wind_azimuth,
+        wind_speed: wind_speed[hour],
+        wind_azimuth: wind_azimuth[hour],
         slope,
         aspect,
     }
@@ -109,6 +109,8 @@ mod tests {
         let temperature = [15.0; 24];
         let humidity = [60.0; 24];
         let cloud_cover = [50.0; 24];
+        let wind_speed = [50.0; 24];
+        let wind_azimuth = [0.0; 24];
         let slope = 0.0;
         let aspect = 0.0;
         let precipitation_6_days = [0.0; 6];
@@ -124,8 +126,8 @@ mod tests {
             month,
             1,
             25, // Invalid hour
-            0.0,
-            0.0,
+            &wind_speed,
+            &wind_azimuth,
         ); // Should panic
     }
 }

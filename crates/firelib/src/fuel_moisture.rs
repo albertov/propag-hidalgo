@@ -12,14 +12,14 @@ pub use dmoist::{calculate_hourly_fuel_moisture, HourlyMoistureResults};
 /// * `temperature` - Hourly temperature in degrees Celsius [0-23]
 /// * `humidity` - Hourly relative humidity in percentage [0-23]
 /// * `cloud_cover` - Hourly cloud cover in percentage [0-23]
-/// * `slope` - Fixed slope ratio
-/// * `aspect` - Fixed aspect value in radians
-/// * `precipitation_6_days` - Daily total precipitation for the last 6 days in mm [day-6 to day-1]
-/// * `month` - Month (1-12) for seasonal adjustments
-/// * `fuel_model` - Fuel model code (0-13)
-/// * `hour` - Hour of day (0-23) to extract values for
 /// * `wind_speed` - Wind speed in m/s
 /// * `wind_azimuth` - Wind direction in degrees
+/// * `precipitation_6_days` - Daily total precipitation for the last 6 days in mm [day-6 to day-1]
+/// * `slope` - Fixed slope ratio
+/// * `aspect` - Fixed aspect value in radians
+/// * `fuel_model` - Fuel model code (0-13)
+/// * `month` - Month (1-12) for seasonal adjustments
+/// * `hour` - Hour of day (0-23) to extract values for
 ///
 /// # Returns
 /// * `TerrainCuda` instance ready for fire behavior calculations
@@ -28,14 +28,14 @@ pub fn create_terrain_with_fuel_moisture(
     temperature: &[f32; 24],
     humidity: &[f32; 24],
     cloud_cover: &[f32; 24],
-    slope: f32,
-    aspect: f32,
-    precipitation_6_days: &[f32; 6],
-    month: i32,
-    fuel_model: u8,
-    hour: usize,
     wind_speed: &[f32; 24],
     wind_azimuth: &[f32; 24],
+    precipitation_6_days: &[f32; 6],
+    slope: f32,
+    aspect: f32,
+    fuel_model: u8,
+    month: i32,
+    hour: usize,
 ) -> TerrainCuda {
     assert!(hour < 24, "Hour must be 0-23");
 
@@ -76,6 +76,8 @@ mod tests {
         let temperature = [20.0; 24];
         let humidity = [50.0; 24];
         let cloud_cover = [25.0; 24];
+        let wind_speed = [5.0; 24];
+        let wind_azimuth = [180.0; 24];
         let slope = 0.268; // 15 degree slope as ratio (tan(15°))
         let aspect = 4.712; // 270 degrees as radians (3π/2)
         let precipitation_6_days = [0.0; 6];
@@ -85,14 +87,14 @@ mod tests {
             &temperature,
             &humidity,
             &cloud_cover,
+            &wind_speed,
+            &wind_azimuth,
+            &precipitation_6_days,
             slope,
             aspect,
-            &precipitation_6_days,
-            month,
             3,
+            month,
             12,
-            5.0,
-            180.0,
         );
 
         assert_eq!(terrain.fuel_code, 3);
@@ -120,14 +122,14 @@ mod tests {
             &temperature,
             &humidity,
             &cloud_cover,
-            slope,
-            aspect,
-            &precipitation_6_days,
-            month,
-            1,
-            25, // Invalid hour
             &wind_speed,
             &wind_azimuth,
+            &precipitation_6_days,
+            slope,
+            aspect,
+            1,
+            month,
+            25, // Invalid hour
         ); // Should panic
     }
 }

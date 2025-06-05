@@ -62,8 +62,8 @@ pub use fuel_moisture::*;
 //     50.0, 45.0, 40.0, 35.0, 32.0, 30.0   // 18-23: clearing evening
 // ];
 //
-// let slope = 25.0;              // 25 degree slope
-// let aspect = 225.0;            // Southwest-facing slope
+// let slope = 0.466;             // 25 degree slope as ratio (tan(25°))
+// let aspect = 3.927;            // Southwest-facing slope (225° in radians)
 // // Precipitation history: light rain 3 days ago, moderate rain 5 days ago
 // let precipitation_6_days = [0.0, 0.0, 3.0, 0.0, 12.0, 0.0];
 // let month = 7;                 // July (summer conditions)

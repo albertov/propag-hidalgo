@@ -1,6 +1,5 @@
 use crate::float;
 use crate::TerrainCuda;
-use float::PI;
 #[allow(unused_imports)]
 use num_traits::Float;
 
@@ -24,8 +23,8 @@ pub struct HourlyMoistureResults {
 // * `temperature` - Hourly temperature in degrees Celsius [0-23]
 // * `humidity` - Hourly relative humidity in percentage [0-23]
 // * `cloud_cover` - Hourly cloud cover in percentage [0-23]
-// * `slope` - Fixed slope value in degrees
-// * `aspect` - Fixed aspect value in degrees
+// * `slope` - Fixed slope ratio
+// * `aspect` - Fixed aspect value in radians
 // * `precipitation_6_days` - Daily total precipitation for the last 6 days in mm [day-6 to day-1]
 // * `month` - Month (1-12) for seasonal adjustments
 // * `fuel_model` - Fuel model code (0-13) for model-specific adjustments
@@ -40,8 +39,8 @@ pub struct HourlyMoistureResults {
 // let temperature = [15.0; 24]; // 15°C for all hours
 // let humidity = [60.0; 24];    // 60% RH for all hours
 // let cloud_cover = [50.0; 24]; // 50% cloud cover for all hours
-// let slope = 30.0;             // 30 degree slope
-// let aspect = 180.0;           // South-facing
+// let slope = 0.577;            // 30 degree slope as ratio (tan(30°))
+// let aspect = 3.14159;         // South-facing (π radians)
 // let precipitation_6_days = [0.0, 2.0, 0.0, 5.0, 0.0, 1.0]; // mm for last 6 days
 // let month = 6;                // June
 //
@@ -77,8 +76,8 @@ pub fn calculate_hourly_fuel_moisture(
             hcb_base,
             cloud_cover[hour],
             month,
-            aspect,
-            slope,
+            aspect * 180.0 / float::PI,       // Convert radians to degrees
+            slope.atan() * 180.0 / float::PI, // Convert ratio to degrees
             fuel_model,
             hour as i32,
         );
@@ -141,8 +140,8 @@ pub fn calculate_hourly_fuel_moisture(
 /// * `temperature` - Hourly temperature in degrees Celsius [0-23]
 /// * `humidity` - Hourly relative humidity in percentage [0-23]
 /// * `cloud_cover` - Hourly cloud cover in percentage [0-23]
-/// * `slope` - Fixed slope value in degrees
-/// * `aspect` - Fixed aspect value in degrees
+/// * `slope` - Fixed slope ratio
+/// * `aspect` - Fixed aspect value in radians
 /// * `precipitation_6_days` - Daily total precipitation for the last 6 days in mm [day-6 to day-1]
 /// * `month` - Month (1-12) for seasonal adjustments
 /// * `fuel_model` - Fuel model code (0-13)
@@ -191,7 +190,7 @@ pub fn create_terrain_with_fuel_moisture(
         wood: live_moisture,
         wind_speed,
         wind_azimuth,
-        slope: (slope * PI / 180.0).tan() as float::T, // Convert degrees to slope ratio
+        slope: slope as float::T, // Slope is already a ratio
         aspect: aspect as float::T,
     }
 }
@@ -205,8 +204,8 @@ mod tests {
         let temperature = [15.0; 24];
         let humidity = [60.0; 24];
         let cloud_cover = [50.0; 24];
-        let slope = 30.0;
-        let aspect = 180.0;
+        let slope = 0.577; // 30 degree slope as ratio (tan(30°))
+        let aspect = 3.14159; // 180 degrees as radians (π)
         let precipitation_6_days = [0.0, 2.0, 0.0, 5.0, 0.0, 1.0];
         let month = 6;
 
@@ -254,8 +253,8 @@ mod tests {
         let temperature = [20.0; 24];
         let humidity = [50.0; 24];
         let cloud_cover = [25.0; 24];
-        let slope = 15.0;
-        let aspect = 270.0;
+        let slope = 0.268; // 15 degree slope as ratio (tan(15°))
+        let aspect = 4.712; // 270 degrees as radians (3π/2)
         let precipitation_6_days = [0.0; 6];
         let month = 8;
 

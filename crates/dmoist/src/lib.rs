@@ -261,15 +261,20 @@ pub fn humidity_content_base(temperature: f32, relative_humidity: f32, _hour: i3
     tabla[hora_idx][temperature_idx][humidity_idx]
 }
 
-pub fn shading(cloudiness: f32, fuel_model: i32) -> f32 {
-    let mut shading_value = cloudiness * 0.75;
+pub fn shading(total_cloud_cover: f32, fuel_model: i32) -> f32 {
+    let mut shading_value = total_cloud_cover * 0.75;
     if (7..=12).contains(&fuel_model) {
         shading_value = if shading_value < 50.0 { 75.0 } else { 100.0 };
     }
     shading_value
 }
 
-pub fn ignition_probability(temperature: f32, cloudiness: f32, hcs: f32, fuel_model: i32) -> f32 {
+pub fn ignition_probability(
+    temperature: f32,
+    total_cloud_cover: f32,
+    hcs: f32,
+    fuel_model: i32,
+) -> f32 {
     let tabla = [
         [
             // Class_SOMB=1 (SOMB=0-10) and Class_TSECA=1 (TSECA>40)
@@ -428,7 +433,7 @@ pub fn ignition_probability(temperature: f32, cloudiness: f32, hcs: f32, fuel_mo
     if fuel_model == 0 {
         0.0
     } else if hcs > 0.0 && hcs < 18.0 {
-        let shading_val = shading(cloudiness, fuel_model);
+        let shading_val = shading(total_cloud_cover, fuel_model);
         let shading_idx = if (0.0..10.0).contains(&shading_val) {
             0
         } else if (10.0..50.0).contains(&shading_val) {
@@ -610,7 +615,7 @@ fn _corrector_for_shading(
 
 pub fn correct_hcb_for_shading(
     hcb: f32,
-    cloudiness: f32,
+    total_cloud_cover: f32,
     month: i32,
     orientation: f32,
     slope: f32,
@@ -620,7 +625,7 @@ pub fn correct_hcb_for_shading(
     if fuel_model == 0 {
         0.0
     } else {
-        let shading_val = shading(cloudiness, fuel_model);
+        let shading_val = shading(total_cloud_cover, fuel_model);
         hcb + _corrector_for_shading(orientation, slope, shading_val, month, hour)
     }
 }
@@ -815,7 +820,7 @@ mod tests {
             if params.len() == 7 {
                 let result = correct_hcb_for_shading(
                     params[0],        // hcb
-                    params[1],        // cloudiness
+                    params[1],        // total_cloud_cover
                     params[2] as i32, // month
                     params[3],        // orientation
                     params[4],        // slope
@@ -980,7 +985,7 @@ mod tests {
             if params.len() == 4 {
                 let result = ignition_probability(
                     params[0],        // temperature
-                    params[1],        // cloudiness
+                    params[1],        // total_cloud_cover
                     params[2],        // hcs
                     params[3] as i32, // fuel_model
                 );
@@ -1007,7 +1012,7 @@ mod tests {
         for (params, expected) in fixtures {
             if params.len() == 2 {
                 let result = shading(
-                    params[0],        // cloudiness
+                    params[0],        // total_cloud_cover
                     params[1] as i32, // fuel_model
                 );
                 assert_eq!(

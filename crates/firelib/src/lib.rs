@@ -62,6 +62,17 @@ pub use fuel_moisture::*;
 //     50.0, 45.0, 40.0, 35.0, 32.0, 30.0   // 18-23: clearing evening
 // ];
 //
+// // Wind speed varying throughout the day
+// let wind_speed = [
+//     2.0, 1.5, 1.0, 1.0, 1.5, 2.0,       // 00-05: calm night
+//     2.5, 3.0, 4.0, 5.0, 6.0, 7.0,       // 06-11: increasing wind
+//     8.5, 9.0, 8.5, 8.0, 7.5, 7.0,       // 12-17: peak afternoon wind
+//     6.0, 5.0, 4.0, 3.5, 3.0, 2.5        // 18-23: decreasing wind
+// ];
+//
+// // Wind direction (southwest wind upslope)
+// let wind_azimuth = [225.0; 24];
+//
 // let slope = 0.466;             // 25 degree slope as ratio (tan(25°))
 // let aspect = 3.927;            // Southwest-facing slope (225° in radians)
 // // Precipitation history: light rain 3 days ago, moderate rain 5 days ago
@@ -74,17 +85,16 @@ pub use fuel_moisture::*;
 //     &precipitation_6_days, month, 3 // Fuel model 3 (tall grass)
 // );
 //
-// // Create terrain for fire simulation at 2 PM (hour 14) - typically the fire danger peak
-// let afternoon_terrain = create_terrain_with_fuel_moisture(
-//     &temperature, &humidity, &cloud_cover, slope, aspect,
-//     &precipitation_6_days, month,
+// // Create terrain for all 24 hours
+// let daily_terrain = create_terrain_with_fuel_moisture(
+//     &temperature, &humidity, &cloud_cover, &wind_speed, &wind_azimuth,
+//     &precipitation_6_days, slope, aspect,
 //     3,        // NFFL fuel model 3
-//     14,       // 2 PM
-//     8.5,      // 8.5 m/s wind speed
-//     225.0     // Southwest wind (upslope)
+//     month
 // );
 //
-// // Run fire behavior simulation
+// // Run fire behavior simulation for 2 PM (hour 14) - typically the fire danger peak
+// let afternoon_terrain = &daily_terrain[14];
 // if let Some(fire) = Catalog::STANDARD.burn(&afternoon_terrain.into()) {
 //     println!("Fire behavior at 2 PM:");
 //     println!("  Max spread rate: {:.2} m/min", fire.speed_max.value * 0.3048);
@@ -95,20 +105,20 @@ pub use fuel_moisture::*;
 // }
 //
 // // Compare with morning conditions (hour 6)
-// let morning_terrain = create_terrain_with_fuel_moisture(
-//     &temperature, &humidity, &cloud_cover, slope, aspect,
-//     &precipitation_6_days, month,
-//     3,        // Same fuel model
-//     6,        // 6 AM
-//     3.2,      // Lighter morning wind
-//     180.0     // South wind
-// );
-//
+// let morning_terrain = &daily_terrain[6];
 // if let Some(morning_fire) = Catalog::STANDARD.burn(&morning_terrain.into()) {
 //     println!("\nFire behavior at 6 AM:");
 //     println!("  Max spread rate: {:.2} m/min", morning_fire.speed_max.value * 0.3048);
 //     println!("  Flame length: {:.2} m", morning_fire.flame_max().value * 0.3048);
 //     println!("  1hr fuel moisture: {:.1}%", morning_terrain.d1hr * 100.0);
+// }
+//
+// // Analyze fire danger throughout the day
+// for (hour, terrain) in daily_terrain.iter().enumerate() {
+//     if let Some(fire) = Catalog::STANDARD.burn(&terrain.into()) {
+//         println!("Hour {}: Rate {:.1} m/min, 1hr moisture {:.1}%",
+//                  hour, fire.speed_max.value * 0.3048, terrain.d1hr * 100.0);
+//     }
 // }
 // ```
 

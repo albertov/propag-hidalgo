@@ -6,25 +6,6 @@ use crate::TerrainCuda;
 use float::PI;
 use num_traits::Float;
 
-/// Input data for hourly fuel moisture calculation
-#[derive(Debug, Clone)]
-pub struct HourlyMoistureInputs {
-    /// Hourly temperature in degrees Celsius [0-23]
-    pub temperature: [float::T; 24],
-    /// Hourly relative humidity in percentage [0-23]
-    pub humidity: [float::T; 24],
-    /// Hourly cloud cover in percentage [0-23]
-    pub cloud_cover: [float::T; 24],
-    /// Fixed slope value in degrees
-    pub slope: float::T,
-    /// Fixed aspect value in degrees
-    pub aspect: float::T,
-    /// Daily total precipitation for the last 6 days in mm [day-6 to day-1]
-    pub precipitation_6_days: [float::T; 6],
-    /// Month (1-12) for seasonal adjustments
-    pub month: i32,
-}
-
 /// Output data for hourly fuel moisture calculation
 #[derive(Debug, Clone)]
 pub struct HourlyMoistureResults {
@@ -42,7 +23,13 @@ pub struct HourlyMoistureResults {
 /// values for each hour of the day (0-23) that can be used with TerrainCuda structures.
 ///
 /// # Arguments
-/// * `inputs` - Hourly weather data and terrain parameters
+/// * `temperature` - Hourly temperature in degrees Celsius [0-23]
+/// * `humidity` - Hourly relative humidity in percentage [0-23]
+/// * `cloud_cover` - Hourly cloud cover in percentage [0-23]
+/// * `slope` - Fixed slope value in degrees
+/// * `aspect` - Fixed aspect value in degrees
+/// * `precipitation_6_days` - Daily total precipitation for the last 6 days in mm [day-6 to day-1]
+/// * `month` - Month (1-12) for seasonal adjustments
 /// * `fuel_model` - Fuel model code (0-13) for model-specific adjustments
 ///
 /// # Returns
@@ -50,22 +37,29 @@ pub struct HourlyMoistureResults {
 ///
 /// # Example
 /// ```no_run
-/// use firelib::fuel_moisture::{HourlyMoistureInputs, calculate_hourly_fuel_moisture};
+/// use firelib::fuel_moisture::calculate_hourly_fuel_moisture;
 ///
-/// let inputs = HourlyMoistureInputs {
-///     temperature: [15.0; 24], // 15°C for all hours
-///     humidity: [60.0; 24],    // 60% RH for all hours
-///     cloud_cover: [50.0; 24], // 50% cloud cover for all hours
-///     slope: 30.0,             // 30 degree slope
-///     aspect: 180.0,           // South-facing
-///     precipitation_6_days: [0.0, 2.0, 0.0, 5.0, 0.0, 1.0], // mm for last 6 days
-///     month: 6,                // June
-/// };
+/// let temperature = [15.0; 24]; // 15°C for all hours
+/// let humidity = [60.0; 24];    // 60% RH for all hours
+/// let cloud_cover = [50.0; 24]; // 50% cloud cover for all hours
+/// let slope = 30.0;             // 30 degree slope
+/// let aspect = 180.0;           // South-facing
+/// let precipitation_6_days = [0.0, 2.0, 0.0, 5.0, 0.0, 1.0]; // mm for last 6 days
+/// let month = 6;                // June
 ///
-/// let results = calculate_hourly_fuel_moisture(&inputs, 2);
+/// let results = calculate_hourly_fuel_moisture(
+///     &temperature, &humidity, &cloud_cover, slope, aspect,
+///     &precipitation_6_days, month, 2
+/// );
 /// ```
 pub fn calculate_hourly_fuel_moisture(
-    inputs: &HourlyMoistureInputs,
+    temperature: &[float::T; 24],
+    humidity: &[float::T; 24],
+    cloud_cover: &[float::T; 24],
+    slope: float::T,
+    aspect: float::T,
+    precipitation_6_days: &[float::T; 6],
+    month: i32,
     fuel_model: i32,
 ) -> HourlyMoistureResults {
     let mut d1hr_results = [0.0; 24];
@@ -73,29 +67,27 @@ pub fn calculate_hourly_fuel_moisture(
     let mut d100hr_results = [0.0; 24];
 
     // Calculate maximum precipitation effect for the 6-day period
-    let max_precipitation_effect =
-        dmoist::efecto_precipitacion_maximo(inputs.month, &inputs.precipitation_6_days);
+    let max_precipitation_effect = dmoist::efecto_precipitacion_maximo(month, precipitation_6_days);
 
     for (hour, d1hr) in d1hr_results.iter_mut().enumerate() {
         // Calculate base humidity index (HCB)
-        let hcb_base =
-            dmoist::hcb(inputs.temperature[hour], inputs.humidity[hour], hour as i32) as float::T;
+        let hcb_base = dmoist::hcb(temperature[hour], humidity[hour], hour as i32) as float::T;
 
         // Correct HCB for terrain and cloud shading effects
         let hcb_corrected = dmoist::corrige_hcb_por_sombreado(
             hcb_base,
-            inputs.cloud_cover[hour],
-            inputs.month,
-            inputs.aspect,
-            inputs.slope,
+            cloud_cover[hour],
+            month,
+            aspect,
+            slope,
             fuel_model,
             hour as i32,
         );
 
         // Calculate ignition probability without precipitation correction
         let prob_ignition_uncorrected = dmoist::probabilidad_ignicion(
-            inputs.temperature[hour],
-            inputs.cloud_cover[hour],
+            temperature[hour],
+            cloud_cover[hour],
             hcb_corrected,
             fuel_model,
         );
@@ -147,7 +139,13 @@ pub fn calculate_hourly_fuel_moisture(
 /// TerrainCuda creation for a single hour.
 ///
 /// # Arguments
-/// * `inputs` - Hourly weather data and terrain parameters
+/// * `temperature` - Hourly temperature in degrees Celsius [0-23]
+/// * `humidity` - Hourly relative humidity in percentage [0-23]
+/// * `cloud_cover` - Hourly cloud cover in percentage [0-23]
+/// * `slope` - Fixed slope value in degrees
+/// * `aspect` - Fixed aspect value in degrees
+/// * `precipitation_6_days` - Daily total precipitation for the last 6 days in mm [day-6 to day-1]
+/// * `month` - Month (1-12) for seasonal adjustments
 /// * `fuel_model` - Fuel model code (0-13)
 /// * `hour` - Hour of day (0-23) to extract values for
 /// * `wind_speed` - Wind speed in m/s
@@ -156,7 +154,13 @@ pub fn calculate_hourly_fuel_moisture(
 /// # Returns
 /// * `TerrainCuda` instance ready for fire behavior calculations
 pub fn create_terrain_with_fuel_moisture(
-    inputs: &HourlyMoistureInputs,
+    temperature: &[float::T; 24],
+    humidity: &[float::T; 24],
+    cloud_cover: &[float::T; 24],
+    slope: float::T,
+    aspect: float::T,
+    precipitation_6_days: &[float::T; 6],
+    month: i32,
     fuel_model: u8,
     hour: usize,
     wind_speed: float::T,
@@ -164,10 +168,19 @@ pub fn create_terrain_with_fuel_moisture(
 ) -> TerrainCuda {
     assert!(hour < 24, "Hour must be 0-23");
 
-    let moisture_results = calculate_hourly_fuel_moisture(inputs, fuel_model as i32);
+    let moisture_results = calculate_hourly_fuel_moisture(
+        temperature,
+        humidity,
+        cloud_cover,
+        slope,
+        aspect,
+        precipitation_6_days,
+        month,
+        fuel_model as i32,
+    );
 
     // Calculate live fuel moisture based on month
-    let live_moisture = dmoist::humedad_vivo(inputs.month) as float::T / 100.0; // Convert from percentage to ratio
+    let live_moisture = dmoist::humedad_vivo(month) as float::T / 100.0; // Convert from percentage to ratio
 
     TerrainCuda {
         fuel_code: fuel_model,
@@ -178,8 +191,8 @@ pub fn create_terrain_with_fuel_moisture(
         wood: live_moisture,
         wind_speed,
         wind_azimuth,
-        slope: (inputs.slope * PI / 180.0).tan() as float::T, // Convert degrees to slope ratio
-        aspect: inputs.aspect as float::T,
+        slope: (slope * PI / 180.0).tan() as float::T, // Convert degrees to slope ratio
+        aspect: aspect as float::T,
     }
 }
 
@@ -189,17 +202,24 @@ mod tests {
 
     #[test]
     fn test_hourly_moisture_calculation() {
-        let inputs = HourlyMoistureInputs {
-            temperature: [15.0; 24],
-            humidity: [60.0; 24],
-            cloud_cover: [50.0; 24],
-            slope: 30.0,
-            aspect: 180.0,
-            precipitation_6_days: [0.0, 2.0, 0.0, 5.0, 0.0, 1.0],
-            month: 6,
-        };
+        let temperature = [15.0; 24];
+        let humidity = [60.0; 24];
+        let cloud_cover = [50.0; 24];
+        let slope = 30.0;
+        let aspect = 180.0;
+        let precipitation_6_days = [0.0, 2.0, 0.0, 5.0, 0.0, 1.0];
+        let month = 6;
 
-        let results = calculate_hourly_fuel_moisture(&inputs, 2);
+        let results = calculate_hourly_fuel_moisture(
+            &temperature,
+            &humidity,
+            &cloud_cover,
+            slope,
+            aspect,
+            &precipitation_6_days,
+            month,
+            2,
+        );
 
         // Basic sanity checks
         assert_eq!(results.d1hr.len(), 24);
@@ -231,17 +251,27 @@ mod tests {
 
     #[test]
     fn test_terrain_creation() {
-        let inputs = HourlyMoistureInputs {
-            temperature: [20.0; 24],
-            humidity: [50.0; 24],
-            cloud_cover: [25.0; 24],
-            slope: 15.0,
-            aspect: 270.0,
-            precipitation_6_days: [0.0; 6],
-            month: 8,
-        };
+        let temperature = [20.0; 24];
+        let humidity = [50.0; 24];
+        let cloud_cover = [25.0; 24];
+        let slope = 15.0;
+        let aspect = 270.0;
+        let precipitation_6_days = [0.0; 6];
+        let month = 8;
 
-        let terrain = create_terrain_with_fuel_moisture(&inputs, 3, 12, 5.0, 180.0);
+        let terrain = create_terrain_with_fuel_moisture(
+            &temperature,
+            &humidity,
+            &cloud_cover,
+            slope,
+            aspect,
+            &precipitation_6_days,
+            month,
+            3,
+            12,
+            5.0,
+            180.0,
+        );
 
         assert_eq!(terrain.fuel_code, 3);
         assert_eq!(terrain.wind_speed, 5.0);
@@ -254,16 +284,26 @@ mod tests {
     #[test]
     #[should_panic(expected = "Hour must be 0-23")]
     fn test_invalid_hour() {
-        let inputs = HourlyMoistureInputs {
-            temperature: [15.0; 24],
-            humidity: [60.0; 24],
-            cloud_cover: [50.0; 24],
-            slope: 0.0,
-            aspect: 0.0,
-            precipitation_6_days: [0.0; 6],
-            month: 1,
-        };
+        let temperature = [15.0; 24];
+        let humidity = [60.0; 24];
+        let cloud_cover = [50.0; 24];
+        let slope = 0.0;
+        let aspect = 0.0;
+        let precipitation_6_days = [0.0; 6];
+        let month = 1;
 
-        create_terrain_with_fuel_moisture(&inputs, 1, 25, 0.0, 0.0); // Should panic
+        create_terrain_with_fuel_moisture(
+            &temperature,
+            &humidity,
+            &cloud_cover,
+            slope,
+            aspect,
+            &precipitation_6_days,
+            month,
+            1,
+            25, // Invalid hour
+            0.0,
+            0.0,
+        ); // Should panic
     }
 }

@@ -301,7 +301,7 @@ mod tests {
         }
     }
     fn firelib_rs_spread(terrain: &Terrain, azimuth: Angle) -> (Fire, SpreadAtAzimuth) {
-        if let Some(fire) = Catalog::STANDARD.burn(terrain) {
+        if let Some(fire) = Catalog::STANDARD.ignite(terrain) {
             let spread_az = SpreadAtAzimuth::from_spread(&fire.spread(azimuth));
             (fire, spread_az)
         } else {

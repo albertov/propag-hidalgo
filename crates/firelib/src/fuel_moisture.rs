@@ -97,13 +97,13 @@ mod tests {
         assert_eq!(terrain_array.len(), 24);
 
         // Test specific hour (e.g., hour 12)
-        let terrain_12 = &terrain_array[12];
-        assert_eq!(terrain_12.fuel_code, 3);
-        assert_eq!(terrain_12.wind_speed, 5.0);
-        assert_eq!(terrain_12.wind_azimuth, 180.0);
-        assert!(terrain_12.d1hr >= 0.0 && terrain_12.d1hr <= 1.0); // Should be ratio between 0-1
-        assert!(terrain_12.d10hr >= 0.0 && terrain_12.d10hr <= 1.0);
-        assert!(terrain_12.d100hr >= 0.0 && terrain_12.d100hr <= 1.0);
+        let terrain_noon = &terrain_array[12];
+        assert_eq!(terrain_noon.fuel_code, 3);
+        assert_eq!(terrain_noon.wind_speed, 5.0);
+        assert_eq!(terrain_noon.wind_azimuth, 180.0);
+        assert!(terrain_noon.d1hr >= 0.0 && terrain_noon.d1hr <= 1.0); // Should be ratio between 0-1
+        assert!(terrain_noon.d10hr >= 0.0 && terrain_noon.d10hr <= 1.0);
+        assert!(terrain_noon.d100hr >= 0.0 && terrain_noon.d100hr <= 1.0);
 
         // Test that all hours have the same fuel_code and terrain parameters
         for terrain in terrain_array.iter() {

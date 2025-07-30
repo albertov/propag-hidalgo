@@ -40,7 +40,7 @@ pub unsafe fn cuda_standard_burn(
             slope: slope[i],
             aspect: aspect[i],
         };
-        if let Some(fire) = Catalog::STANDARD.burn(&terrain.into()) {
+        if let Some(fire) = Catalog::STANDARD.ignite(&terrain.into()) {
             let fire = Into::<FireCuda>::into(fire);
             *rx_int.add(i) = fire.rx_int;
             *speed0.add(i) = fire.speed0;

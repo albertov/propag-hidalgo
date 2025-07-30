@@ -386,7 +386,7 @@ impl Catalog {
         }
     }
     #[inline]
-    pub fn burn(&self, terrain: &Terrain) -> Option<Fire> {
+    pub fn ignite(&self, terrain: &Terrain) -> Option<Fire> {
         self.get(terrain.fuel_code as _)
             .and_then(|f| f.burn(terrain))
     }
@@ -421,9 +421,9 @@ impl Fire {
             residence_time: to_quantity!(Time, 0.0),
         }
     };
-    fn flame_length(byrams: float::T) -> float::T {
-        if byrams > SMIDGEN {
-            0.45 * byrams.powf(0.46)
+    fn flame_length(byrams_intensity: float::T) -> float::T {
+        if byrams_intensity > SMIDGEN {
+            0.45 * byrams_intensity.powf(0.46)
         } else {
             0.0
         }

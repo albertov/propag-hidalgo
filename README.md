@@ -2,6 +2,36 @@
 
 [![.github/workflows/test.yml](https://github.com/albertov/propag25/actions/workflows/test.yml/badge.svg)](https://github.com/albertov/propag25/actions/workflows/test.yml)
 
+Propag25 is a GPU-accelerated wildfire propagation simulation system built in Rust with CUDA support. The project provides multiple interfaces:
+
+- **Rust crates**: Core fire modeling libraries (firelib, dmoist, propag)
+- **Python bindings**: High-level Python API via py-propag for data science workflows
+- **QGIS plugin**: GIS integration for geospatial fire modeling
+- **Standalone binary**: Command-line fire simulation tool
+
+## Python Usage
+
+For Python users, install the py-propag bindings:
+
+```bash
+cd crates/py-propag
+pip install maturin
+maturin develop --release
+```
+
+Quick example:
+```python
+import py_propag
+import numpy as np
+
+# Load terrain data and run simulation
+geo_ref = py_propag.load_terrain_data(...)
+settings = py_propag.PySettings(geo_ref, max_time=3600)
+results = py_propag.propagate(settings, "output.tif", ignitions)
+```
+
+See [crates/py-propag/README.md](crates/py-propag/README.md) for detailed Python documentation.
+
 # Development (Linux)
 
 ## Install nix

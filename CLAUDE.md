@@ -40,6 +40,18 @@ cd crates
 cargo test -p dmoist    # Test dmoist module
 cargo test -p firelib   # Test firelib module
 cargo test -p propag    # Test propag module
+cargo test -p py-propag # Test Python bindings
+```
+
+### Python Bindings Development
+```bash
+# Build and test Python bindings
+cd crates/py-propag
+maturin develop --release
+python -m pytest tests/
+
+# Run Python examples
+python examples/basic_usage.py
 ```
 
 ## Architecture Overview
@@ -68,10 +80,15 @@ cargo test -p propag    # Test propag module
 4. **geometry** (`crates/geometry/`) - Geometric utilities for spatial calculations
 
 5. **py-propag** (`crates/py-propag/`) - Python bindings for the propagation engine
+   - Provides NumPy-compatible interface for fire simulation
+   - Supports CUDA acceleration with error handling
+   - Used by QGIS plugin for fire modeling algorithms
+   - Comprehensive API for terrain data loading and propagation
 
 6. **QGIS Plugin** (`qgis-plugin/`) - Integration with QGIS GIS software
    - C++ processing provider for QGIS algorithms
-   - Python plugin interface
+   - Python plugin interface leveraging py-propag bindings
+   - Geospatial workflow integration for fire modeling
 
 ### Key Design Patterns
 
@@ -104,3 +121,29 @@ The project is designed to run on HPC clusters like Meluxina:
 - Uses Apptainer (Singularity) containers
 - MPI support for multi-GPU execution
 - See README.md for specific Meluxina deployment commands
+
+## Code Quality and Best Practices
+
+### Dependency and Import Guidelines
+
+- **CRITICAL: Avoid Conditional Imports**
+  - Never use conditional import patterns that try to handle module availability
+  - Bad Example:
+    ```python
+    # Try to import the module
+    try:
+        import py_propag
+    except ImportError:
+        # If the module isn't built yet, mock it for testing
+        sys.modules['py_propag'] = MagicMock()
+        import py_propag
+    ```
+  - Good Example:
+    ```python
+    import py_propag
+    ```
+  - Rationale: Dependencies are always available. If a dependency is missing, it indicates a build-setup bug that should be fixed, not worked around.
+  - **CRITICAL: When writing code, NEVER add conditional imports**
+    - Unconditional imports guarantee consistency and clear dependency management
+    - If an import fails, it means there's a build or configuration problem that needs immediate resolution
+    - Mocking or conditionally importing modules masks underlying setup issues

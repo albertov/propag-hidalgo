@@ -365,7 +365,7 @@ import py_propag
 import numpy as np
 geo_ref = py_propag.load_terrain_data(
     10, 10,
-    np.array(b'EPSG:4326\x00', dtype=np.uint8),
+    'EPSG:4326',  # String API - no more byte arrays needed
     np.array([0.0, 1.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float64)
 )
 print('Terrain data loaded successfully')

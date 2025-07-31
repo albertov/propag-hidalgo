@@ -237,6 +237,9 @@ impl PySettings {
 }
 
 /// Python wrapper for GeoReference struct
+///
+/// Represents spatial reference information for the simulation grid, including
+/// coordinate system, dimensions, and geospatial transformation parameters.
 #[pyclass]
 #[derive(Clone)]
 pub struct PyGeoReference {
@@ -245,11 +248,24 @@ pub struct PyGeoReference {
 
 #[pymethods]
 impl PyGeoReference {
+    /// Create a new PyGeoReference instance
+    ///
+    /// Args:
+    ///     width: Grid width in cells (must be positive, max 32768)
+    ///     height: Grid height in cells (must be positive, max 32768)
+    ///     proj: Projection string in PROJ format (e.g., 'EPSG:4326'). Maximum 1023 characters.
+    ///     transform: Geospatial transform as 6-element array [x_origin, pixel_width, x_rotation, y_origin, y_rotation, pixel_height]
+    ///
+    /// Returns:
+    ///     PyGeoReference: New spatial reference instance
+    ///
+    /// Raises:
+    ///     PropagValidationError: If parameters are invalid or out of range
     #[new]
     fn new(
         width: u32,
         height: u32,
-        proj: PyReadonlyArray1<u8>,
+        proj: String,
         transform: PyReadonlyArray1<f64>,
     ) -> PyResult<Self> {
         // Validate grid dimensions
@@ -265,18 +281,23 @@ impl PyGeoReference {
             ));
         }
 
-        let proj_slice = proj.as_slice().map_err(|e| {
-            PropagValidationError::new_err(format!("Failed to read projection array: {}", e))
-        })?;
+        // Validate projection string
+        if proj.is_empty() {
+            return Err(PropagValidationError::new_err(
+                "Projection string cannot be empty",
+            ));
+        }
+
+        let proj_bytes = proj.as_bytes();
+        if proj_bytes.len() >= 1024 {
+            return Err(PropagValidationError::new_err(
+                "Projection string too large (max 1023 characters)",
+            ));
+        }
+
         let transform_slice = transform.as_slice().map_err(|e| {
             PropagValidationError::new_err(format!("Failed to read transform array: {}", e))
         })?;
-
-        if proj_slice.len() > 1024 {
-            return Err(PropagValidationError::new_err(
-                "Projection string too large (max 1024 bytes)",
-            ));
-        }
         if transform_slice.len() != 6 {
             return Err(PropagValidationError::new_err(
                 "Geo transform must have exactly 6 elements [x_origin, pixel_width, x_rotation, y_origin, y_rotation, pixel_height]"
@@ -291,7 +312,9 @@ impl PyGeoReference {
         }
 
         let mut proj_array = [0u8; 1024];
-        proj_array[..proj_slice.len()].copy_from_slice(proj_slice);
+        // Copy the string bytes and add null terminator
+        proj_array[..proj_bytes.len()].copy_from_slice(proj_bytes);
+        proj_array[proj_bytes.len()] = 0; // Null terminator
 
         let geo_transform = geometry::GeoTransform::new([
             transform_slice[0] as f32,
@@ -327,9 +350,27 @@ impl PyGeoReference {
         self.inner.height
     }
 
+    /// Get the projection string
+    ///
+    /// Returns:
+    ///     str: Projection string in PROJ format. Maximum 1023 characters.
+    ///
+    /// Raises:
+    ///     ValueError: If projection string contains invalid UTF-8
     #[getter]
-    fn proj<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u8>> {
-        self.inner.proj.to_pyarray(py)
+    fn proj(&self) -> PyResult<String> {
+        // Find the null terminator in the byte array
+        let null_pos = self
+            .inner
+            .proj
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(self.inner.proj.len());
+
+        // Convert bytes to string up to the null terminator
+        String::from_utf8(self.inner.proj[..null_pos].to_vec()).map_err(|e| {
+            PyValueError::new_err(format!("Invalid UTF-8 in projection string: {}", e))
+        })
     }
 
     #[getter]
@@ -460,12 +501,31 @@ impl Settings {
     }
 }
 
-/// Load terrain data from NumPy arrays and create a Settings object
+/// Load terrain data from NumPy arrays and create a PyGeoReference object
+///
+/// Validates terrain data arrays and creates a spatial reference for fire simulation.
+/// All terrain arrays must match the specified grid dimensions.
+///
+/// Args:
+///     width: Grid width in cells (must be positive, max grid size 100M cells)
+///     height: Grid height in cells (must be positive, max grid size 100M cells)
+///     proj: Projection string in PROJ format (e.g., 'EPSG:4326'). Maximum 1023 characters.
+///     transform: Geospatial transform as 6-element float64 array
+///     elevation: Optional elevation data in meters (range: -1000 to 9000m)
+///     slope: Optional slope data in degrees (range: 0 to 90°)
+///     aspect: Optional aspect data in degrees (range: 0 to 360°)
+///     fuel_model: Optional NFFL fuel model IDs (range: 1 to 13, 0 for non-fuel)
+///
+/// Returns:
+///     PyGeoReference: Spatial reference object for the terrain
+///
+/// Raises:
+///     PropagValidationError: If data validation fails or dimensions mismatch
 #[pyfunction]
 fn load_terrain_data(
     width: u32,
     height: u32,
-    proj: PyReadonlyArray1<u8>,
+    proj: String,
     transform: PyReadonlyArray1<f64>,
     elevation: Option<PyReadonlyArray2<f32>>,
     slope: Option<PyReadonlyArray2<f32>>,
@@ -666,7 +726,7 @@ fn propagate(
 ///
 /// # Create simulation grid (100x100m, 1m resolution)
 /// width, height = 100, 100
-/// proj = np.array(b'EPSG:32633\\x00', dtype=np.uint8)  # UTM Zone 33N
+/// proj = 'EPSG:32633'  # UTM Zone 33N
 /// transform = np.array([500000.0, 1.0, 0.0, 4000000.0, 0.0, -1.0], dtype=np.float64)
 ///
 /// # Generate terrain data

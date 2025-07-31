@@ -86,7 +86,7 @@ import py_propag
 
 # 1. Define simulation grid (100x100 meters, 1m resolution)
 width, height = 100, 100
-proj = np.array(b'EPSG:32633\x00', dtype=np.uint8)  # UTM Zone 33N
+proj = 'EPSG:32633'  # UTM Zone 33N
 transform = np.array([
     500000.0,  # X origin (UTM easting)
     1.0,       # Pixel width (1 meter)
@@ -179,14 +179,14 @@ try:
     
     # Convert to required formats
     height, width = elevation.shape
-    proj_bytes = np.array(projection.encode('utf-8') + b'\x00', dtype=np.uint8)
+    proj_string = projection  # Now accepts strings directly
     transform_array = np.array(geo_transform, dtype=np.float64)
     
     # Load terrain
     geo_ref = py_propag.load_terrain_data(
         width=width,
         height=height,
-        proj=proj_bytes,
+        proj=proj_string,
         transform=transform_array,
         elevation=elevation,
         slope=slope,
@@ -213,14 +213,14 @@ Represents spatial reference information for the simulation grid.
 geo_ref = py_propag.PyGeoReference(
     width: int,           # Grid width in cells
     height: int,          # Grid height in cells  
-    proj: np.ndarray,     # Projection string as uint8 array
+    proj: str,            # Projection string (e.g., 'EPSG:32633')
     transform: np.ndarray # 6-element geo-transform array
 )
 
 # Properties
 geo_ref.width      # Grid width
 geo_ref.height     # Grid height
-geo_ref.proj       # Projection array
+geo_ref.proj       # Projection string
 geo_ref.transform  # Geo-transform array
 ```
 
@@ -283,7 +283,7 @@ Load and validate terrain data arrays.
 geo_ref = py_propag.load_terrain_data(
     width: int,                    # Grid width
     height: int,                   # Grid height
-    proj: np.ndarray,              # Projection (uint8)
+    proj: str,                     # Projection string (e.g., 'EPSG:32633', max 1023 chars)
     transform: np.ndarray,         # Geo-transform (float64)
     elevation: np.ndarray = None,  # Elevation (float32)
     slope: np.ndarray = None,      # Slope degrees (float32)
@@ -433,6 +433,34 @@ python -c "import sys; print(sys.path)"
 - Check terrain data ranges and types
 - Verify coordinate system specifications
 - Ensure fuel model IDs are valid (1-13)
+
+## Breaking Changes
+
+### Version 0.2.0 - String API for Projections
+
+**Summary**: The projection parameter now accepts string values directly instead of byte arrays.
+
+**Before** (deprecated):
+```python
+import numpy as np
+proj_string = "EPSG:32633"
+proj = np.frombuffer(proj_string.encode('utf-8') + b'\x00', dtype=np.uint8)
+geo_ref = py_propag.load_terrain_data(width, height, proj, transform, ...)
+```
+
+**After** (current):
+```python
+proj = "EPSG:32633"  # String directly
+geo_ref = py_propag.load_terrain_data(width, height, proj, transform, ...)
+```
+
+**Migration**: Replace byte array conversions with direct string usage. The library now accepts projection strings up to 1023 characters in length.
+
+**Benefits**: 
+- Simplified API that matches user expectations
+- Better integration with GDAL and other geospatial libraries
+- Reduced boilerplate code
+- Type safety with string validation
 
 ## Contributing
 

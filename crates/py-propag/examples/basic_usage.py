@@ -111,7 +111,7 @@ def setup_spatial_reference(width, height):
     
     # Use UTM Zone 33N (EPSG:32633) - common for Central Europe
     proj_string = "EPSG:32633"
-    proj = np.frombuffer(proj_string.encode('utf-8') + b'\x00', dtype=np.uint8)
+    proj = proj_string
     
     # Define geo-transform for 30m resolution grid
     # Starting at UTM coordinates (500000, 4000000)

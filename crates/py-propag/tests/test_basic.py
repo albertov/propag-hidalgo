@@ -48,7 +48,7 @@ class TestPyGeoReference:
     def test_geo_reference_creation(self):
         """Test creating a GeoReference object."""
         width, height = 100, 200
-        proj = np.frombuffer(b'EPSG:4326\x00', dtype=np.uint8)
+        proj = 'EPSG:4326'
         transform = np.array([0.0, 1.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float64)
         
         geo_ref = py_propag.PyGeoReference(width, height, proj, transform)
@@ -57,7 +57,7 @@ class TestPyGeoReference:
     
     def test_geo_reference_invalid_dimensions(self):
         """Test GeoReference with invalid dimensions."""
-        proj = np.frombuffer(b'EPSG:4326\x00', dtype=np.uint8)
+        proj = 'EPSG:4326'
         transform = np.array([0.0, 1.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float64)
         
         with pytest.raises(py_propag.PropagValidationError, match="Grid dimensions must be positive"):
@@ -66,7 +66,7 @@ class TestPyGeoReference:
     def test_geo_reference_invalid_transform(self):
         """Test GeoReference with invalid transform."""
         width, height = 100, 200
-        proj = np.frombuffer(b'EPSG:4326\x00', dtype=np.uint8)
+        proj = 'EPSG:4326'
         
         # Invalid transform - wrong number of elements
         transform_bad = np.array([0.0, 1.0, 0.0], dtype=np.float64)
@@ -81,7 +81,7 @@ class TestPySettings:
     def test_settings_creation(self):
         """Test creating a Settings object."""
         width, height = 100, 200
-        proj = np.frombuffer(b'EPSG:4326\x00', dtype=np.uint8)
+        proj = 'EPSG:4326'
         transform = np.array([0.0, 1.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float64)
         max_time = 3600.0  # 1 hour
         
@@ -92,7 +92,7 @@ class TestPySettings:
     def test_settings_invalid_max_time(self):
         """Test Settings with invalid max_time."""
         width, height = 100, 200
-        proj = np.frombuffer(b'EPSG:4326\x00', dtype=np.uint8)
+        proj = 'EPSG:4326'
         transform = np.array([0.0, 1.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float64)
         
         geo_ref = py_propag.PyGeoReference(width, height, proj, transform)
@@ -145,7 +145,7 @@ class TestLoadTerrainData:
     def test_load_terrain_data_basic(self):
         """Test loading terrain data with basic parameters."""
         width, height = 10, 10
-        proj = np.frombuffer(b'EPSG:4326\x00', dtype=np.uint8)
+        proj = 'EPSG:4326'
         transform = np.array([0.0, 1.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float64)
         
         # Optional terrain arrays
@@ -163,11 +163,78 @@ class TestLoadTerrainData:
     
     def test_load_terrain_data_invalid_dimensions(self):
         """Test load_terrain_data with invalid dimensions."""
-        proj = np.frombuffer(b'EPSG:4326\x00', dtype=np.uint8)
+        proj = 'EPSG:4326'
         transform = np.array([0.0, 1.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float64)
         
         with pytest.raises(py_propag.PropagValidationError, match="must be positive"):
             py_propag.load_terrain_data(0, 10, proj, transform, None, None, None, None)
+
+
+class TestProjectionEdgeCases:
+    """Test projection string API edge cases as identified in code review."""
+    
+    def test_projection_edge_cases(self):
+        """Test projection string validation edge cases."""
+        width, height = 100, 200
+        transform = np.array([0.0, 1.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float64)
+        
+        # Test 1: Empty string validation (should raise PropagValidationError)
+        with pytest.raises(py_propag.PropagValidationError, match="Projection string cannot be empty"):
+            py_propag.PyGeoReference(width, height, "", transform)
+        
+        # Test 2: Maximum allowed length (1023 characters) - should work
+        max_allowed_proj = "EPSG:4326+" + "a" * (1023 - 10)  # 10 chars for "EPSG:4326+"
+        assert len(max_allowed_proj) == 1023
+        geo_ref_max = py_propag.PyGeoReference(width, height, max_allowed_proj, transform)
+        assert geo_ref_max.width == width
+        assert geo_ref_max.height == height
+        
+        # Test 3: String that's too long (1024 characters) - should raise error
+        too_long_proj = "EPSG:4326+" + "a" * (1024 - 10)  # 10 chars for "EPSG:4326+"
+        assert len(too_long_proj) == 1024
+        with pytest.raises(py_propag.PropagValidationError, match="Projection string too large \\(max 1023 characters\\)"):
+            py_propag.PyGeoReference(width, height, too_long_proj, transform)
+        
+        # Test 4: UTF-8 edge cases - strings with special characters
+        # Test with Unicode characters (should work as they're valid UTF-8)
+        unicode_proj = "EPSG:4326 with émojis 🌍 and spëcial chars: αβγ"
+        geo_ref_unicode = py_propag.PyGeoReference(width, height, unicode_proj, transform)
+        assert geo_ref_unicode.width == width
+        assert geo_ref_unicode.height == height
+        
+        # Test with multi-byte UTF-8 characters at boundary
+        # Create a string that's exactly 1023 bytes with multi-byte chars at the end
+        base_proj = "EPSG:4326+"
+        remaining_bytes = 1023 - len(base_proj.encode('utf-8'))
+        # Use 2-byte UTF-8 character (é) to test boundary conditions
+        num_multibyte_chars = remaining_bytes // 2
+        multibyte_proj = base_proj + "é" * num_multibyte_chars
+        
+        # Adjust to exactly 1023 bytes if needed
+        while len(multibyte_proj.encode('utf-8')) > 1023:
+            multibyte_proj = multibyte_proj[:-1]
+        while len(multibyte_proj.encode('utf-8')) < 1023:
+            multibyte_proj += "a"
+        
+        assert len(multibyte_proj.encode('utf-8')) == 1023
+        geo_ref_multibyte = py_propag.PyGeoReference(width, height, multibyte_proj, transform)
+        assert geo_ref_multibyte.width == width
+        assert geo_ref_multibyte.height == height
+        
+        # Test string that becomes too long in UTF-8 encoding
+        # Use 3-byte UTF-8 characters (like €) to create a string that exceeds byte limit
+        base_proj_utf8 = "EPSG:4326+"
+        remaining_bytes_utf8 = 1024 - len(base_proj_utf8.encode('utf-8'))
+        # Use 3-byte UTF-8 character (€) - this will make the string exceed 1023 bytes
+        utf8_long_proj = base_proj_utf8 + "€" * (remaining_bytes_utf8 // 3 + 1)
+        
+        # Ensure it's over the byte limit
+        while len(utf8_long_proj.encode('utf-8')) <= 1023:
+            utf8_long_proj += "€"
+        
+        assert len(utf8_long_proj.encode('utf-8')) >= 1024
+        with pytest.raises(py_propag.PropagValidationError, match="Projection string too large \\(max 1023 characters\\)"):
+            py_propag.PyGeoReference(width, height, utf8_long_proj, transform)
 
 
 if __name__ == '__main__':
